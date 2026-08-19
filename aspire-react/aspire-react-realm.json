@@ -1,0 +1,56 @@
+{
+  "realm": "aspire-react",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "roles": {
+    "realm": [
+      { "name": "admin", "description": "Mirats superuser — maps to IsSuperUser=true via JitUserProvisioningService/RealmAccessHelper." },
+      { "name": "superuser", "description": "Alias for admin — also maps to IsSuperUser=true." }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "frontend",
+      "enabled": true,
+      "publicClient": true,
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "https://localhost:5173/*",
+        "http://localhost/*",
+        "https://localhost/*",
+        "http://localhost:8080/*",
+        "https://app.example.com/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "https://localhost:5173",
+        "http://localhost",
+        "https://localhost",
+        "http://localhost:8080",
+        "https://app.example.com"
+      ],
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false
+    },
+    {
+      "clientId": "backend-service",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${KEYCLOAK_BACKEND_CLIENT_SECRET}",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "clientAuthenticatorType": "client-secret"
+    }
+  ]
+}

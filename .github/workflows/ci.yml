@@ -1,0 +1,83 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  NODE_VERSION: '22.x'
+
+jobs:
+  backend-build-test:
+    name: Backend — Build & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aspire-react
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore aspire-react.sln
+
+      - name: Build
+        run: dotnet build aspire-react.sln --configuration Release --no-restore
+
+      - name: Run unit tests
+        run: dotnet test aspire-react.sln --configuration Release --no-build --verbosity normal
+
+      - name: Format check
+        run: dotnet format aspire-react.sln --verify-no-changes --no-restore || true
+
+  frontend-build-lint:
+    name: Frontend — Build & Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aspire-react/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: aspire-react/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --if-present || true
+
+      - name: Build
+        run: npm run build
+
+  docker-build:
+    name: Docker — Build Images
+    needs: [backend-build-test, frontend-build-lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Server Docker image
+        working-directory: aspire-react
+        run: docker build -t aspirereact-server:${{ github.sha }} -f aspire-react.Server/Dockerfile .
+
+      - name: Save Docker image
+        run: docker save aspirereact-server:${{ github.sha }} -o /tmp/server-image.tar
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-docker-image
+          path: /tmp/server-image.tar

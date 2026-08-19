@@ -1,0 +1,103 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,600;0,700;0,800;1,400&display=swap');
+
+:root {
+  font-family: 'Plus Jakarta Sans', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Reset and base styles */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  /* clip (not hidden): hidden computes overflow-y to auto on body, creating an
+     intermediate scroll container that breaks position:sticky on the Sider.
+     clip clips overflow without creating a scroll container, so the Sider can
+     stick to the viewport scroll (document). */
+  overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+  overflow-x: clip;
+}
+
+/* Remove default Vite styles that conflict with our design */
+h1 {
+  margin: 0;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Sidebar active-state accent bar (uses design token accent #0369A1) */
+.ant-menu-dark .ant-menu-item-selected,
+.ant-menu-dark .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  position: relative;
+}
+.ant-menu-dark .ant-menu-item-selected::before,
+.ant-menu-dark .ant-menu-submenu-selected > .ant-menu-submenu-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #0369a1;
+}
+
+/* Sidebar: Badge label inside submenu-title (e.g. "Vật tư" with low-stock count).
+   antd .ant-badge sets color: var(--ant-color-text) (#020617 — dark) on its root,
+   which drowns the label on the dark Sider. Force the Badge to inherit the light
+   submenu-title color. Uses stable antd classes only — NEVER css-dev-only-* hashes
+   (they only exist in dev and change on every build). */
+.ant-menu-dark .ant-menu-submenu-title .ant-badge {
+  color: inherit;
+}
+
+/* Collapsed sidebar: hide group titles (labels already hidden by antd) */
+.ant-layout-sider-collapsed .ant-menu-item-group-title {
+  display: none;
+}
+
+/* Sidebar: header (logo/collapse) fixed, menu area scrolls independently.
+   antd wraps Sider children in .ant-layout-sider-children — make it a flex column
+   so the menu wrapper below the logo can flex-fill and scroll (single scrollbar). */
+.ant-layout-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+

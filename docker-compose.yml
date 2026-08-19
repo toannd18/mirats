@@ -1,0 +1,162 @@
+# Mirats / AspireReact — Docker Compose (production)
+# Usage:
+#   cp .env.example .env      # điền TẤT CẢ biến BẮT BUỘC (không default)
+#   docker compose up -d --build
+#   # pgAdmin (debug only):
+#   docker compose --profile debug up -d pgadmin
+#
+# Design decisions (DOCKER-1):
+# - Aspire AppHost là dev orchestrator — compose này là prod path riêng, không dùng AppHost.
+# - Server context = ./aspire-react (khớp AGENTS.md: sln under aspire-react/).
+# - Frontend multi-stage Node 20 → Nginx, proxy /api → server:5000 (same-origin, không CORS prod).
+# - Redis bật password (REDIS_PASSWORD:?required).
+# - pgAdmin chỉ bật với --profile debug.
+# - Volumes đặt tên rõ ràng để `docker compose down -v` / scripts/docker-reset.* dọn sạch.
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aspire-react-db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — set it in .env}
+    # Prod: KHÔNG expose 5432 ra host (bảo mật VPS công khai). DB chỉ truy cập
+    # trong compose network (server, keycloak qua Host=postgres). Khi cần debug
+    # từ host (psql, pgAdmin), dùng `docker-compose.override.yml` (đã có sẵn) hoặc
+    # `docker exec -it <postgres-container> psql ...`.
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-aspire-react-db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    env_file: [.env]
+    # REDIS_PASSWORD is BẮT BUỘC prod (DOCKER-1 #3) — compose fails if empty.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required — set it in .env}"]
+    # Prod: KHÔNG expose 6379 ra host (như postgres). Debug qua override hoặc docker exec.
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:?KC_BOOTSTRAP_ADMIN_USERNAME is required — set it in .env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?KC_BOOTSTRAP_ADMIN_PASSWORD is required — set it in .env}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-aspire-react-db}
+      KC_DB_USERNAME: ${POSTGRES_USER:-postgres}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      KC_HEALTH_ENABLED: "true"
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+      - "9000:9000"  # management /health/ready
+    volumes:
+      - ./aspire-react/aspire-react-realm.json:/opt/keycloak/data/import/aspire-react-realm.json:ro
+      - keycloak-data:/opt/keycloak/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000' || bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  server:
+    build:
+      context: ./aspire-react
+      dockerfile: aspire-react.Server/Dockerfile
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      ASPNETCORE_URLS: ${ASPNETCORE_URLS:-http://+:5000}
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      # Derived — DOCKER-2 § "Suy ra" (không bỏ sót):
+      ConnectionStrings__aspire-react-db: Host=postgres;Database=${POSTGRES_DB:-aspire-react-db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      ConnectionStrings__cache: redis:6379,password=${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      Keycloak__Authority: ${KEYCLOAK_INTERNAL_URL:?KEYCLOAK_INTERNAL_URL is required — e.g. http://keycloak:8080}/realms/${KEYCLOAK_REALM:-aspire-react}
+      Keycloak__Realm: ${KEYCLOAK_REALM:-aspire-react}
+      Keycloak__ClientId: ${KEYCLOAK_BACKEND_CLIENT_ID:-backend-service}
+      Keycloak__ClientSecret: ${KEYCLOAK_BACKEND_CLIENT_SECRET:?KEYCLOAK_BACKEND_CLIENT_SECRET is required — set it in .env}
+      Keycloak__SuperUserGroupName: ${KEYCLOAK_SUPERUSER_GROUP_NAME:-superuser}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required — e.g. https://app.example.com}
+      # Enforce seed admin required at compose validation time (consumed by DOCKER-5 seed script;
+      # server itself does not read them but validation ensures .env is complete).
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:?INITIAL_ADMIN_USERNAME is required — set it in .env}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:?INITIAL_ADMIN_EMAIL is required}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:?INITIAL_ADMIN_PASSWORD is required — no default, no Admin123! fallback}
+    ports:
+      - "${BACKEND_PORT:-5000}:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/5000'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./aspire-react/frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+        VITE_KEYCLOAK_URL: ${KEYCLOAK_PUBLIC_URL:?VITE_KEYCLOAK_URL is required via KEYCLOAK_PUBLIC_URL}
+        VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-aspire-react}
+        VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_FRONTEND_CLIENT_ID:-frontend}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      server:
+        condition: service_healthy
+
+  # pgAdmin — debug only, không bật mặc định (DOCKER-1 #5).
+  #   docker compose --profile debug up -d          # bật kèm pgAdmin
+  #   docker compose --profile debug up -d pgadmin  # chỉ pgAdmin
+  pgadmin:
+    image: dpage/pgadmin4:9.15.0
+    profiles: ["debug"]
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-pgadmin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-pgadmin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+    name: mirats-postgres-data
+  redis-data:
+    name: mirats-redis-data
+  keycloak-data:
+    name: mirats-keycloak-data

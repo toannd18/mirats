@@ -1,0 +1,230 @@
+using System.Text.Json;
+using System.Security.Claims;
+using System.Text.RegularExpressions;
+using aspire_react.Server.Domain.Entities;
+using aspire_react.Server.Domain.Enums;
+using aspire_react.Server.Domain.Interfaces;
+using aspire_react.Server.Infrastructure.Persistence;
+using aspire_react.Server.Infrastructure.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace aspire_react.Server.Web.Controllers;
+
+[ApiController, Route("api/v1/system-infos"), Authorize]
+public class SystemInfoController : ControllerBase
+{
+    private readonly AppDbContext _context;
+    private readonly ICompanyScopeService _companyScope;
+    private readonly IActionLogService _actionLogService;
+
+    public SystemInfoController(AppDbContext context, ICompanyScopeService companyScope, IActionLogService actionLogService)
+    {
+        _context = context;
+        _companyScope = companyScope;
+        _actionLogService = actionLogService;
+    }
+
+    private Guid GetCurrentUserId()
+    {
+        if (Guid.TryParse(User.FindFirstValue("local_user_id"), out var local)) return local;
+        var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+        return Guid.TryParse(sub, out var id) ? id : Guid.Empty;
+    }
+
+    private static readonly Regex CodeRegex = new(@"^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$", RegexOptions.Compiled);
+
+    [HttpGet, Authorize(Policy = "systems.view")]
+    public async Task<IActionResult> GetAll()
+    {
+        // FMCS multi-tenant: only expose systems inside the current user's company scope.
+        // Superuser (GetCurrentUserCompanyIdAsync returns null) sees everything; a regular user
+        // only sees company-less or their own company's systems.
+        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        var query = _context.SystemInfos.AsNoTracking();
+        if (userCompanyId.HasValue)
+            query = query.Where(s => s.CompanyId == null || s.CompanyId == userCompanyId.Value);
+
+        var list = await query
+            .Include(s => s.Positions.OrderBy(p => p.Code))
+            .Include(s => s.Company)
+            .AsNoTracking()
+            .OrderBy(s => s.Code)
+            .Select(s => new {
+                s.Id, s.Code, s.Name, s.Description, s.CompanyId,
+                Company = s.Company == null ? null : new { s.Company.Id, s.Company.Name },
+                Positions = s.Positions.OrderBy(p => p.Code).Select(p => new {
+                    p.Id, p.Code, p.Name, p.Description,
+                    SystemInfoId = p.SystemInfoId,
+                    SystemInfoName = s.Name
+                })
+            })
+            .ToListAsync();
+        return Ok(new { status = "success", data = list });
+    }
+
+    [HttpGet("{id:guid}"), Authorize(Policy = "systems.view")]
+    public async Task<IActionResult> Get(Guid id)
+    {
+        // Same company scope as GetAll: a regular user may only fetch systems inside their own
+        // company scope (or company-less systems); 404 to avoid leaking existence of other systems.
+        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        var visible = await _context.SystemInfos.AsNoTracking().AnyAsync(x =>
+            x.Id == id && (userCompanyId == null || x.CompanyId == null || x.CompanyId == userCompanyId.Value));
+        if (!visible) return NotFound(new { status = "error", message = "Not found." });
+
+        var s = await _context.SystemInfos
+            .Include(x => x.Positions)
+            .Include(x => x.Company)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id);
+        if (s == null) return NotFound(new { status = "error", message = "Not found." });
+
+        // Projection (NOT the raw entity): the entity graph is cyclic (SystemInfo → Positions →
+        // SystemInfo) and would fail JSON serialization with a possible-object-cycle error.
+        var data = new
+        {
+            s.Id, s.Code, s.Name, s.Description, s.CompanyId,
+            Company = s.Company == null ? null : new { s.Company.Id, s.Company.Name },
+            Positions = s.Positions.OrderBy(p => p.Code).Select(p => new
+            {
+                p.Id, p.Code, p.Name, p.Description,
+                SystemInfoId = p.SystemInfoId,
+                SystemInfoName = s.Name
+            })
+        };
+        return Ok(new { status = "success", data });
+    }
+
+    [HttpPost, Authorize(Policy = "systems.create")]
+    public async Task<IActionResult> Create([FromBody] SystemInfoDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
+            return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX-YYY-ZZZ (viết hoa)." });
+        if (await _context.SystemInfos.AnyAsync(x => x.Code == dto.Code))
+            return BadRequest(new { status = "error", message = "Mã hệ thống đã tồn tại." });
+
+        var sys = new SystemInfo { Code = dto.Code.ToUpper(), Name = dto.Name, Description = dto.Description, CompanyId = dto.CompanyId };
+        _context.SystemInfos.Add(sys);
+        await _context.SaveChangesAsync();
+        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemInfo, ItemId = sys.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = sys.CompanyId, Note = $"Tạo hệ thống \"{sys.Name}\"" });
+        await _context.SaveChangesAsync();
+        return Ok(new { status = "success", data = new { sys.Id, sys.Code, sys.Name } });
+    }
+
+    [HttpPut("{id:guid}"), Authorize(Policy = "systems.edit")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] SystemInfoDto dto)
+    {
+        var s = await _context.SystemInfos.FindAsync(id);
+        if (s == null) return NotFound(new { status = "error", message = "Not found." });
+
+        // Company scoping: a regular user may only edit systems of their own company (or floater).
+        var userCompanyIdUpdate = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (userCompanyIdUpdate.HasValue && s.CompanyId.HasValue && s.CompanyId.Value != userCompanyIdUpdate.Value)
+            return NotFound(new { status = "error", message = "Not found." });
+
+        if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
+            return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX-YYY-ZZZ (viết hoa)." });
+        if (await _context.SystemInfos.AnyAsync(x => x.Code == dto.Code && x.Id != id))
+            return BadRequest(new { status = "error", message = "Mã hệ thống đã tồn tại." });
+
+        var before = new { s.Code, s.Name, s.Description, s.CompanyId };
+        s.Code = dto.Code.ToUpper(); s.Name = dto.Name; s.Description = dto.Description; s.CompanyId = dto.CompanyId;
+        await _context.SaveChangesAsync();
+        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemInfo, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = s.CompanyId,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = s.Code }, name = new { old = before.Name, @new = s.Name }, description = new { old = before.Description, @new = s.Description }, companyId = new { old = before.CompanyId, @new = s.CompanyId } } }), Note = $"Cập nhật hệ thống \"{s.Name}\"" });
+        await _context.SaveChangesAsync();
+        return Ok(new { status = "success", message = "Updated." });
+    }
+
+    [HttpDelete("{id:guid}"), Authorize(Policy = "systems.delete")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        var s = await _context.SystemInfos.FindAsync(id);
+        if (s == null) return NotFound(new { status = "error", message = "Not found." });
+
+        // Company scoping: a regular user may only delete systems of their own company (or floater).
+        var userCompanyIdDelete = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (userCompanyIdDelete.HasValue && s.CompanyId.HasValue && s.CompanyId.Value != userCompanyIdDelete.Value)
+            return NotFound(new { status = "error", message = "Not found." });
+
+        var sysName = s.Name;
+        _context.SystemInfos.Remove(s);
+        await _context.SaveChangesAsync();
+        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemInfo, ItemId = id, ActionType = ActionType.Delete, CreatedBy = GetCurrentUserId(), CompanyId = s.CompanyId, Note = $"Xóa hệ thống \"{sysName}\"" });
+        await _context.SaveChangesAsync();
+        return Ok(new { status = "success", message = "Deleted." });
+    }
+
+    // === Positions ===
+
+    [HttpPost("{systemInfoId:guid}/positions"), Authorize(Policy = "systems.create")]
+    public async Task<IActionResult> AddPosition(Guid systemInfoId, [FromBody] SystemPositionDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
+            return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX-YYY-ZZZ (viết hoa)." });
+        if (await _context.SystemPositions.AnyAsync(x => x.Code == dto.Code))
+            return BadRequest(new { status = "error", message = "Mã vị trí đã tồn tại." });
+        var sys = await _context.SystemInfos.FindAsync(systemInfoId);
+        if (sys == null) return NotFound(new { status = "error", message = "System not found." });
+
+        var pos = new SystemPosition { SystemInfoId = systemInfoId, Code = dto.Code.ToUpper(), Name = dto.Name, Description = dto.Description };
+        _context.SystemPositions.Add(pos);
+        await _context.SaveChangesAsync();
+        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemPosition, ItemId = pos.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = sys.CompanyId, Note = $"Tạo vị trí \"{pos.Name}\" trong hệ thống \"{sys.Name}\"" });
+        await _context.SaveChangesAsync();
+        return Ok(new { status = "success", data = new { pos.Id, pos.Code, pos.Name } });
+    }
+
+    [HttpPut("{systemInfoId:guid}/positions/{posId:guid}"), Authorize(Policy = "systems.edit")]
+    public async Task<IActionResult> UpdatePosition(Guid systemInfoId, Guid posId, [FromBody] SystemPositionDto dto)
+    {
+        var pos = await _context.SystemPositions.Include(p => p.SystemInfo)
+            .FirstOrDefaultAsync(p => p.Id == posId && p.SystemInfoId == systemInfoId);
+        if (pos == null) return NotFound(new { status = "error", message = "Position not found." });
+
+        // Company scoping: a regular user may only edit positions of a system in their own company.
+        var userCompanyIdUpdatePos = await _companyScope.GetCurrentUserCompanyIdAsync();
+        var posCompanyId = pos.SystemInfo?.CompanyId;
+        if (userCompanyIdUpdatePos.HasValue && posCompanyId.HasValue && posCompanyId.Value != userCompanyIdUpdatePos.Value)
+            return NotFound(new { status = "error", message = "Position not found." });
+
+        if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
+            return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX-YYY-ZZZ (viết hoa)." });
+        if (await _context.SystemPositions.AnyAsync(x => x.Code == dto.Code && x.Id != posId))
+            return BadRequest(new { status = "error", message = "Mã vị trí đã tồn tại." });
+
+        var before = new { pos.Code, pos.Name, pos.Description };
+        pos.Code = dto.Code.ToUpper(); pos.Name = dto.Name; pos.Description = dto.Description;
+        await _context.SaveChangesAsync();
+        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemPosition, ItemId = posId, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = pos.SystemInfo?.CompanyId,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = pos.Code }, name = new { old = before.Name, @new = pos.Name }, description = new { old = before.Description, @new = pos.Description } } }), Note = $"Cập nhật vị trí \"{pos.Name}\"" });
+        await _context.SaveChangesAsync();
+        return Ok(new { status = "success", message = "Position updated." });
+    }
+
+    [HttpDelete("{systemInfoId:guid}/positions/{posId:guid}"), Authorize(Policy = "systems.delete")]
+    public async Task<IActionResult> DeletePosition(Guid systemInfoId, Guid posId)
+    {
+        var pos = await _context.SystemPositions.Include(p => p.SystemInfo)
+            .FirstOrDefaultAsync(p => p.Id == posId && p.SystemInfoId == systemInfoId);
+        if (pos == null) return NotFound(new { status = "error", message = "Position not found." });
+
+        // Company scoping: a regular user may only delete positions of a system in their own company.
+        var userCompanyIdDeletePos = await _companyScope.GetCurrentUserCompanyIdAsync();
+        var posCompanyIdDelete = pos.SystemInfo?.CompanyId;
+        if (userCompanyIdDeletePos.HasValue && posCompanyIdDelete.HasValue && posCompanyIdDelete.Value != userCompanyIdDeletePos.Value)
+            return NotFound(new { status = "error", message = "Position not found." });
+
+        var posName = pos.Name;
+        _context.SystemPositions.Remove(pos);
+        await _context.SaveChangesAsync();
+        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemPosition, ItemId = posId, ActionType = ActionType.Delete, CreatedBy = GetCurrentUserId(), CompanyId = pos.SystemInfo?.CompanyId, Note = $"Xóa vị trí \"{posName}\"" });
+        await _context.SaveChangesAsync();
+        return Ok(new { status = "success", message = "Position deleted." });
+    }
+}
+
+public record SystemInfoDto(string Code, string Name, string? Description, Guid? CompanyId = null);
+public record SystemPositionDto(string Code, string Name, string? Description);
