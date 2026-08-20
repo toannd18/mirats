@@ -102,6 +102,35 @@ public class ImportExportController : ControllerBase
         return Ok(new { status = "success", created = result.Created, failed = result.Failed, rows = result.Rows, errors = result.Errors });
     }
 
+    /// <summary>Import SystemInfo from sheet 1_HeThong (company is the chosen import target).</summary>
+    [HttpPost("import/systems")]
+    [Authorize(Policy = "systems.create")]
+    public async Task<IActionResult> ImportSystems(IFormFile? file, [FromForm] Guid companyId)
+    {
+        var badCompany = await ResolveImportCompanyIdAsync(companyId);
+        if (badCompany != null) return badCompany;
+        if (!ValidateFile(file, out var bad)) return bad;
+        var result = await _excelImport.ImportSystemsAsync(file!.OpenReadStream(), GetCurrentUserId(), companyId);
+        return Ok(new { status = "success", created = result.Created, failed = result.Failed, rows = result.Rows, errors = result.Errors });
+    }
+
+    /// <summary>
+    /// Import SystemPosition from sheet 2_ViTri. The parent SystemInfo is resolved BY NAME and the
+    /// position inherits the parent's CompanyId — so NO separate companyId is chosen by the client
+    /// (B0.4 confirmed inheritance). The server still derives the acting user's company scope and
+    /// validates every referenced parent against it: a regular user may only attach positions to
+    /// systems of their own company (or company-less systems); Superuser may attach to any.
+    /// </summary>
+    [HttpPost("import/system-positions")]
+    [Authorize(Policy = "systems.create")]
+    public async Task<IActionResult> ImportSystemPositions(IFormFile? file)
+    {
+        if (!ValidateFile(file, out var bad)) return bad;
+        var actingUserCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        var result = await _excelImport.ImportSystemPositionsAsync(file!.OpenReadStream(), GetCurrentUserId(), actingUserCompanyId);
+        return Ok(new { status = "success", created = result.Created, failed = result.Failed, rows = result.Rows, errors = result.Errors });
+    }
+
     // ================================================================
     // EXPORT — .xlsx (was CSV; switched for consistent Vietnamese-safe output)
     // ================================================================
@@ -177,6 +206,21 @@ public class ImportExportController : ControllerBase
         AddSheet(wb, "6_PhuKien", ["Ten phu kien", "Danh muc", "So luong", "Nguong canh bao", "Ma / Model", "Nha san xuat", "Dia diem", "Ghi chu"]);
         AddSheet(wb, "7_VatTuTieuHao", ["Ten vat tu", "Danh muc", "So luong", "Nguong canh bao", "Ma / Model", "Nha san xuat", "Dia diem", "Ghi chu"]);
         return File(ToBytes(wb), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "import-template.xlsx");
+    }
+
+    /// <summary>Systems/Positions template (.xlsx) — mirrors the BDKT-CNTT workbook structure.</summary>
+    [HttpGet("import/templates/systems")]
+    [Authorize] // empty skeleton — no data, any authenticated user may download
+    public IActionResult DownloadSystemsTemplate()
+    {
+        using var wb = new XLWorkbook();
+        AddSheet(wb, "1_HeThong", ["Ten he thong", "Vi tri khai thac (tham khao)"]);
+        AddSheet(wb, "2_ViTri", [
+            "He thong cha (ten)", "Ten vi tri / thiet bi", "Hang san xuat", "P/N", "S/N",
+            "Vi tri khai thac", "Nam SX", "Thanh phan / Vai tro", "Nam dua vao KT",
+            "So nam su dung", "Tinh trang khai thac", "Ghi chu"
+        ]);
+        return File(ToBytes(wb), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "systems-import-template.xlsx");
     }
 
     // ================================================================

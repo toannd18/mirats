@@ -36,6 +36,12 @@ logs/
 docs/sql/backups/
 
 # =============================================================================
+# Real operational data — NEVER commit (contains real device serials + aviation
+# infrastructure structure of a real organization; repo is PUBLIC)
+# =============================================================================
+docs/Mirats_HeThong_ViTri_BDKT-CNTT.xlsx
+
+# =============================================================================
 # QA evidence screenshots — not project source (repo is PUBLIC)
 # =============================================================================
 docs/t*-*.png

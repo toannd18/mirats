@@ -200,6 +200,10 @@ public class ImportCompanyScopeTests
             { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
         public Task<ImportSheetResult> ImportConsumablesAsync(Stream s, Guid u, Guid c, CancellationToken ct = default)
             { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
+        public Task<ImportSheetResult> ImportSystemsAsync(Stream s, Guid u, Guid c, CancellationToken ct = default)
+            { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
+        public Task<ImportSheetResult> ImportSystemPositionsAsync(Stream s, Guid u, Guid? c, CancellationToken ct = default)
+            { return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
     }
 
     private static ImportExportController BuildController(

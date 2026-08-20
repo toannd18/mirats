@@ -43,6 +43,8 @@ public interface IExcelImportService
     Task<ImportSheetResult> ImportComponentsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
     Task<ImportSheetResult> ImportAccessoriesAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
     Task<ImportSheetResult> ImportConsumablesAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
+    Task<ImportSheetResult> ImportSystemsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
+    Task<ImportSheetResult> ImportSystemPositionsAsync(Stream xlsxStream, Guid actingUserId, Guid? actingUserCompanyId, CancellationToken ct = default);
 }
 
 public class ExcelImportService : IExcelImportService
@@ -54,6 +56,8 @@ public class ExcelImportService : IExcelImportService
     private const string SheetComponents = "5_LinhKien";
     private const string SheetAccessories = "6_PhuKien";
     private const string SheetConsumables = "7_VatTuTieuHao";
+    private const string SheetSystems = "1_HeThong";
+    private const string SheetSystemPositions = "2_ViTri";
 
     private readonly AppDbContext _context;
     private readonly IActionLogService _actionLogService;
@@ -106,6 +110,18 @@ public class ExcelImportService : IExcelImportService
     {
         using var wb = new XLWorkbook(xlsxStream);
         return Summarize(await ImportConsumablesSheetAsync(wb, actingUserId, companyId, ct));
+    }
+
+    public async Task<ImportSheetResult> ImportSystemsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default)
+    {
+        using var wb = new XLWorkbook(xlsxStream);
+        return Summarize(await ImportSystemsSheetAsync(wb, actingUserId, companyId, ct));
+    }
+
+    public async Task<ImportSheetResult> ImportSystemPositionsAsync(Stream xlsxStream, Guid actingUserId, Guid? actingUserCompanyId, CancellationToken ct = default)
+    {
+        using var wb = new XLWorkbook(xlsxStream);
+        return Summarize(await ImportSystemPositionsSheetAsync(wb, actingUserId, actingUserCompanyId, ct));
     }
 
     // ─────────────────────────── T1: reference sheets ───────────────────────────
@@ -697,6 +713,157 @@ public class ExcelImportService : IExcelImportService
         return results;
     }
 
+    // ─────────────────────────── SystemInfo (Hệ thống) ───────────────────────────
+
+    /// <summary>Import SystemInfo from sheet 1_HeThong (Ten he thong + Vi tri khai thac tham khao).</summary>
+    private async Task<List<ImportRowResult>> ImportSystemsSheetAsync(XLWorkbook wb, Guid actingUserId, Guid companyId, CancellationToken ct)
+    {
+        if (!TryGetSheet(wb, SheetSystems, out var ws, out var err)) return [err];
+        int? hr = FindHeaderRow(ws, "Ten he thong");
+        if (hr == null) return [new ImportRowResult(0, false, $"Sheet '{SheetSystems}' thiếu cột 'Ten he thong'.")];
+        int colName = FindColumn(ws, hr.Value, "Ten he thong");
+        int colDesc = FindColumn(ws, hr.Value, "Vi tri khai thac");
+
+        var results = new List<ImportRowResult>();
+        var year = DateTime.Now.Year;
+        var batchCodes = new HashSet<string>(StringComparer.Ordinal);
+
+        for (int r = hr.Value + 1; r <= ws.LastRowUsed()?.RowNumber(); r++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var name = Cell(ws, r, colName)?.Trim();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            // Duplicate by name in DB (per-company uniqueness is NOT enforced — a system name
+            // may exist under another company; skip only when the same (name + company) exists).
+            if (await _context.SystemInfos.AnyAsync(s => s.Name == name && s.CompanyId == companyId, ct))
+            {
+                results.Add(new ImportRowResult(r, true, $"Hệ thống '{name}' đã tồn tại — bỏ qua."));
+                continue;
+            }
+
+            var code = await GenerateSystemCodeAsync("SYS", year, batchCodes, ct);
+            var description = Cell(ws, r, colDesc)?.Trim();
+            var sys = new SystemInfo { Code = code, Name = name, Description = description, CompanyId = companyId };
+            _context.SystemInfos.Add(sys);
+            _actionLogService.Log(new ActionLogEntry
+            {
+                ItemType = ItemType.SystemInfo, ItemId = sys.Id, ActionType = ActionType.Import,
+                CreatedBy = actingUserId, CompanyId = companyId,
+                Note = $"Import hệ thống \"{name}\" (mã: {code})"
+            });
+            results.Add(new ImportRowResult(r, true, $"Đã import hệ thống '{name}' (mã {code})."));
+        }
+
+        await _context.SaveChangesAsync(ct);
+        return results;
+    }
+
+    // ─────────────────────────── SystemPosition (Vị trí trong hệ thống) ───────────────────────────
+
+    /// <summary>
+    /// Import SystemPosition from sheet 2_ViTri. Column "He thong cha (ten)" resolves the parent
+    /// SystemInfo BY NAME (never auto-created — a missing parent errors that row only). Position
+    /// inherits CompanyId from its parent SystemInfo. No separate companyId is chosen for positions
+    /// (B0.4 confirmed inheritance); instead the acting user's scope (<paramref name="actingUserCompanyId"/>,
+    /// null for Superuser) is validated against each referenced parent — a regular user may only attach
+    /// positions to systems of their own company (or company-less systems). Extra reference columns
+    /// (Hang SX, P/N, S/N, Nam SX, Tinh trang, Ghi chu...) are merged into Description.
+    /// </summary>
+    private async Task<List<ImportRowResult>> ImportSystemPositionsSheetAsync(XLWorkbook wb, Guid actingUserId, Guid? actingUserCompanyId, CancellationToken ct)
+    {
+        if (!TryGetSheet(wb, SheetSystemPositions, out var ws, out var err)) return [err];
+        int? hr = FindHeaderRow(ws, "He thong cha");
+        if (hr == null) return [new ImportRowResult(0, false, $"Sheet '{SheetSystemPositions}' thiếu cột 'He thong cha (ten)'.")];
+        int colParent = FindColumn(ws, hr.Value, "He thong cha");
+        int colName = FindColumn(ws, hr.Value, "Ten vi tri");
+        int colMfr = FindColumn(ws, hr.Value, "Hang san xuat");
+        int colPn = FindColumn(ws, hr.Value, "P/N");
+        int colSn = FindColumn(ws, hr.Value, "S/N");
+        int colLocation = FindColumn(ws, hr.Value, "Vi tri khai thac");
+        int colYear = FindColumn(ws, hr.Value, "Nam SX");
+        int colRole = FindColumn(ws, hr.Value, "Thanh phan");
+        int colStatus = FindColumn(ws, hr.Value, "Tinh trang khai thac");
+        int colNotes = FindColumn(ws, hr.Value, "Ghi chu");
+
+        var results = new List<ImportRowResult>();
+        var year = DateTime.Now.Year;
+        var batchCodes = new HashSet<string>(StringComparer.Ordinal);
+
+        for (int r = hr.Value + 1; r <= ws.LastRowUsed()?.RowNumber(); r++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var parentName = Cell(ws, r, colParent)?.Trim();
+            var name = Cell(ws, r, colName)?.Trim();
+            if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(parentName)) continue;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                results.Add(new ImportRowResult(r, false, "Tên vị trí là bắt buộc."));
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(parentName))
+            {
+                results.Add(new ImportRowResult(r, false, "Hệ thống cha là bắt buộc."));
+                continue;
+            }
+
+            // Resolve parent SystemInfo BY NAME. A regular user may only attach positions to systems
+            // in their own company scope (or company-less systems); Superuser (null) sees all.
+            var parentQuery = _context.SystemInfos.Where(s => s.Name == parentName);
+            if (actingUserCompanyId.HasValue)
+                parentQuery = parentQuery.Where(s => s.CompanyId == null || s.CompanyId == actingUserCompanyId.Value);
+            var parent = await parentQuery.FirstOrDefaultAsync(ct);
+            if (parent == null)
+            {
+                results.Add(new ImportRowResult(r, false, $"Hệ thống cha '{parentName}' chưa tồn tại hoặc nằm ngoài phạm vi công ty của bạn — hãy import sheet 1_HeThong trước."));
+                continue;
+            }
+
+            // Duplicate by (parent + name) within the same parent.
+            if (await _context.SystemPositions.AnyAsync(p => p.SystemInfoId == parent.Id && p.Name == name, ct))
+            {
+                results.Add(new ImportRowResult(r, true, $"Vị trí '{name}' trong hệ thống '{parentName}' đã tồn tại — bỏ qua."));
+                continue;
+            }
+
+            var code = await GenerateSystemCodeAsync("POS", year, batchCodes, ct);
+            var position = new SystemPosition { SystemInfoId = parent.Id, Code = code, Name = name, Description = BuildPositionDescription(ws, r, colMfr, colPn, colSn, colLocation, colYear, colRole, colStatus, colNotes) };
+            _context.SystemPositions.Add(position);
+            _actionLogService.Log(new ActionLogEntry
+            {
+                ItemType = ItemType.SystemPosition, ItemId = position.Id, ActionType = ActionType.Import,
+                CreatedBy = actingUserId, CompanyId = parent.CompanyId, // inherits from parent SystemInfo
+                Note = $"Import vị trí \"{name}\" (mã: {code}) trong hệ thống \"{parentName}\""
+            });
+            results.Add(new ImportRowResult(r, true, $"Đã import vị trí '{name}' trong hệ thống '{parentName}' (mã {code})."));
+        }
+
+        await _context.SaveChangesAsync(ct);
+        return results;
+    }
+
+    /// <summary>Builds a readable "Label: value | Label: value" Description from the optional
+    /// equipment-reference columns, skipping empty cells (no trailing "S/N: " when absent).</summary>
+    private static string? BuildPositionDescription(IXLWorksheet ws, int row,
+        int colMfr, int colPn, int colSn, int colLocation, int colYear, int colRole, int colStatus, int colNotes)
+    {
+        var parts = new List<string>();
+        void Add(string label, int col)
+        {
+            var v = Cell(ws, row, col)?.Trim();
+            if (!string.IsNullOrWhiteSpace(v)) parts.Add($"{label}: {v}");
+        }
+        Add("Hãng SX", colMfr);
+        Add("P/N", colPn);
+        Add("S/N", colSn);
+        Add("Vị trí khai thác", colLocation);
+        Add("Năm SX", colYear);
+        Add("Thành phần / Vai trò", colRole);
+        Add("Tình trạng khai thác", colStatus);
+        Add("Ghi chú", colNotes);
+        return parts.Count == 0 ? null : string.Join(" | ", parts);
+    }
+
     // ─────────────────────────── helpers ───────────────────────────
 
     private sealed class ComponentGroup
@@ -812,5 +979,40 @@ public class ExcelImportService : IExcelImportService
             suffix++;
         }
         return candidate;
+    }
+
+    /// <summary>
+    /// Generates a unique Code in the approved format <c>XXX-YYYY-ZZZ</c> (Task IMPORT-T7):
+    /// <c>{prefix}-{year}-{sequence:000}</c> (e.g. SYS-2026-001, POS-2026-001). The 4-digit year is the
+    /// CURRENT year (the import year — NOT the equipment's manufacturing year). The 3-digit sequence
+    /// resets each year (queried by prefix, not cumulative across years). Uniqueness is guaranteed by
+    /// scanning upward until the generated Code does not already exist in the DB OR in the running
+    /// batch (<paramref name="batchCodes"/>) — so re-importing the same workbook (or many rows in one
+    /// import) never collides, even before SaveChanges flushes the batch to the DB.
+    /// </summary>
+    private async Task<string> GenerateSystemCodeAsync(string prefix, int year, HashSet<string> batchCodes, CancellationToken ct)
+    {
+        var prefixWithYear = $"{prefix}-{year}-";
+        var existing = await _context.SystemInfos.AsNoTracking()
+            .Where(s => s.Code.StartsWith(prefixWithYear))
+            .Select(s => s.Code)
+            .ToListAsync(ct);
+        // POS codes live in the system_positions table, not system_infos.
+        if (prefix == "POS")
+        {
+            existing = existing.Concat(await _context.SystemPositions.AsNoTracking()
+                .Where(p => p.Code.StartsWith(prefixWithYear))
+                .Select(p => p.Code)
+                .ToListAsync(ct)).ToList();
+        }
+
+        var taken = new HashSet<string>(existing, StringComparer.Ordinal);
+        taken.UnionWith(batchCodes); // codes already handed out within THIS import batch
+
+        var seq = 1;
+        while (taken.Contains($"{prefixWithYear}{seq:D3}")) seq++;
+        var code = $"{prefixWithYear}{seq:D3}";
+        batchCodes.Add(code);
+        return code;
     }
 }

@@ -29,6 +29,8 @@ const IMPORT_TYPES: ImportTypeOption[] = [
   { value: 'components', label: 'Linh kiện', permCode: 'components.create', hint: 'Sheet 5_LinhKien — các dòng serial cùng (Tên + Danh mục + Model) gom thành 1 linh kiện.' },
   { value: 'accessories', label: 'Phụ kiện', permCode: 'accessories.create', hint: 'Sheet 6_PhuKien — danh mục / nhà SX / địa điểm phải tồn tại trước.' },
   { value: 'consumables', label: 'Vật tư tiêu hao', permCode: 'consumables.create', hint: 'Sheet 7_VatTuTieuHao — danh mục / nhà SX / địa điểm phải tồn tại trước.' },
+  { value: 'systems', label: 'Hệ thống', permCode: 'systems.create', hint: 'Sheet 1_HeThong — mã tự sinh SYS-<năm>-<STT>. Import hệ thống TRƯỚC rồi mới import vị trí.' },
+  { value: 'system-positions', label: 'Vị trí trong hệ thống', permCode: 'systems.create', hint: 'Sheet 2_ViTri — cột "Hệ thống cha (tên)" phải khớp SystemInfo đã import trước; vị trí kế thừa công ty từ hệ thống cha.' },
 ];
 
 export default function ImportPage() {
@@ -85,7 +87,7 @@ export default function ImportPage() {
   const handleTemplate = async () => {
     setDownloadingTpl(true);
     try {
-      await downloadImportTemplate();
+      await downloadImportTemplate(importType);
     } catch {
       message.error('Không tải được file mẫu.');
     } finally {

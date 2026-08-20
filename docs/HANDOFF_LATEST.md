@@ -2061,4 +2061,61 @@ Viết test xUnit cho 4 hạng mục import, dựa trên đúng các kịch bả
 
 Sẵn sàng commit toàn bộ thay đổi Import (backend + frontend + docs + tests) lên GitHub theo quy trình cũ: kiểm tra git status, không secret/file rác, không QA screenshot lọt (`.gitignore` đã thêm `docs/qa-*.png`).
 
+---
+
+## 50. TASK IMPORT-T7 — Import SystemInfo (Hệ thống) + SystemPosition (Vị trí) từ file BĐKT-CNTT (2026-08-20)
+
+Mở rộng Import cho SystemInfo/SystemPosition — mô hình y hệt T1-T6. Verify bằng API thật với **file thật `docs/Mirats_HeThong_ViTri_BDKT-CNTT.xlsx`** (43 Hệ thống + 470 Vị trí, đối chiếu sheet `4_DoiChieu` = 43/470/50).
+
+### Audit Bước 0 (trước khi code)
+
+- **Schema thật** (`InitialBaseline` + `AppDbContext`): `SystemInfo` = Code(required, UNIQUE) + Name(required) + Description(nullable) + CompanyId(nullable FK SetNull). `SystemPosition` = SystemInfoId(required FK **Cascade**) + Code(required, UNIQUE) + Name(required) + Description(nullable). **KHÔNG có CompanyId column trên SystemPosition.**
+- **SystemInfoController.Create/AddPosition**: validate Code regex `^[A-Z]{3}-\d{4}-\d{3}$` + duplicate; gán `CompanyId = dto.CompanyId` (client). **⚠️ Create KHÔNG validate company-scope** (lỗ hổng lớp Task L2 — Update/Delete thì có) → Import phải tự validate server-side (tái dùng `IsCompanyIdInUserScopeAsync` từ T5).
+- **B0.4 — Position kế thừa company từ cha: ✅ XÁC NHẬN.** SystemPosition không có CompanyId column; mọi xử lý company đều đọc từ parent `SystemInfo.CompanyId` (vd License checkout `sys.CompanyId`, `AddPosition` log `CompanyId = sys.CompanyId`).
+- **Policy**: `systems.create` (PermissionCatalog, dùng chung cho cả 2 entity).
+- **File BĐKT-CNTT**: `1_HeThong` header R4 = "Ten he thong"+"Vi tri khai thac (tham khao)" (43); `2_ViTri` header R4 = "He thong cha (ten)"+"Ten vi tri / thiet bi"+...12 cột (470). **KHÔNG có cột Code.** DB hiện TRỐNG (0 system/0 position) → không có dữ liệu cũ cần migrate.
+
+### Quyết định (đã duyệt)
+
+1. **Code format mới `XXX-YYYY-ZZZ`**: SystemInfo = `SYS-<năm import>-<STT3 reset theo năm>` (vd SYS-2026-001); SystemPosition = `POS-<năm>-<STT3>`. **Regex controller đổi** từ `^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$` → `^[A-Z]{3}-\d{4}-\d{3}$` (4 chỗ + message) để chấp nhận năm 4 số. STT reset theo năm (query prefix, không cộng dồn). Uniqueness: check DB + **batch set trong lần import** (fix bug: nếu chỉ check DB, các row trong cùng batch chưa SaveChanges sẽ trùng mã — 3 system đều ra SYS-2026-001).
+2. **Cột thừa sheet 2_ViTri** (Hang SX, P/N, S/N, Vị trí khai thác, Năm SX, Thành phần/Vai trò, Tình trạng, Ghi chú) → **gộp vào Description** dạng `"Hãng SX: X | S/N: Y | P/N: Z | Vị trí khai thác: ... | Năm SX: ... | Thành phần / Vai trò: ... | Tình trạng khai thác: ... | Ghi chú: ..."`, **bỏ cột rỗng** (không hiện "S/N: " trống). Description là PG `text` (không giới hạn độ dài). Ghi backlog riêng: mở rộng schema SystemPosition thêm field thật (Manufacturer/Serial/Status) — KHÔNG làm trong task này.
+3. **Company**: SystemInfo → companyId validate server-side (T5); SystemPosition → **KHÔNG nhận companyId riêng** — endpoint tự derive `actingUserCompanyId = _companyScope.GetCurrentUserCompanyIdAsync()` và validate từng parent (user thường chỉ gắn vào system công ty mình/company-less; superuser → mọi system).
+4. **Dữ liệu test**: dọn sạch sau verify (đã chọn).
+
+### Backend (4 file)
+
+- **`SystemInfoController.cs`**: `CodeRegex` đổi `^[A-Z]{3}-\d{4}-\d{3}$` + 4 message "XXX-YYYY-ZZZ".
+- **`ExcelImportService.cs`**: thêm `SheetSystems="1_HeThong"`, `SheetSystemPositions="2_ViTri"`; interface + `ImportSystemsAsync(stream,user,companyId)` + `ImportSystemPositionsAsync(stream,user,actingUserCompanyId)`; method sheet `ImportSystemsSheetAsync` (Name→Name, "Vi tri khai thac"→Description, generate SYS code, dup check name+company), `ImportSystemPositionsSheetAsync` (resolve parent by NAME in scope, NO auto-create, generate POS code, dup check parent+name, merge Description, ActionLog CompanyId = parent.CompanyId); helper `GenerateSystemCodeAsync(prefix,year,batchCodes)` + `BuildPositionDescription`.
+- **`ImportExportController.cs`**: `POST /import/systems` (`systems.create`, `[FromForm] companyId` validate scope) + `POST /import/system-positions` (`systems.create`, KHÔNG companyId, tự derive scope) + `GET /import/templates/systems` (2 sheet header chuẩn).
+- **Tests** (`ImportExcelServiceTests.cs` +3): systems sinh mã tuần tự theo năm; positions resolve parent by name + NO auto-create + inherit company (ActionLog); regular user không gắn position vào system công ty khác → lỗi "ngoài phạm vi".
+
+### Frontend (2 file)
+
+- `features/import/services/import.service.ts`: `ImportType` thêm `'systems' | 'system-positions'`; `downloadImportTemplate` map 2 loại mới → `/import/templates/systems`.
+- `features/import/pages/ImportPage.tsx`: thêm 2 option "Hệ thống" + "Vị trí trong hệ thống" (cả 2 gate `systems.create`), hint nêu rõ import hệ thống TRƯỚC.
+
+### Verify API THẬT (Aspire stack, server 5428, postgres `postgres-dprmauuk`)
+
+- **Order test**: import positions TRƯỚC khi systems → **470/470 fail** "chưa tồn tại ... import sheet 1_HeThong trước", **0 auto-create** (DB vẫn 0/0). ✅
+- **Import systems** (admin, QCR-CO) → **43/43 created**, codes `SYS-2026-001..043`. **Import positions** → **470/470 created**, codes `POS-2026-001..470`. ✅
+- **DB verify**: 43 SystemInfo + 470 SystemPosition + 43 log SystemInfo + 470 log SystemPosition. FK đúng (POS-2026-001 → "VHF 118.35 MHz TWR DAN"). Description gộp đúng (Hãng SX/S/N/Vị trí/Năm SX/Vai trò/Tình trạng). CompanyId system = QCR-CO. ✅
+- **Company-scope** (user thường `qa-t7-child` thuộc QA T7 Child Co): import systems vào company cha → **403**; vào company mình → **200 (43 created, codes SYS-2026-044..086 — tuần tự tiếp, không trùng, không cộng dồn sai)**. Position vào system QCR-CO-only → **fail "ngoài phạm vi công ty"**, DB 0. ✅
+- **Code uniqueness**: 86 distinct sys codes + 940 distinct pos codes (không trùng). ✅
+
+### Build / Test / Dọn dẹp
+
+- `dotnet test --filter "Category!=Concurrency"` **306/306 PASS** (+3 test mới). 4 test `ConcurrencyRaceAuditTests` cần stack đang chạy (localhost:8080) — bỏ qua khi stack tắt (không phải regression).
+- `npm run build` 0 lỗi TS · `scripts/audit-sweeps.ps1` exit 0.
+- **Dọn sạch test data**: 86 system + 940 position + 1026 ActionLog + QA companies/user + Keycloak user đều = 0. DB trả về trạng thái trước test (chỉ `admin` + `QCR-CO`).
+
+### ⚠️ BACKLOG (ĐÃ VÁ TRONG T7) — SystemInfoController.Create / AddPosition company-scoping
+
+- **Xác nhận thật (đọc lại code, KHÔNG chỉ ghi chú):** `SystemInfoController.Create` (`Web/Controllers/SystemInfoController.cs`) gán thẳng `CompanyId = dto.CompanyId` từ client **KHÔNG** gọi `_companyScope.GetCurrentUserCompanyIdAsync()` → user thường có `systems.create` tạo được hệ thống thuộc CÔNG TY KHÁC chỉ cần truyền `companyId`. Tương tự `AddPosition` không check target system có thuộc phạm vi user không. **Update/Delete/UpdatePosition/DeletePosition thì CÓ** scope check (Task I đã vá). → **Bất đối xứng: CREATE thiếu, UPDATE/DELETE có** — lỗ hổng lớp Task L2 còn sót cho SystemInfo/SystemPosition.
+- **ĐÃ VÁ (cùng commit T7, theo yêu cầu — không tách task riêng vì cùng entity + code sắp lên GitHub Public):**
+  - `Create`: user thường (`userCompanyId.HasValue`) gửi `CompanyId` khác company mình → **`400 COMPANY_MISMATCH`** (đúng quy ước Task L2); floater (`null`) vẫn OK; Superuser bypass.
+  - `AddPosition`: user thường gửi position vào system thuộc company khác → **`404`** (hide existence, đúng Task I); company-less system vẫn OK; Superuser bypass.
+  - **Tests (+8)** `SystemInfoCreateCompanyScopeTests.cs`: Create → 400/200/200/200 (other/own/floater/super); AddPosition → 404/200/200/200. `dotnet test` **314/314 PASS**.
+- **Verify API THẬT** (xem mục dưới — sau khi restart stack).
+
+
 

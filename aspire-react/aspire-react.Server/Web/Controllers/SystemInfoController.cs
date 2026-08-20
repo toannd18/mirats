@@ -33,7 +33,8 @@ public class SystemInfoController : ControllerBase
         return Guid.TryParse(sub, out var id) ? id : Guid.Empty;
     }
 
-    private static readonly Regex CodeRegex = new(@"^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$", RegexOptions.Compiled);
+    // Code format: XXX-YYYY-ZZZ — 3-letter prefix (SYS/POS), 4-digit year, 3-digit per-year sequence.
+    private static readonly Regex CodeRegex = new(@"^[A-Z]{3}-\d{4}-\d{3}$", RegexOptions.Compiled);
 
     [HttpGet, Authorize(Policy = "systems.view")]
     public async Task<IActionResult> GetAll()
@@ -101,9 +102,16 @@ public class SystemInfoController : ControllerBase
     public async Task<IActionResult> Create([FromBody] SystemInfoDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
-            return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX-YYY-ZZZ (viết hoa)." });
+            return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX-YYYY-ZZZ (viết hoa)." });
         if (await _context.SystemInfos.AnyAsync(x => x.Code == dto.Code))
             return BadRequest(new { status = "error", message = "Mã hệ thống đã tồn tại." });
+
+        // [Task L2 — COMPANY-SCOPING on Create] A regular user may only create systems for their own
+        // company (or a company-less floater). Superuser (GetCurrentUserCompanyIdAsync → null) may
+        // create for any company. Never trust the client-supplied CompanyId alone.
+        var userCompanyIdCreate = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (userCompanyIdCreate.HasValue && dto.CompanyId.HasValue && dto.CompanyId.Value != userCompanyIdCreate.Value)
+            return BadRequest(new { status = "error", message = "Bạn chỉ được tạo hệ thống cho công ty của mình.", error_code = "COMPANY_MISMATCH" });
 
         var sys = new SystemInfo { Code = dto.Code.ToUpper(), Name = dto.Name, Description = dto.Description, CompanyId = dto.CompanyId };
         _context.SystemInfos.Add(sys);
@@ -125,7 +133,7 @@ public class SystemInfoController : ControllerBase
             return NotFound(new { status = "error", message = "Not found." });
 
         if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
-            return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX-YYY-ZZZ (viết hoa)." });
+            return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX-YYYY-ZZZ (viết hoa)." });
         if (await _context.SystemInfos.AnyAsync(x => x.Code == dto.Code && x.Id != id))
             return BadRequest(new { status = "error", message = "Mã hệ thống đã tồn tại." });
 
@@ -163,11 +171,18 @@ public class SystemInfoController : ControllerBase
     public async Task<IActionResult> AddPosition(Guid systemInfoId, [FromBody] SystemPositionDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
-            return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX-YYY-ZZZ (viết hoa)." });
+            return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX-YYYY-ZZZ (viết hoa)." });
         if (await _context.SystemPositions.AnyAsync(x => x.Code == dto.Code))
             return BadRequest(new { status = "error", message = "Mã vị trí đã tồn tại." });
         var sys = await _context.SystemInfos.FindAsync(systemInfoId);
         if (sys == null) return NotFound(new { status = "error", message = "System not found." });
+
+        // [Task L2 — COMPANY-SCOPING on Create] A position inherits its parent system's CompanyId,
+        // so a regular user may only add positions to systems in their own company scope (or a
+        // company-less system). Superuser bypasses. Out-of-scope → 404 (hide existence, Task I).
+        var userCompanyIdAddPos = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (userCompanyIdAddPos.HasValue && sys.CompanyId.HasValue && sys.CompanyId.Value != userCompanyIdAddPos.Value)
+            return NotFound(new { status = "error", message = "System not found." });
 
         var pos = new SystemPosition { SystemInfoId = systemInfoId, Code = dto.Code.ToUpper(), Name = dto.Name, Description = dto.Description };
         _context.SystemPositions.Add(pos);
@@ -191,7 +206,7 @@ public class SystemInfoController : ControllerBase
             return NotFound(new { status = "error", message = "Position not found." });
 
         if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
-            return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX-YYY-ZZZ (viết hoa)." });
+            return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX-YYYY-ZZZ (viết hoa)." });
         if (await _context.SystemPositions.AnyAsync(x => x.Code == dto.Code && x.Id != posId))
             return BadRequest(new { status = "error", message = "Mã vị trí đã tồn tại." });
 

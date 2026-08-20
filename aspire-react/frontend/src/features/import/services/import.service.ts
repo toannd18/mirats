@@ -18,7 +18,7 @@ export interface ImportResult {
   errors?: ImportRow[];
 }
 
-export type ImportType = 'reference' | 'assets' | 'components' | 'accessories' | 'consumables';
+export type ImportType = 'reference' | 'assets' | 'components' | 'accessories' | 'consumables' | 'systems' | 'system-positions';
 
 /**
  * POST /api/v1/import/<type> — multipart/form-data: the .xlsx file + the SELECTED company id.
@@ -37,13 +37,16 @@ export async function importExcel(type: ImportType, file: File, companyId: strin
   return res.data as ImportResult;
 }
 
-/** GET /api/v1/import/templates/assets — dynamic empty .xlsx skeleton (7 sheets, headers only). */
-export async function downloadImportTemplate(): Promise<void> {
-  const res = await apiClient.get('/import/templates/assets', { responseType: 'blob' });
+/** GET /api/v1/import/templates/<type> — dynamic empty .xlsx skeleton (headers only).
+ *  The 5 inventory/reference types share the "assets" template workbook; systems/positions use the
+ *  "systems" template workbook. */
+export async function downloadImportTemplate(type: ImportType): Promise<void> {
+  const templateKind = (type === 'systems' || type === 'system-positions') ? 'systems' : 'assets';
+  const res = await apiClient.get(`/import/templates/${templateKind}`, { responseType: 'blob' });
   const url = URL.createObjectURL(res.data as Blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'import-template.xlsx';
+  a.download = `${templateKind}-template.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }
