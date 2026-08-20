@@ -25,6 +25,7 @@ public class ConsumableTests
         public bool IsSuperUser() => true;
         public Task<List<Guid>> GetUserCompanyIdsAsync() => Task.FromResult(new List<Guid>());
         public Task<Guid?> GetCurrentUserCompanyIdAsync() => Task.FromResult<Guid?>(null);
+        public Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId) => Task.FromResult(true);
     }
 
     private static AppDbContext CreateContext(string name)

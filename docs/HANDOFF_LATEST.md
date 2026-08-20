@@ -1966,3 +1966,99 @@ còn tồn đọng từ T7 — toàn bộ công việc đồng bộ CompanyTreeS
 ### Định nghĩa "Xong" — ĐÃ ĐẠT
 
 Môi trường dev hoàn toàn sạch (0 dữ liệu nghiệp vụ, 0 rác QCR-*), đăng nhập admin hoạt động qua `admin/<redacted>` vừa seed, không đụng nhầm volume Docker Compose (`snipeit_*` nguyên vẹn).
+
+---
+
+## 48. TASK IMPORT-T5 — Frontend UI Import Excel + chọn Công ty theo phạm vi quyền (2026-08-20)
+
+> Tiếp nối backend Import (T1-T4). BACKEND THAY ĐỔI CÁCH GÁN CompanyId: từ "tự gán theo user" → "nhận companyId do user chọn, backend validate lại phạm vi" (nguyên tắc "không tin client" — Task L2). FRONTEND thêm trang Import hoàn chỉnh.
+
+### A — Quyết định (đã duyệt qua tool question)
+
+1. **Superuser import:** BẮT BUỘC chọn công ty — không cho floater/null nữa (`400 COMPANY_REQUIRED` khi thiếu companyId).
+2. **Vị trí trang:** `features/import/` riêng (import là chức năng liên module: categories+locations+manufacturers+assets+components+accessories+consumables); menu item "Import Excel" thuộc nhóm **QUẢN TRỊ**, route `/admin/import`.
+3. **File mẫu tải xuống:** dùng endpoint động `GET /import/templates/assets` (workbook 7 sheet header chuẩn) — KHÔNG serve file vật lý `docs/Mirats_DuLieuMau_VatTu_T&E.xlsx` (tránh tài liệu lệch code). Endpoint đổi policy `assets.create` → `[Authorize]` (file là skeleton rỗng, không rò dữ liệu; tránh chặn user chỉ có `.create` loại khác).
+4. **Reference import:** vẫn bắt buộc chọn công ty cho MỌI loại. Category/Manufacturer là entity GLOBAL (không có CompanyId column) — company chọn chỉ áp cho Location.CompanyId + ghi vào ActionLog của cả batch (1 import = 1 công ty duy nhất).
+
+### B — Backend (4 file)
+
+- **`CompanyScopeService.cs`** — thêm `ICompanyScopeService.IsCompanyIdInUserScopeAsync(Guid)`: company phải TỒN TẠI; user thường chỉ được target công ty mình hoặc con cháu (parent → có thể import cho con); company-less user / superuser → mọi công ty (khớp convention Task V `CompaniesController.GetAll`). BFS cây công ty.
+- **`ExcelImportService.cs`** — interface + 5 method đổi tham số: bỏ tự gọi `_companyScope.GetCurrentUserCompanyIdAsync()`, nhận `Guid companyId` tường minh; gán `CompanyId = companyId` cho Location/Asset/Component/Accessory/Consumable; ActionLog của Category/Manufacturer (global) cũng gán `CompanyId = companyId` (audit theo batch). Bỏ dependency `_companyScope`. `ImportSheetResult` thêm `Rows` (mọi dòng, cho báo cáo UI); `Errors` vẫn là tập lỗi.
+- **`ImportExportController.cs`** — 5 endpoint import thêm `[FromForm] Guid companyId` (bắt buộc, validate TRƯỚC khi đọc file): thiếu → `400 COMPANY_REQUIRED`; ngoài phạm vi/nonexistent → `403` (helper `ResolveImportCompanyIdAsync`). Response thêm `rows` (mọi ImportRowResult). Template: `[Authorize]`.
+- **Tests** — 8 fake `ICompanyScopeService` trong test thêm `IsCompanyIdInUserScopeAsync` (superuser → true; FakeScope → `Super || CompanyId==null || CompanyId==target`).
+
+### C — Frontend (3 file)
+
+- `features/import/services/import.service.ts` — `importExcel(type,file,companyId)` POST multipart (`/import/{type}` + FormData file+companyId), `downloadImportTemplate()` (blob). Type: reference/assets/components/accessories/consumables.
+- `features/import/pages/ImportPage.tsx` — chọn loại (Radio, disable option không đủ `.create`), **CompanyTreeSelect** bắt buộc (label "Công ty áp dụng *(bắt buộc)"), Upload.Dragger `.xlsx` (beforeUpload reject ext, manual upload), nút "Import" (gated: thiếu company/file/type → disabled; nếu 403 → message lỗi phạm vi), nút "Tải file mẫu", BÁO CÁO KẾT QUẢ (Alert tóm tắt + bảng per-row: Dòng / ✓ Thành công hoặc ✗ Lỗi / Chi tiết, Segmented lọc Tất cả/Thành công/Lỗi). Trang không quyền → `Empty`. Gate menu qua `canSee('/admin/import')` = có bất kỳ `.create` nào trong 5 loại.
+- `App.tsx` — import + route `/admin/import` + menu item "Import Excel" (icon `ImportOutlined`) trong QUẢN TRỊ + crumb/permMap/submenu.
+
+### D — Verify API THẬT (Aspire stack, server `http://localhost:5428`, postgres container `postgres-jvkkyejs`)
+
+Đã tạo 2 công ty QA (`QA T5 Parent Co` + `QA T5 Child Co`) + 2 user QA (`qa-t5-child` thuộc child, `qa-t5-parent` thuộc parent, JIT-created, gán CompanyId + `assets.create`/`assets.view`/`companies.view`/`categories.create`/`accessories.create`/`manufacturers.create`/`locations.create` = Grant).
+
+| Test | Token | companyId | KQ | Ghi chú |
+|---|---|---|---|---|
+| 1 | child | parent | **403** | con không được import vào công ty cha |
+| 2 | parent | child | **200** | cha được import vào công ty con |
+| 3 | child | child (của mình) | **200** | đúng phạm vi |
+| 5 | child | QCR-CO (khác nhánh) | **403** | ngoài phạm vi |
+| 6 | admin | (thiếu) | **400 COMPANY_REQUIRED** | superuser bắt buộc chọn |
+| 7 | admin | random uuid | **403** | company không tồn tại |
+| 8 | admin | QCR-CO (thật) | **200** | superuser → mọi công ty |
+
+**DB CompanyId (xác minh thật):** import reference + accessories bằng token child→child → Location `QA-T5-CN-*` CompanyId = `d7ced7af-…` (child); Accessory `QA-T5-Accessory-*` CompanyId = child; ActionLog Manufacturer + Accessory + Location đều CompanyId = child. Manufacturer (global) không có cột CompanyId — ActionLog vẫn ghi child (1 import = 1 công ty). ✅
+
+### E — Verify UI THẬT (playwright-cli, Aspire stack)
+
+- **Child user** (`qa-t5-child`): `/admin/import` → CompanyTreeSelect dropdown chỉ hiện **"QA T5 Child Co"** (KHÔNG thấy parent/QCR-CO). Các option "Linh kiện"/"Vật tư tiêu hao" DISABLED (không có `.create`). ✅ Ảnh `docs/qa-t5-child-import.png`.
+- **Parent user** (`qa-t5-parent`): dropdown hiện **"QA T5 Parent Co" (expanded) + "QA T5 Child Co"** — cha thấy mình + con. ✅ Ảnh `docs/qa-t5-parent-import.png`, `docs/qa-t5-parent-selected.png`.
+- **Admin (superuser)** full-flow: dropdown hiện **full tree** (Parent + Child + QCR-CO). Chọn Child → upload file test → Import → BÁO CÁO đúng "Đã tạo 2 bản ghi — 1 dòng lỗi", bảng per-row (✓ Đã import nhà sản xuất 'QA UI MFR …' (mã QAUIM), ✓ Đã import địa điểm 'QA-UI-…', ✗ Lỗi Sheet '1_DanhMuc' không tồn tại). DB: Location `QA-UI-*` CompanyId = child + ActionLog Manufacturer = child. ✅ Ảnh `docs/qa-t5-import-report.png`, `docs/qa-t5-admin-company-selected.png`.
+
+### F — Build / Test / Dọn dẹp
+
+- `dotnet build` 0 error · `dotnet test` **283/283 PASS** · `npm run build` (tsc -b + vite) **0 lỗi TS**.
+- **Dọn sạch test data:** user QA xóa Keycloak (0 `qa-t5-*`) + DB (0 user/company/location/mfr/accessory QA); `user_permissions` xóa; trả DB về baseline (chỉ `admin` + `QCR-CO`). Không đụng tài khoản thật.
+
+### G — Lưu ý / ghi chú cho phiên sau
+
+- Import chạy TRỰC TIẾP (chưa có dry-run/preview — ghi chú trong UI). Nếu cần "Xem trước" thì backend phải thêm flag dry-run riêng (để dành).
+- `companyId` binding dùng `[FromForm]` (UI gửi trong FormData); query-string/route binding sẽ không match → luôn 400 COMPANY_REQUIRED.
+- T6 (Tests cho importer) và commit Import changes lên GitHub chưa làm — chờ duyệt.
+
+---
+
+## 49. TASK IMPORT-T6 — Automated tests cho Import (2026-08-20)
+
+Viết test xUnit cho 4 hạng mục import, dựa trên đúng các kịch bản đã verify bằng tay ở T5. **`dotnet test` 283 → 307 PASS (+24 test mới).** Audit sweep exit 0; `npm run build` 0 lỗi TS.
+
+### File test mới (2)
+
+- **`ImportCompanyScopeTests.cs`** (17 test) — company-scoping của Import:
+  - **Scope-decision (11)**: dùng `CompanyScopeService` THẬT (HttpContext + RequestServices + InMemory DB) → `IsCompanyIdInUserScopeAsync` đủ 7 kịch bản T5 + biên:
+    - child→parent `false`, child→child `true`, child→nhánh khác `false`
+    - parent→parent `true`, parent→child `true`, parent→nhánh khác `false`
+    - superuser→mọi công ty `true`, superuser→nonexistent `false`
+    - regular→nonexistent `false`, unauthenticated `false`, thiếu `local_user_id` `false` (fail-closed)
+  - **Controller mapping (7)**: dùng `ImportExportController` thật + `RecordingImportService` (ghi lại companyId forward) + FakeFormFile `.xlsx`:
+    - thiếu companyId → **400** (`BadRequestObjectResult`)
+    - child→parent → **403** (`ForbidResult`), child→nhánh khác → **403**
+    - parent→child → **200** + `LastCompanyId == child` (companyId đã validate được forward, không phải client re-echo)
+    - child→child → **200**; superuser→nonexistent → **403**; superuser→company thật → **200**
+- **`ImportExcelServiceTests.cs`** (7 test) — business rules, dùng ClosedXML THẬT tạo workbook in-memory đúng cấu trúc sheet:
+  - **Best-effort per-row (2)**: 1 dòng lỗi (model thiếu) KHÔNG chặn dòng hợp lệ → created/failed đúng, dòng lỗi không persist.
+  - **CompanyId + ActionLog (1)**: asset tạo ra có `CompanyId == company`, 1 ActionLog `ItemType.Asset`/`ActionType.Import`/`CompanyId == company`.
+  - **AssetModel KHÔNG tự tạo (1)**: model thiếu → 0 created + error "chưa tồn tại / không tự tạo model" + `Models` rỗng.
+  - **Serial grouping (2)**: 3 dòng serial cùng (Name+Category+Model) → 1 component `TrackingType.Serial`, Qty 3, 3 ComponentUnit + 3 ActionLog `ItemType.ComponentUnit` (CompanyId đúng); 2 tổ hợp khác nhau → 2 component.
+
+### Verify
+
+- `dotnet build` 0 error · `dotnet test --configuration Release` **307/307 PASS** (24 test import mới).
+- `scripts/audit-sweeps.ps1` **exit 0** (0 violation) — đã khắc phục 1 false-positive Sweep 2: `ImportPage.tsx` so HTTP `status === 403` bị bắt nhầm thành enum-vs-number; refactor so sánh inline `e?.response?.status === 403` (đúng pattern sweep exempt).
+- `npm run build` 0 lỗi TS.
+
+### Lưu ý cho commit
+
+Sẵn sàng commit toàn bộ thay đổi Import (backend + frontend + docs + tests) lên GitHub theo quy trình cũ: kiểm tra git status, không secret/file rác, không QA screenshot lọt (`.gitignore` đã thêm `docs/qa-*.png`).
+
+

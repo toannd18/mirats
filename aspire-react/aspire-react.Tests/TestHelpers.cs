@@ -23,6 +23,7 @@ public static class TestHelpers
         public bool IsSuperUser() => true;
         public Task<List<Guid>> GetUserCompanyIdsAsync() => Task.FromResult(new List<Guid>());
         public Task<Guid?> GetCurrentUserCompanyIdAsync() => Task.FromResult<Guid?>(null);
+        public Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId) => Task.FromResult(true);
     }
 
     /// <summary>Configurable company scope: a regular user resolves to <see cref="CompanyId"/>; Superuser to null.</summary>
@@ -33,6 +34,8 @@ public static class TestHelpers
         public bool IsSuperUser() => Super;
         public Task<List<Guid>> GetUserCompanyIdsAsync() => Task.FromResult(new List<Guid>());
         public Task<Guid?> GetCurrentUserCompanyIdAsync() => Task.FromResult(Super ? (Guid?)null : CompanyId);
+        public Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId)
+            => Task.FromResult(Super || CompanyId == null || CompanyId == companyId);
     }
 
     public sealed class FakeCurrentUser : ICurrentUserService

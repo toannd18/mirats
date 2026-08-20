@@ -1,4 +1,4 @@
-﻿using aspire_react.Server.Domain.Entities;
+using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Persistence;
@@ -22,6 +22,7 @@ public class AssetMaintenanceTests
         public bool IsSuperUser() => true;
         public Task<List<Guid>> GetUserCompanyIdsAsync() => Task.FromResult(new List<Guid>());
         public Task<Guid?> GetCurrentUserCompanyIdAsync() => Task.FromResult<Guid?>(null);
+        public Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId) => Task.FromResult(true);
     }
 
     private sealed class FakeCurrentUser : ICurrentUserService
@@ -37,6 +38,8 @@ public class AssetMaintenanceTests
         public bool IsSuperUser() => Super;
         public Task<List<Guid>> GetUserCompanyIdsAsync() => Task.FromResult(new List<Guid>());
         public Task<Guid?> GetCurrentUserCompanyIdAsync() => Task.FromResult(Super ? (Guid?)null : CompanyId);
+        public Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId)
+            => Task.FromResult(Super || CompanyId == null || CompanyId == companyId);
     }
 
     private static AppDbContext CreateContext(string name)

@@ -10,7 +10,7 @@ import {
   EnvironmentOutlined, TagOutlined, BankOutlined, ShopOutlined,
   GoldOutlined, ScheduleOutlined, ApartmentOutlined, ClusterOutlined,
   HistoryOutlined, ExperimentOutlined, MenuOutlined,
-  MenuFoldOutlined, LogoutOutlined, IdcardOutlined,
+  MenuFoldOutlined, LogoutOutlined, IdcardOutlined, ImportOutlined,
 } from '@ant-design/icons';
 import { initKeycloak, login, logout, isAuthenticated, isSuperUser, getUserInfo } from './services/keycloak';
 import { designTokens } from './theme/designTokens';
@@ -45,6 +45,7 @@ import DepartmentListPage from './features/admin/pages/DepartmentListPage';
 import SystemInfoListPage from './features/admin/pages/SystemInfoListPage';
 import SystemHistoryPage from './features/system/pages/SystemHistoryPage';
 import SystemDetailPage from './features/system/pages/SystemDetailPage';
+import ImportPage from './features/import/pages/ImportPage';
 
 const { Header, Sider, Content } = Layout;
 
@@ -75,14 +76,14 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/admin/categories': 'Danh mục', '/admin/manufacturers': 'Nhà SX', '/admin/suppliers': 'Nhà cung cấp',
     '/admin/asset-models': 'Asset Models', '/admin/locations': 'Địa điểm',
     '/admin/depreciations': 'Khấu hao', '/admin/companies': 'Công ty', '/admin/departments': 'Phòng ban',
-    '/admin/system-infos': 'Hệ thống',
+    '/admin/system-infos': 'Hệ thống', '/admin/import': 'Import Excel',
   };
   const parentCrumbMap: Record<string, string> = {
     '/consumables': 'Vật tư', '/components': 'Vật tư', '/accessories': 'Vật tư',
     '/admin/categories': 'Quản trị', '/admin/manufacturers': 'Quản trị', '/admin/suppliers': 'Quản trị',
     '/admin/asset-models': 'Quản trị', '/admin/locations': 'Quản trị',
     '/admin/depreciations': 'Quản trị', '/admin/companies': 'Quản trị', '/admin/departments': 'Quản trị',
-    '/admin/system-infos': 'Quản trị',
+    '/admin/system-infos': 'Quản trị', '/admin/import': 'Quản trị',
   };
   const crumbSegs: { title: string }[] = [];
   const exactLabel = crumbMap[location.pathname];
@@ -134,6 +135,11 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const canSee = (key: string): boolean => {
     if (!perm) return true; // permission still loading → show to avoid flicker
     if (perm.isSuperUser) return true;
+    // Import page aggregates several per-entity CREATE permissions (backend gated per type).
+    if (key === '/admin/import') {
+      return ['categories.create', 'assets.create', 'components.create', 'accessories.create', 'consumables.create']
+        .some(c => (perm.permissions[c] ?? 0) === 1);
+    }
     const code = permMap[key];
     if (!code) return true;
     return (perm.permissions[code] ?? 0) === 1;
@@ -168,6 +174,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { key: '/admin/companies', icon: <BankOutlined />, label: 'Công ty' },
     { key: '/admin/departments', icon: <ApartmentOutlined />, label: 'Phòng ban' },
     { key: '/admin/system-infos', icon: <ClusterOutlined />, label: 'Hệ thống' },
+    { key: '/admin/import', icon: <ImportOutlined />, label: 'Import Excel' },
   ]);
 
   const menuGroups: { label: string; items: NonNullable<MenuProps['items']> }[] = [];
@@ -231,7 +238,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/admin/categories': 'admin', '/admin/manufacturers': 'admin', '/admin/suppliers': 'admin',
     '/admin/asset-models': 'admin', '/admin/locations': 'admin',
     '/admin/depreciations': 'admin', '/admin/companies': 'admin', '/admin/departments': 'admin',
-    '/admin/system-infos': 'admin',
+    '/admin/system-infos': 'admin', '/admin/import': 'admin',
   };
   const activeSubmenu = submenuByKey[selectedKey];
   const [openKeys, setOpenKeys] = useState<string[]>(activeSubmenu ? [activeSubmenu] : []);
@@ -538,6 +545,9 @@ function App() {
             } />
             <Route path="/admin/system-infos" element={
               <ProtectedRoute><AppLayout><SystemInfoListPage /></AppLayout></ProtectedRoute>
+            } />
+            <Route path="/admin/import" element={
+              <ProtectedRoute><AppLayout><ImportPage /></AppLayout></ProtectedRoute>
             } />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -24,6 +24,7 @@ public class SystemDetailTests
         public bool IsSuperUser() => true;
         public Task<List<Guid>> GetUserCompanyIdsAsync() => Task.FromResult(new List<Guid>());
         public Task<Guid?> GetCurrentUserCompanyIdAsync() => Task.FromResult<Guid?>(null);
+        public Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId) => Task.FromResult(true);
     }
 
     /// <summary>Company-aware fake: GetUserCompanyIdsAsync respects CompanyId so the system-visibility
@@ -36,6 +37,8 @@ public class SystemDetailTests
         public Task<List<Guid>> GetUserCompanyIdsAsync() =>
             Task.FromResult(Super || !CompanyId.HasValue ? new List<Guid>() : new List<Guid> { CompanyId.Value });
         public Task<Guid?> GetCurrentUserCompanyIdAsync() => Task.FromResult(Super ? (Guid?)null : CompanyId);
+        public Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId)
+            => Task.FromResult(Super || CompanyId == null || CompanyId == companyId);
     }
 
 

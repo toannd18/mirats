@@ -14,6 +14,14 @@ public interface ICompanyScopeService
     /// Used to scope records by company for regular users (e.g. Asset Maintenance visibility).
     /// </summary>
     Task<Guid?> GetCurrentUserCompanyIdAsync();
+    /// <summary>
+    /// [Task IMPORT-T5] Validates that <paramref name="companyId"/> lies inside the acting user's
+    /// REAL company scope (server-side — never trust a client-supplied id, Task L2 principle):
+    /// the company must EXIST, and a regular user with a company may only target that company or
+    /// any of its descendants (parent may import for children); superuser or a company-less regular
+    /// user may target any company (matching the Task V CompaniesController.GetAll convention).
+    /// </summary>
+    Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId);
 }
 
 public class CompanyScopeService : ICompanyScopeService
@@ -56,6 +64,56 @@ public class CompanyScopeService : ICompanyScopeService
             .Where(u => u.Id == localUserId)
             .Select(u => u.CompanyId)
             .FirstOrDefaultAsync();
+    }
+
+    public async Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId)
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+        var user = httpContext?.User;
+        if (user == null || user.Identity?.IsAuthenticated != true) return false;
+
+        // Resolve the request-scoped DbContext via RequestServices to avoid a circular DI
+        // dependency (AppDbContext itself depends on ICompanyScopeService for its query filters).
+        var db = httpContext.RequestServices?.GetService(typeof(AppDbContext)) as AppDbContext;
+        if (db == null) return false;
+
+        // The company must exist (a made-up id must never pass).
+        if (!await db.Companies.AsNoTracking().AnyAsync(c => c.Id == companyId)) return false;
+
+        // Superuser has no company restriction.
+        if (IsSuperUser()) return true;
+
+        if (!Guid.TryParse(user.FindFirstValue("local_user_id"), out var localUserId) || localUserId == Guid.Empty)
+            return false;
+
+        var userCompanyId = await db.Users.AsNoTracking()
+            .Where(u => u.Id == localUserId)
+            .Select(u => u.CompanyId)
+            .FirstOrDefaultAsync();
+
+        // Company-less regular user: no company restriction (Task V GetAll convention — a
+        // company-less user sees/selects the full tree).
+        if (userCompanyId == null) return true;
+
+        if (userCompanyId.Value == companyId) return true;
+
+        // Parent company → may target any descendant. BFS the company tree.
+        var queue = new Queue<Guid>();
+        queue.Enqueue(userCompanyId.Value);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            var children = await db.Companies.AsNoTracking()
+                .Where(c => c.ParentId == current)
+                .Select(c => c.Id)
+                .ToListAsync();
+            foreach (var childId in children)
+            {
+                if (childId == companyId) return true;
+                queue.Enqueue(childId);
+            }
+        }
+        return false;
     }
 
     public Task<List<Guid>> GetUserCompanyIdsAsync()

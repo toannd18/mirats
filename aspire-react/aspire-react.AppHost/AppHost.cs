@@ -1,7 +1,9 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-// Infrastructure
-var postgres = builder.AddPostgres("postgres")
+// Infrastructure — Postgres password is fixed via User Secrets (secret: true, never hard-coded
+// in source) so the data volume always matches the code/password across restarts (Solution 3).
+var dbPassword = builder.AddParameter("dbPassword", secret: true);
+var postgres = builder.AddPostgres("postgres", password: dbPassword)
     .WithDataVolume("postgres-data")
     .WithPgAdmin()
     .AddDatabase("aspire-react-db");

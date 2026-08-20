@@ -40,6 +40,9 @@ public static class InfrastructureServiceCollectionExtensions
         // Consumable checkout business rules (stock check, user validation, company isolation, audit log)
         services.AddScoped<IConsumableAllocationService, ConsumableAllocationService>();
 
+        // Excel (.xlsx) import — reference data + inventory sheets (T1–T4)
+        services.AddScoped<IExcelImportService, ExcelImportService>();
+
         // Action-log company-visibility filter (shared by ReportsController + DashboardController, Task S1)
         services.AddScoped<IActionLogVisibilityService, ActionLogVisibilityService>();
 

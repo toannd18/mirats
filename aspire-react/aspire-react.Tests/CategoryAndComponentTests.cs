@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -26,6 +26,7 @@ public class CategoryAndComponentTests
         public bool IsSuperUser() => true;
         public Task<List<Guid>> GetUserCompanyIdsAsync() => Task.FromResult(new List<Guid>());
         public Task<Guid?> GetCurrentUserCompanyIdAsync() => Task.FromResult<Guid?>(null);
+        public Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId) => Task.FromResult(true);
     }
 
     private static AppDbContext CreateContext(string name)
