@@ -43,6 +43,7 @@ import DepreciationListPage from './features/admin/pages/DepreciationListPage';
 import CompanyListPage from './features/admin/pages/CompanyListPage';
 import DepartmentListPage from './features/admin/pages/DepartmentListPage';
 import SystemInfoListPage from './features/admin/pages/SystemInfoListPage';
+import SystemConfigPage from './features/admin/pages/SystemConfigPage';
 import SystemHistoryPage from './features/system/pages/SystemHistoryPage';
 import SystemDetailPage from './features/system/pages/SystemDetailPage';
 import ImportPage from './features/import/pages/ImportPage';
@@ -77,6 +78,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/admin/asset-models': 'Asset Models', '/admin/locations': 'Địa điểm',
     '/admin/depreciations': 'Khấu hao', '/admin/companies': 'Công ty', '/admin/departments': 'Phòng ban',
     '/admin/system-infos': 'Hệ thống', '/admin/import': 'Import Excel',
+    '/admin/system-config': 'Cấu hình hệ thống',
   };
   const parentCrumbMap: Record<string, string> = {
     '/consumables': 'Vật tư', '/components': 'Vật tư', '/accessories': 'Vật tư',
@@ -84,6 +86,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/admin/asset-models': 'Quản trị', '/admin/locations': 'Quản trị',
     '/admin/depreciations': 'Quản trị', '/admin/companies': 'Quản trị', '/admin/departments': 'Quản trị',
     '/admin/system-infos': 'Quản trị', '/admin/import': 'Quản trị',
+    '/admin/system-config': 'Quản trị',
   };
   const crumbSegs: { title: string }[] = [];
   const exactLabel = crumbMap[location.pathname];
@@ -127,6 +130,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/admin/companies': 'companies.view',
     '/admin/departments': 'departments.view',
     '/admin/system-infos': 'systems.view',
+    '/admin/system-config': 'system.config',
   };
 
   // Permission gating: superuser/admin sees everything. Otherwise a leaf is shown only
@@ -175,6 +179,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { key: '/admin/departments', icon: <ApartmentOutlined />, label: 'Phòng ban' },
     { key: '/admin/system-infos', icon: <ClusterOutlined />, label: 'Hệ thống' },
     { key: '/admin/import', icon: <ImportOutlined />, label: 'Import Excel' },
+    { key: '/admin/system-config', icon: <SettingOutlined />, label: 'Cấu hình hệ thống' },
   ]);
 
   const menuGroups: { label: string; items: NonNullable<MenuProps['items']> }[] = [];
@@ -239,6 +244,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/admin/asset-models': 'admin', '/admin/locations': 'admin',
     '/admin/depreciations': 'admin', '/admin/companies': 'admin', '/admin/departments': 'admin',
     '/admin/system-infos': 'admin', '/admin/import': 'admin',
+    '/admin/system-config': 'admin',
   };
   const activeSubmenu = submenuByKey[selectedKey];
   const [openKeys, setOpenKeys] = useState<string[]>(activeSubmenu ? [activeSubmenu] : []);
@@ -548,6 +554,9 @@ function App() {
             } />
             <Route path="/admin/import" element={
               <ProtectedRoute><AppLayout><ImportPage /></AppLayout></ProtectedRoute>
+            } />
+            <Route path="/admin/system-config" element={
+              <ProtectedRoute><AppLayout><SystemConfigPage /></AppLayout></ProtectedRoute>
             } />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

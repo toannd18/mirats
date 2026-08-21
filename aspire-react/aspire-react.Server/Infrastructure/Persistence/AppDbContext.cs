@@ -56,6 +56,10 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<CustomFieldset> CustomFieldsets => Set<CustomFieldset>();
     public DbSet<CustomFieldFieldset> CustomFieldFieldsets => Set<CustomFieldFieldset>();
 
+    // System configuration & auto-gen counters (Task ASSET-TAG-AUTO)
+    public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
+    public DbSet<AssetTagCounter> AssetTagCounters => Set<AssetTagCounter>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -67,6 +71,8 @@ public class AppDbContext : DbContext, IApplicationDbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
             entity.Property(e => e.Name).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.Code).IsRequired().HasMaxLength(20);
+            entity.HasIndex(e => e.Code).IsUnique();
             entity.HasOne(e => e.Parent).WithMany(e => e.Children).HasForeignKey(e => e.ParentId).OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -488,6 +494,26 @@ public class AppDbContext : DbContext, IApplicationDbContext
             entity.HasKey(e => new { e.FieldsetId, e.FieldId });
             entity.HasOne(e => e.Fieldset).WithMany(fs => fs.CustomFieldFieldsets).HasForeignKey(e => e.FieldsetId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Field).WithMany(cf => cf.CustomFieldFieldsets).HasForeignKey(e => e.FieldId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // === System configuration & auto-gen counters (Task ASSET-TAG-AUTO) ===
+        modelBuilder.Entity<SystemSetting>(entity =>
+        {
+            entity.ToTable("system_settings");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.Key).IsRequired().HasMaxLength(100);
+            entity.HasIndex(e => e.Key).IsUnique();
+            entity.Property(e => e.Value).IsRequired().HasMaxLength(2000);
+            entity.Property(e => e.Description).HasMaxLength(500);
+        });
+
+        modelBuilder.Entity<AssetTagCounter>(entity =>
+        {
+            entity.ToTable("asset_tag_counters");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.HasIndex(e => new { e.CompanyId, e.Year }).IsUnique();
         });
 
         // === Global Query Filters (FMCS Multi-tenant) ===

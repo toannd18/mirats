@@ -131,7 +131,8 @@ public static class PermissionCatalog
         new("systems.edit", "systems", "edit", "Cập nhật hệ thống / vị trí"),
         new("systems.delete", "systems", "delete", "Xóa hệ thống / vị trí"),
         new("admin", "system", "admin", "Quyền quản trị hệ thống (wildcard cho mọi quyền khác)"),
-        new("superuser", "system", "superuser", "Toàn quyền tuyệt đối (bypass mọi kiểm tra)")
+        new("superuser", "system", "superuser", "Toàn quyền tuyệt đối (bypass mọi kiểm tra)"),
+        new("system.config", "system", "config", "Cấu hình hệ thống (VD format tự sinh Mã tài sản)")
     };
 }
 

@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using aspire_react.Server.Application.Accessories.Commands;
 using aspire_react.Server.Application.Assets.Commands;
 using aspire_react.Server.Domain.Entities;
@@ -83,7 +83,7 @@ public class TaskL2CreateCompanyScopeTests
         await ctx.SaveChangesAsync();
 
         var handler = new CreateAssetCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, actor.Id),
-            new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
+            new TestHelpers.FakeScope { Super = false, CompanyId = ctA }, new AssetTagGenerator(ctx));
         var result = await handler.Handle(new CreateAssetCommand
         {
             AssetTag = "AST-CROSS", Name = "Cross", CompanyId = ctB, CurrentUserId = actor.Id
@@ -104,7 +104,7 @@ public class TaskL2CreateCompanyScopeTests
         await ctx.SaveChangesAsync();
 
         var handler = new CreateAssetCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, actor.Id),
-            new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
+            new TestHelpers.FakeScope { Super = false, CompanyId = ctA }, new AssetTagGenerator(ctx));
         var result = await handler.Handle(new CreateAssetCommand
         {
             AssetTag = "AST-OK", Name = "OK", CompanyId = ctA, CurrentUserId = actor.Id
@@ -124,7 +124,7 @@ public class TaskL2CreateCompanyScopeTests
         await ctx.SaveChangesAsync();
 
         var handler = new CreateAssetCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, actor.Id),
-            new TestHelpers.FakeScope { Super = true });
+            new TestHelpers.FakeScope { Super = true }, new AssetTagGenerator(ctx));
         var result = await handler.Handle(new CreateAssetCommand
         {
             AssetTag = "AST-SU", Name = "SU", CompanyId = ctB, CurrentUserId = actor.Id

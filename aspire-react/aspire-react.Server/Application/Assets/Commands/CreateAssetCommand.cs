@@ -40,10 +40,11 @@ public class CreateAssetCommandValidator : AbstractValidator<CreateAssetCommand>
     public CreateAssetCommandValidator(AppDbContext context)
     {
         _context = context;
-        RuleFor(x => x.AssetTag).NotEmpty().MaximumLength(255);
+        // [Task ASSET-TAG-AUTO] AssetTag is now OPTIONAL: empty/null → auto-generated. Only bound its length.
+        RuleFor(x => x.AssetTag).MaximumLength(255);
         RuleFor(x => x.Name).NotEmpty().MaximumLength(255);
         RuleFor(x => x.AssetTag)
-            .MustAsync(async (tag, ct) =>
+            .MustAsync(async (tag, ct) => string.IsNullOrWhiteSpace(tag) ||
                 !await _context.Assets.AnyAsync(a => a.AssetTag == tag, ct))
             .WithMessage("Mã tài sản đã tồn tại trong hệ thống.");
     }
@@ -54,12 +55,14 @@ public class CreateAssetCommandHandler : IRequestHandler<CreateAssetCommand, Ass
     private readonly AppDbContext _context;
     private readonly IActionLogService _actionLogService;
     private readonly ICompanyScopeService _companyScope;
+    private readonly IAssetTagGenerator _assetTagGenerator;
 
-    public CreateAssetCommandHandler(AppDbContext context, IActionLogService actionLogService, ICompanyScopeService companyScope)
+    public CreateAssetCommandHandler(AppDbContext context, IActionLogService actionLogService, ICompanyScopeService companyScope, IAssetTagGenerator assetTagGenerator)
     {
         _context = context;
         _actionLogService = actionLogService;
         _companyScope = companyScope;
+        _assetTagGenerator = assetTagGenerator;
     }
 
     public async Task<AssetResult> Handle(CreateAssetCommand request, CancellationToken cancellationToken)
@@ -71,9 +74,13 @@ public class CreateAssetCommandHandler : IRequestHandler<CreateAssetCommand, Ass
         if (userCompanyId.HasValue && request.CompanyId.HasValue && request.CompanyId.Value != userCompanyId.Value)
             return new AssetResult(false, "Bạn chỉ được tạo tài sản cho công ty của mình.", ErrorCode: "COMPANY_MISMATCH");
 
+        // [Task ASSET-TAG-AUTO] Empty/null AssetTag → auto-generate from the configured format.
+        // Non-empty → use the caller's value as-is (still passes the unique DB constraint).
+        var assetTag = await _assetTagGenerator.ResolveAssetTagAsync(request.AssetTag, request.CompanyId, cancellationToken);
+
         var asset = new Asset
         {
-            AssetTag = request.AssetTag,
+            AssetTag = assetTag,
             Name = request.Name,
             Serial = request.Serial,
             Image = request.Image,
@@ -101,8 +108,8 @@ public class CreateAssetCommandHandler : IRequestHandler<CreateAssetCommand, Ass
             actionType: ActionType.Create,
             loggedByUserId: request.CurrentUserId,
             companyId: asset.CompanyId,
-            note: $"Created asset: {request.AssetTag} - {request.Name}",
-            logMeta: JsonSerializer.Serialize(new { assetTag = request.AssetTag, name = request.Name, serial = request.Serial }));
+            note: $"Created asset: {assetTag} - {request.Name}",
+            logMeta: JsonSerializer.Serialize(new { assetTag, name = request.Name, serial = request.Serial }));
 
         await _context.SaveChangesAsync(cancellationToken);
 

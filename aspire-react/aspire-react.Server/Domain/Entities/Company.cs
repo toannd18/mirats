@@ -6,6 +6,9 @@ public class Company : IAuditable
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = string.Empty;
+    /// <summary>Short unique code used for {COMPANY} in auto-generated Asset Tags (Task ASSET-TAG-AUTO).
+    /// Auto-suggested from the name but admin-editable. "NOCO" is reserved for company-less floaters.</summary>
+    public string Code { get; set; } = string.Empty;
     public Guid? ParentId { get; set; }
 
     // Multi-tenant hierarchy

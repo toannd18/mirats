@@ -2117,5 +2117,108 @@ Mở rộng Import cho SystemInfo/SystemPosition — mô hình y hệt T1-T6. Ve
   - **Tests (+8)** `SystemInfoCreateCompanyScopeTests.cs`: Create → 400/200/200/200 (other/own/floater/super); AddPosition → 404/200/200/200. `dotnet test` **314/314 PASS**.
 - **Verify API THẬT** (xem mục dưới — sau khi restart stack).
 
+## 51. SẮP XẾP LẠI BỐ CỤC MODAL "TẠO TÀI SẢN MỚI" — CHỈ THAY ĐỔI VỊ TRÍ FIELD (2026-08-20)
 
+> Ràng buộc: **KHÔNG thêm/bớt/ẩn field, KHÔNG đổi label/placeholder/validate, KHÔNG đụng logic Model→Category.** Chỉ sửa vị trí hiển thị (Row/Col/thứ tự nhóm).
+
+### Bước 0 — Audit
+- Modal "Tạo tài sản mới" nằm **inline** trong `frontend/src/features/asset/pages/AssetListPage.tsx` (hàm `AssetCreateFormModal`, ~line 374), KHÔNG phải file `CreateAssetFlowModal.tsx` riêng.
+- 2 section có hàng lẻ 1 cột, do mỗi `Col` khai báo `lg={8}` (1/3 bề rộng) → trên desktop 3 cột/hàng, field thứ 4 rơi hàng riêng chiếm 1/3.
+
+### Field checklist (TRƯỚC = SAU — giống hệt, chỉ khác vị trí)
+**Section "Phân loại" (4 field, giữ nguyên thứ tự):** `modelId` (Model) → `locationId` (Vị trí) → `supplierId` (Nhà cung cấp) → `companyId` (Công ty)
+- TRƯỚC: hàng 1 = [Model, Vị trí, Nhà cung cấp] (3 cột), hàng 2 = [Công ty] (1 cột, trống 2/3).
+- SAU: hàng 1 = [Model, Vị trí], hàng 2 = [Nhà cung cấp, Công ty] — **2 hàng × 2 cột đều nhau**.
+
+**Section "Tài chính" (4 field, giữ nguyên thứ tự):** `purchaseCost` (Giá mua) → `purchaseDate` (Ngày mua) → `warrantyMonths` (Thời hạn bảo hành) → `orderNumber` (Số đơn hàng)
+- TRƯỚC: hàng 1 = [Giá mua, Ngày mua, Bảo hành], hàng 2 = [Số đơn hàng] (1 cột, trống 2/3).
+- SAU: hàng 1 = [Giá mua, Ngày mua], hàng 2 = [Thời hạn bảo hành, Số đơn hàng] — **2 hàng × 2 cột đều nhau**.
+
+### Thay đổi (1 file, 8 dòng — chỉ đổi `Col` span)
+`frontend/src/features/asset/pages/AssetListPage.tsx`: đổi **8** `Col` (4 của "Phân loại" + 4 của "Tài chính") từ `lg={8}` → `lg={12}`. `xs={24}` giữ nguyên → mobile (375px) tự xuống 1 field/hàng, không vỡ layout. "Thông tin chung" (vẫn `lg={8}`) + "Ghi chú" + toàn bộ logic không đụng.
+
+### Verify
+- **Field TRƯỚC/SAU giống hệt**: diff xác nhận chỉ thay đổi `lg={8}`→`lg={12}` trên 8 `Col`, không đổi field/label/order/validate/logic.
+- **UI thật (playwright-cli, admin):** mở modal → đủ 8 field: Model, Vị trí, Nhà cung cấp, Công ty (Phân loại); Giá mua, Ngày mua, Thời hạn bảo hành, Số đơn hàng (Tài chính). Desktop + resize 375px đều hiển thị đủ, không vỡ. Console chỉ deprecation warning antd pre-existing (`destroyOnClose`→`destroyOnHidden`).
+- `npm run build` (tsc -b && vite build) → **0 lỗi TS** (chỉ chunk-size warning pre-existing).
+- Ảnh: `assetmodal-desktop.png`, `assetmodal-375-after.png` (repo root, scratch).
+- ⚠️ Model→Category logic (nếu field "Category" gợi ý từ Model) **KHÔNG đụng** — hiện modal không hiển thị field Category, đúng như ràng buộc.
+
+## 52. MỞ RỘNG CỘT "TÊN TÀI SẢN" — SECTION "THÔNG TIN CHUNG" — CHỈ ĐỔI TỶ LỆ CỘT (2026-08-20)
+
+> Ràng buộc: CHỈ đổi tỷ lệ chiều rộng 3 field Mã tài sản / Tên tài sản / Serial trong section "Thông tin chung". KHÔNG thêm/bớt/đổi field, label, placeholder, validate. KHÔNG đụng 2 section "Phân loại"/"Tài chính".
+
+### Bước 0 — Audit
+- `frontend/src/features/asset/pages/AssetListPage.tsx` (~line 378): section "Thông tin chung" trước đó dùng `lg={8}` cho cả 3 field → 3 cột bằng nhau → "Tên tài sản" (chuỗi dài) bị chật.
+
+### Thay đổi (1 file, 3 dòng — chỉ đổi `Col` span của 3 field "Thông tin chung")
+- **Mã tài sản** (`assetTag`): `lg={8}` → `lg={6}` (1 phần).
+- **Tên tài sản** (`name`): `lg={8}` → `lg={12}` (2 phần — rộng gấp đôi).
+- **Serial** (`serial`): `lg={8}` → `lg={6}` (1 phần).
+- Tỷ lệ desktop = **6:12:6** (Mã : Tên : Serial). `xs={24} md={12}` giữ nguyên → mobile xuống 1 field/hàng.
+
+### Verify
+- **Field TRƯỚC/SAU giống hệt**: diff chỉ đổi `lg` span của 3 `Col` trong section "Thông tin chung"; field/label/order/validate/logic không đổi. "Phân loại"/"Tài chính" (đã sửa ở task 51) không bị đụng lại.
+- **Đo bề rộng thật (playwright-cli, admin):** desktop → **Mã tài sản 158px, Tên tài sản 331px, Serial 158px** (tỷ lệ ~1:2:1 đúng mong đợi).
+- **Test tên dài thực tế (46 ký tự: "Bo dieu khien joystick AXIS T8311 KVM Extender"):** `scrollWidth=329 == clientWidth=329` → **hiển thị ĐỦ, không bị cắt/tràn** trên desktop.
+- **Responsive 375px:** cả 3 field full-width (277px), xếp riêng từng hàng (top 245/332/418) → không vỡ layout; tên dài cuộn nhẹ trong input 1 dòng (hành vi chuẩn).
+- `npm run build` (tsc -b && vite build) → **0 lỗi TS**.
+- Ảnh: `thongtin-longname-desktop.png` (desktop + tên dài), `thongtin-375.png` (mobile).
+
+## 53. FIX LỖI "KHÔNG GỬI QTY KHI TẠO LINH KIỆN SERIAL" — COMPONENTFORMMODAL GỬI THỪA FIELD (2026-08-20)
+
+> Ràng buộc: CHỈ sửa frontend cho khớp backend validate (backend đang đúng). KHÔNG đổi field/UI, KHÔNG đổi luồng Bulk.
+
+### Bước 0 — Root cause (trích dẫn code cụ thể)
+- **Frontend** `frontend/src/features/component/components/ComponentFormModal.tsx`, hàm `submit`, branch tạo mới (~line 193): payload LUÔN gán `qty: typeof vals.qty === 'number' ? vals.qty : 0` (line cũ 196) bất kể `trackingType`. Khi `trackingType === 'Serial'`, form không có ô "Tổng số lượng" (bị unmount) nên `vals.qty` là `undefined` → payload gửi `qty: 0`.
+- **Toggle Bulk→Serial:** ô `qty` (Form.Item name="qty") unmount khi chuyển Serial nhưng giá trị form state **còn giữ** trong antd (không `preserve:false`) → `vals.qty` là giá trị cũ từ lúc Bulk (VD 5), vẫn bị đưa vào payload.
+- **Backend** `ComponentsController.cs` line 173-174: `if (r.TrackingType == Serial && r.Qty.HasValue) → 400 "Không gửi qty khi tạo linh kiện Serial..."`. Backend yêu cầu `qty` **HOÀN TOÀN KHÔNG XUẤT HIỆN** trong payload (`Qty.HasValue == false`); gửi `0` cũng bị chặn. → Sửa đúng cách là **omit hẳn key `qty`** khi Serial (không gửi `null`/`0`).
+
+### Fix (1 file, branch tạo mới)
+- Bỏ `qty` khỏi object payload ban đầu; chỉ gán `payload.qty` khi `effectiveTrackingType === 'Bulk'`:
+  ```ts
+  if (effectiveTrackingType === 'Bulk') {
+    payload.qty = typeof vals.qty === 'number' ? vals.qty : 0;
+  }
+  ```
+- Khi Serial → payload không chứa key `qty` (omitted), kể cả khi có qty leftover từ toggle Bulk trước đó.
+
+### Verify UI thật (playwright-cli, admin) — 3 kịch bản
+1. **Serial (đúng kịch bản lỗi):** chọn Serial, Tên "RAM Serial Test QA", Danh mục RAM, Công ty, nhập 3 serial (QA-SN-001/2/3, "Đã nhập: 3 serial") → bấm Tạo mới → **thành công, KHÔNG còn lỗi "Không gửi qty"**. DB: `TrackingType=1 (Serial)`, `Qty=3` (suy ra từ serial), **3 ComponentUnit** (QA-SN-001/2/3). ✅
+2. **Toggle Bulk→Serial→Bulk→Serial:** đặt qty=5 ở Bulk, toggle qua Serial↔Bulk↔Serial, thêm 1 serial TGL-SN-001 → submit → **thành công**. DB: `TrackingType=1`, `Qty=1` (từ serial, KHÔNG phải qty leftover=5), 1 unit. ✅
+3. **Bulk (không regression):** Tên "RAM Bulk QA", qty=7 → submit → **thành công**. DB: `TrackingType=0 (Bulk)`, `Qty=7`, 0 unit serial. ✅
+- `npm run build` (tsc -b && vite build) → **0 lỗi TS**.
+- **Dọn sạch test data:** 3 component test + 4 unit + ActionLog = 0.
+- Lưu ý: công ty "Công ty Quản lý bay miền Trung" + danh mục Component (RAM...) là dữ liệu có sẵn từ trước (import mẫu), KHÔNG phải do test này tạo.
+
+## 54. TỰ SINH MÃ TÀI SẢN (ASSET TAG) THEO FORMAT ADMIN CẤU HÌNH (2026-08-21)
+
+### Thiết kế đã chốt (audit + 4 câu hỏi + 2 làm rõ)
+- **Format token:** chuỗi tự do hỗ trợ `{COMPANY}` (mã công ty, NOCO nếu không có), `{YYYY}` (năm 4 số), `{SEQ:n}` (số thứ tự đệm n chữ số). VD `AST-{COMPANY}-{YYYY}-{SEQ:3}` → `AST-ABC-2026-001`. Admin cấu hình qua 1 ô; cho phép lưu thiếu `{COMPANY}` kèm cảnh báo nguy cơ trùng (không chặn cứng).
+- **Bộ đếm:** keyed theo `(CompanyId, Year)` — mỗi công ty đếm riêng + reset 001 mỗi năm (giống T7).
+- **XUNG ĐỘT đã phát hiện + giải quyết:** unique constraint `IX_assets_AssetTag` là GLOBAL, nhưng counter đã chốt RIÊNG công ty → 2 công ty cùng sinh `AST-2026-001` vi phạm constraint. **Giải pháp (Option 3):** thêm cột `Company.Code`, token `{COMPANY}` chèn mã công ty vào tag để unique global thật sự mà không đổi constraint Task L. `NOCO` reserved cho floater.
+
+### Backend (T-A1 + T-A2)
+- **Entity mới:** `SystemSetting` (key-value cấu hình tĩnh) + `AssetTagCounter` (CompanyId, Year, CurrentSeq; unique index (CompanyId,Year)).
+- **Migration:** `AddSystemSettingsAndAssetTagCounter` (2 bảng). `AddCompanyCode`: thêm `companies.Code` (unique, max 20) + **backfill SQL tự sinh mã** cho công ty hiện có (bỏ dấu, uppercase, ≤4 chữ + hậu tố số; không dùng NOCO).
+- **Permission:** thêm `system.config` vào PermissionCatalog.
+- **API:** `GET/PUT /api/v1/system/config/asset-tag-format` (PUT gate `system.config`); `CompaniesController` thêm Code vào DTO/Create/Update + auto-suggest `SuggestCodeAsync` + validate `NOCO` + unique.
+- **`AssetTagGenerator`** (`Infrastructure/Services`): `ResolveAssetTagAsync` (explicit tag → dùng nguyên; rỗng → sinh). Render `{COMPANY}`/`{YYYY}`/`{SEQ:n}`. Counter trong transaction + **FOR UPDATE** + `CreateExecutionStrategy` (Task O pattern). Dùng `NpgsqlParameter` typed để tránh `42P18` khi companyId null.
+- **CreateAssetCommand:** bỏ `NotEmpty` AssetTag (optional), handler gọi `ResolveAssetTagAsync`. Unique constraint vẫn là lớp bảo vệ cuối.
+
+### Frontend (T-A3 + T-A4)
+- **`SystemConfigPage`** (`features/admin/pages`): trang "Cấu hình hệ thống" — form format, chỉ đọc nếu thiếu `system.config`, validate `{SEQ:n}` + pattern, nút Lưu/Tải lại. Menu QUẢN TRỊ thêm "Cấu hình hệ thống" (`/admin/system-config`), breadcrumb + permMap + route.
+- **Create Asset modal** (`AssetListPage`): AssetTag bỏ `required`, placeholder "Để trống để tự sinh mã". **KHÔNG đụng bố cục 2 section.**
+- **CompanyListPage:** thêm cột + form field "Mã công ty", TreeSelect hiển thị `(code)`, validate NOCO + alnum.
+
+### Verify
+- `dotnet test` fast suite **332/332 PASS** (+ `AssetTagGeneratorTests` 16: render theory, set-format valid/invalid, explicit pass-through; `ValidationBehaviorTests.Behavior_EmptyTag` đổi từ fail→pass).
+- **API THẬT:** công ty CNGT → `AST-CNGT-2026-001`; công ty QATA → `AST-QATA-2026-001` (counter riêng); floater → `AST-NOCO-2026-001`. **Concurrency 8 luồng cùng lúc** (QATA) → tags `AST-QATA-2026-002..009` unique, counter=9 (không trùng, FOR UPDATE hoạt động). Tạo công ty code=NOCO → 400. Auto-suggest "QA-AutoCode Co"→`QAAU`. PUT/GET format OK.
+- `npm run build` 0 lỗi TS · `audit-sweeps.ps1` exit 0 · UI thật: config page hiển thị format, Create Asset modal placeholder "Để trống để tự sinh mã".
+- **Dọn sạch test data:** QA companies/assets/counters/settings/action_logs = 0; còn 1 công ty gốc (CNGT) + 8 asset mẫu.
+
+### ⚠️ Lưu ý cho người sau
+- Company hiện có cần có Code (migration backfill đã tự sinh). Mã dùng trong AssetTag — đổi Code sẽ ảnh hưởng các tag đã tạo (không tự cập nhật lại tag cũ).
+- Công ty floater dùng `NOCO` — không công ty nào được đặt Code = NOCO.
+- Nếu admin cấu hình format thiếu `{COMPANY}`: hệ thống vẫn cho phép nhưng cảnh báo; nguy cơ trùng mã giữa công ty là do admin tự chấp nhận.
 

@@ -66,19 +66,25 @@ public class CompaniesController : ControllerBase
     {
         var c = await _context.Companies.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
         if (c == null) return NotFound(new { status = "error", message = "Not found" });
-        return Ok(new { status = "success", data = new { c.Id, c.Name, c.ParentId, Children = new List<object>() } });
+        return Ok(new { status = "success", data = new { c.Id, c.Name, c.Code, c.ParentId, Children = new List<object>() } });
     }
 
     [HttpPost, Authorize(Policy = "companies.create")]
     public async Task<IActionResult> Create([FromBody] CompanyDto dto)
     {
-        var c = new Company { Name = dto.Name, ParentId = dto.ParentId };
+        // [Task ASSET-TAG-AUTO] Code: admin may supply; otherwise auto-suggest from name.
+        var code = string.IsNullOrWhiteSpace(dto.Code) ? await SuggestCodeAsync(dto.Name) : dto.Code.Trim().ToUpperInvariant();
+        if (code == "NOCO") return BadRequest(new { status = "error", message = "\"NOCO\" là mã dành riêng cho tài sản không thuộc công ty, không được dùng." });
+        if (await _context.Companies.AnyAsync(c => c.Code == code))
+            return BadRequest(new { status = "error", message = $"Mã công ty '{code}' đã tồn tại." });
+
+        var c = new Company { Name = dto.Name, Code = code, ParentId = dto.ParentId };
         _context.Companies.Add(c);
         await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Company, ItemId = c.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Tạo công ty \"{c.Name}\"" });
+        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Company, ItemId = c.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Tạo công ty \"{c.Name}\" (mã {code})" });
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateCompaniesAsync();
-        return Ok(new { status = "success", data = new { c.Id, c.Name, c.ParentId } });
+        return Ok(new { status = "success", data = new { c.Id, c.Name, c.Code, c.ParentId } });
     }
 
     [HttpPut("{id:guid}"), Authorize(Policy = "companies.edit")]
@@ -86,9 +92,15 @@ public class CompaniesController : ControllerBase
     {
         var c = await _context.Companies.FindAsync(id);
         if (c == null) return NotFound(new { status = "error", message = "Not found" });
-        var before = new { c.Name, c.ParentId };
+        var before = new { c.Name, c.Code, c.ParentId };
         c.Name = dto.Name;
         c.ParentId = dto.ParentId;
+        // Code is editable on update; validate NOCO + uniqueness when it changes.
+        var code = string.IsNullOrWhiteSpace(dto.Code) ? c.Code : dto.Code.Trim().ToUpperInvariant();
+        if (code == "NOCO") return BadRequest(new { status = "error", message = "\"NOCO\" là mã dành riêng cho tài sản không thuộc công ty, không được dùng." });
+        if (code != c.Code && await _context.Companies.AnyAsync(x => x.Code == code && x.Id != id))
+            return BadRequest(new { status = "error", message = $"Mã công ty '{code}' đã tồn tại." });
+        c.Code = code;
         // Prevent circular reference: cannot set parent to itself or its children
         if (dto.ParentId.HasValue)
         {
@@ -98,7 +110,7 @@ public class CompaniesController : ControllerBase
         }
         await _context.SaveChangesAsync();
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Company, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = null,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = c.Name }, parentId = new { old = before.ParentId, @new = c.ParentId } } }), Note = $"Cập nhật công ty \"{c.Name}\"" });
+            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = c.Name }, code = new { old = before.Code, @new = c.Code }, parentId = new { old = before.ParentId, @new = c.ParentId } } }), Note = $"Cập nhật công ty \"{c.Name}\"" });
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateCompaniesAsync();
         return Ok(new { status = "success", message = "Updated" });
@@ -176,10 +188,50 @@ public class CompaniesController : ControllerBase
             {
                 c.Id,
                 c.Name,
+                c.Code,
                 c.ParentId,
                 Children = BuildTree(all, c.Id)
             }).ToList<object>();
     }
+
+    /// <summary>Auto-suggests a short unique company code from the name (Task ASSET-TAG-AUTO).
+    /// Reuses the Manufacturer-style algorithm: uppercase letters/digits, strip diacritics, keep up to
+    /// 4 chars; append a numeric suffix when the base is taken; never "NOCO" (reserved for floaters).</summary>
+    private async Task<string> SuggestCodeAsync(string name)
+    {
+        var baseCode = StripDiacritics(name).Where(char.IsLetterOrDigit)
+            .Select(char.ToUpperInvariant).ToArray();
+        var sb = new System.Text.StringBuilder();
+        foreach (var ch in baseCode) if (char.IsLetter(ch)) sb.Append(ch); // prefer letters for readability
+        if (sb.Length == 0) sb.Append("CO");
+        var letters = sb.ToString();
+        var basePart = letters.Length > 4 ? letters[..4] : letters;
+
+        var candidate = basePart;
+        if (candidate == "NOCO") candidate = "CO" + candidate;
+        var suffix = 2;
+        while (await _context.Companies.AnyAsync(c => c.Code == candidate) || candidate == "NOCO")
+        {
+            var suffixStr = suffix.ToString();
+            var prefixLen = Math.Max(0, 4 - suffixStr.Length);
+            candidate = basePart[..Math.Min(basePart.Length, prefixLen)] + suffixStr;
+            if (candidate == "NOCO") candidate = basePart + suffixStr;
+            suffix++;
+        }
+        return candidate;
+    }
+
+    private static string StripDiacritics(string s)
+    {
+        var normalized = s.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder();
+        foreach (var ch in normalized)
+        {
+            var uc = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch);
+            if (uc != System.Globalization.UnicodeCategory.NonSpacingMark) sb.Append(ch);
+        }
+        return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
+    }
 }
 
-public record CompanyDto(string Name, Guid? ParentId);
+public record CompanyDto(string Name, Guid? ParentId, string? Code = null);

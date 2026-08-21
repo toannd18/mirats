@@ -9,6 +9,7 @@ import { usePermission } from '../../../hooks/usePermission';
 interface CompanyNode {
   id: string;
   name: string;
+  code: string;
   parentId: string | null;
   children: CompanyNode[];
 }
@@ -38,7 +39,7 @@ export default function CompanyListPage() {
       // A node is a child (level 2) if isRoot is false
       const isChild = !isRoot;
       return {
-        title: n.name,
+        title: `${n.name} (${n.code || '-'})`,
         value: n.id,
         // Disable child companies — they cannot be selected as parent
         disabled: isChild,
@@ -50,7 +51,7 @@ export default function CompanyListPage() {
   const handleEdit = (record: CompanyNode) => {
     setEditingId(record.id);
     setSelectedParentId(null);
-    form.setFieldsValue({ name: record.name, parentId: record.parentId });
+    form.setFieldsValue({ name: record.name, code: record.code, parentId: record.parentId });
     setOpen(true);
   };
 
@@ -127,6 +128,7 @@ export default function CompanyListPage() {
   };
 
   const columns: ProColumns<CompanyNode>[] = [
+    { title: 'Mã công ty', dataIndex: 'code', key: 'code', width: 120, render: (_, r) => r.code || '-' },
     { title: 'Tên công ty', dataIndex: 'name', key: 'name' },
     {
       title: 'Hành động',
@@ -191,6 +193,13 @@ export default function CompanyListPage() {
         <Form form={form} layout="vertical" onFinish={save}>
           <Form.Item label="Tên công ty" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
             <Input placeholder="Tên công ty" />
+          </Form.Item>
+          <Form.Item label="Mã công ty" name="code" rules={[
+            { max: 20, message: 'Mã tối đa 20 ký tự' },
+            { pattern: /^[A-Za-z0-9]+$/, message: 'Chỉ chấp nhận chữ/số, không dấu' },
+            { validator: (_, v) => v && v.toUpperCase() === 'NOCO' ? Promise.reject('"NOCO" là mã dành riêng cho tài sản không thuộc công ty.') : Promise.resolve() },
+          ]} extra="Dùng trong mã tự sinh của tài sản. Để trống sẽ tự gợi ý từ tên công ty.">
+            <Input placeholder="VD: ABC" style={{ textTransform: 'uppercase' }} />
           </Form.Item>
           <Form.Item label="Công ty cha" name="parentId">
             <TreeSelect

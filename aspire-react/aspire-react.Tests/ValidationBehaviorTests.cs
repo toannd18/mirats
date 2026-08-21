@@ -1,4 +1,4 @@
-﻿using aspire_react.Server.Application.Assets.Commands;
+using aspire_react.Server.Application.Assets.Commands;
 using aspire_react.Server.Application.Common.Behaviors;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Infrastructure.Persistence;
@@ -39,15 +39,17 @@ public class ValidationBehaviorTests
     }
 
     [Fact]
-    public async Task Behavior_EmptyTag_FailsValidation()
+    public async Task Behavior_EmptyTag_PassesValidation_ForAutoGeneration()
     {
-        await using var ctx = CreateContext(nameof(Behavior_EmptyTag_FailsValidation));
+        // [Task ASSET-TAG-AUTO] AssetTag is now OPTIONAL — empty/null is auto-generated, so it must
+        // NOT fail validation. (The duplicate check is skipped for blank tags too.)
+        await using var ctx = CreateContext(nameof(Behavior_EmptyTag_PassesValidation_ForAutoGeneration));
         var behavior = new ValidationBehavior<CreateAssetCommand, AssetResult>(
             new[] { new CreateAssetCommandValidator(ctx) });
         var cmd = new CreateAssetCommand { AssetTag = "", Name = "New", CurrentUserId = Guid.NewGuid() };
 
-        await Assert.ThrowsAsync<FluentValidation.ValidationException>(
-            () => behavior.Handle(cmd, _ => Task.FromResult(new AssetResult(true, "ok")), CancellationToken.None));
+        var result = await behavior.Handle(cmd, _ => Task.FromResult(new AssetResult(true, "ok")), CancellationToken.None);
+        Assert.True(result.Success);
     }
 
     [Fact]

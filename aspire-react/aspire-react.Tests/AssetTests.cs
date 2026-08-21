@@ -63,7 +63,7 @@ public class AssetTests
         await using var ctx = TestHelpers.CreateContext(nameof(Create_Succeeds_CreatesAsset_AndLogsCreateWithCompanyId));
         var (companyId, _, modelId) = await SeedMasterAsync(ctx);
         var actionLog = TestHelpers.CreateActionLogService(ctx, ActorId);
-        var handler = new CreateAssetCommandHandler(ctx, actionLog, new TestHelpers.SuperUserScope());
+        var handler = new CreateAssetCommandHandler(ctx, actionLog, new TestHelpers.SuperUserScope(), new AssetTagGenerator(ctx));
 
         var result = await handler.Handle(new CreateAssetCommand
         {

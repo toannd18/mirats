@@ -375,25 +375,25 @@ function AssetCreateFormModal({ open, onClose, onSubmit, lookups }: {
       <Form form={form} layout="vertical" size="middle" onFinish={onSubmit}>
         <Card size="small" title="Thông tin chung" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px 16px 4px' } }}>
           <Row gutter={[16, 0]}>
-            <Col xs={24} md={12} lg={8}><Form.Item name="assetTag" label="Mã tài sản" rules={[{ required: true, message: 'Nhập mã tài sản' }]}><Input placeholder="VD: AST-001" /></Form.Item></Col>
-            <Col xs={24} md={12} lg={8}><Form.Item name="name" label="Tên tài sản" rules={[{ required: true }]}><Input placeholder="Tên tài sản" /></Form.Item></Col>
-            <Col xs={24} md={12} lg={8}><Form.Item name="serial" label="Serial"><Input placeholder="Số serial" /></Form.Item></Col>
+            <Col xs={24} md={12} lg={6}><Form.Item name="assetTag" label="Mã tài sản"><Input placeholder="Để trống để tự sinh mã" /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="name" label="Tên tài sản" rules={[{ required: true }]}><Input placeholder="Tên tài sản" /></Form.Item></Col>
+            <Col xs={24} md={12} lg={6}><Form.Item name="serial" label="Serial"><Input placeholder="Số serial" /></Form.Item></Col>
           </Row>
         </Card>
         <Card size="small" title="Phân loại" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px 16px 4px' } }}>
           <Row gutter={[16, 0]}>
-            <Col xs={24} md={12} lg={8}><Form.Item name="modelId" label="Model"><Select showSearch allowClear options={modelOpts} filterOption={filterFn} /></Form.Item></Col>
-            <Col xs={24} md={12} lg={8}><Form.Item name="locationId" label="Vị trí"><Select showSearch allowClear options={locationOpts} filterOption={filterFn} /></Form.Item></Col>
-            <Col xs={24} md={12} lg={8}><Form.Item name="supplierId" label="Nhà cung cấp"><Select showSearch allowClear options={supplierOpts} filterOption={filterFn} /></Form.Item></Col>
-            <Col xs={24} md={12} lg={8}><Form.Item name="companyId" label="Công ty"><CompanyTreeSelect /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="modelId" label="Model"><Select showSearch allowClear options={modelOpts} filterOption={filterFn} /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="locationId" label="Vị trí"><Select showSearch allowClear options={locationOpts} filterOption={filterFn} /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="supplierId" label="Nhà cung cấp"><Select showSearch allowClear options={supplierOpts} filterOption={filterFn} /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="companyId" label="Công ty"><CompanyTreeSelect /></Form.Item></Col>
           </Row>
         </Card>
         <Card size="small" title="Tài chính" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px 16px 4px' } }}>
           <Row gutter={[16, 0]}>
-            <Col xs={24} md={12} lg={8}><Form.Item name="purchaseCost" label="Giá mua"><InputNumber min={0} style={{ width: '100%' }} addonAfter="VND" formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => (v?.replace(/,/g, '') ?? '') as unknown as 0} /></Form.Item></Col>
-            <Col xs={24} md={12} lg={8}><Form.Item name="purchaseDate" label="Ngày mua"><DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" /></Form.Item></Col>
-            <Col xs={24} md={12} lg={8}><Form.Item name="warrantyMonths" label="Thời hạn bảo hành"><InputNumber min={0} max={120} style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} md={12} lg={8}><Form.Item name="orderNumber" label="Số đơn hàng"><Input /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="purchaseCost" label="Giá mua"><InputNumber min={0} style={{ width: '100%' }} addonAfter="VND" formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => (v?.replace(/,/g, '') ?? '') as unknown as 0} /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="purchaseDate" label="Ngày mua"><DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="warrantyMonths" label="Thời hạn bảo hành"><InputNumber min={0} max={120} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="orderNumber" label="Số đơn hàng"><Input /></Form.Item></Col>
           </Row>
         </Card>
         <Card size="small" title="Ghi chú" style={{ borderRadius: 10, marginBottom: 24 }} styles={{ body: { padding: '16px 16px 4px' } }}>
