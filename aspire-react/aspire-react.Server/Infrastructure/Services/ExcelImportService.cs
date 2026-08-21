@@ -926,9 +926,11 @@ public class ExcelImportService : IExcelImportService
         return sb.ToString();
     }
 
-    /// <summary>Finds the header row — the first row (1..10) whose first cell matches the expected
-    /// first header AND whose second cell is also non-empty (a real header row has ≥2 columns;
-    /// instruction rows above it — e.g. "Ma tai san da sinh san theo quy uoc…" — only fill column A).</summary>
+    /// <summary>Finds the header row — the first row (1..10) whose first cell exactly matches the
+    /// expected first header (trusted even for single-column sheets such as 3_NhaSanXuat). A partial
+    /// (StartsWith) match is only accepted when its 2nd column is non-empty, so descriptive instruction
+    /// rows that merely begin with the header text (e.g. "Ma tai san da sinh san theo quy uoc…" and only
+    /// fill column A) are skipped.</summary>
     private static int? FindHeaderRow(IXLWorksheet ws, string expectedFirstHeader)
     {
         var target = Normalize(expectedFirstHeader);
@@ -936,13 +938,19 @@ public class ExcelImportService : IExcelImportService
         {
             var first = Normalize(ws.Cell(r, 1).GetString());
             if (first.Length == 0) continue;
-            if (!first.Equals(target, StringComparison.OrdinalIgnoreCase)
-                && !first.StartsWith(target, StringComparison.OrdinalIgnoreCase))
+            var exact = first.Equals(target, StringComparison.OrdinalIgnoreCase);
+            if (!exact && !first.StartsWith(target, StringComparison.OrdinalIgnoreCase))
                 continue;
-            // Guard against instruction rows that happen to start with the header text but have
-            // no second column (real header rows always have a 2nd column header).
-            var second = Normalize(ws.Cell(r, 2).GetString());
-            if (second.Length == 0) continue;
+            // Guard against instruction rows that START WITH the header text but are really
+            // descriptive sentences (e.g. "Ma tai san da sinh san theo quy uoc…") — such rows fill
+            // only column A. An EXACT header match is trusted even for single-column sheets (e.g. the
+            // 3_NhaSanXuat sheet legitimately has only one column), so the 2nd-column check only
+            // applies to partial (StartsWith) matches.
+            if (!exact)
+            {
+                var second = Normalize(ws.Cell(r, 2).GetString());
+                if (second.Length == 0) continue;
+            }
             return r;
         }
         return null;

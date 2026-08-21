@@ -230,6 +230,72 @@ public class ImportExcelServiceTests
         Assert.Equal(2, await ctx.ComponentUnits.CountAsync());
     }
 
+    // ─────────────────────────── T1 reference import ───────────────────────────
+
+    /// <summary>Builds ONLY the single-column manufacturer sheet (mirrors the sample workbook and the
+    /// user file assets-template(1).xlsx where 3_NhaSanXuat legitimately has just ONE column).</summary>
+    private static MemoryStream ManufacturersWorkbook(params string[] names)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.AddWorksheet("3_NhaSanXuat");
+        ws.Cell(1, 1).Value = "Ten nha san xuat";
+        for (int i = 0; i < names.Length; i++) ws.Cell(i + 2, 1).Value = names[i];
+        var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        ms.Position = 0;
+        return ms;
+    }
+
+    [Fact]
+    public async Task ManufacturersImport_SingleColumnSheet_FindsHeaderAndCreates()
+    {
+        // Regression: 3_NhaSanXuat is a legitimate SINGLE-column sheet (header in col A only). The
+        // old FindHeaderRow guard required a non-empty 2nd column, which wrongly rejected it →
+        // "thiếu cột 'Ten nha san xuat'" with 0 created. An exact header match must be trusted even
+        // with no 2nd column.
+        var s = await SeedAsync(nameof(ManufacturersImport_SingleColumnSheet_FindsHeaderAndCreates));
+        await using var ctx = s.ctx;
+        var svc = BuildService(ctx);
+
+        using var ms = ManufacturersWorkbook("HP", "Dell", "Seagate");
+        var result = await svc.ImportReferenceAsync(ms, s.actingUserId, s.companyId);
+
+        // Only the manufacturer sheet exists in this workbook → the other reference sheets
+        // legitimately report "sheet không tồn tại" (3 errors). The manufacturer rows must create.
+        Assert.Equal(3, result.Created);
+        Assert.Equal(0, result.Errors.Count(e => e.Message.Contains("thiếu cột")));
+        Assert.Equal(3, await ctx.Manufacturers.CountAsync());
+        Assert.Equal(new[] { "Dell", "HP", "Seagate" }, (await ctx.Manufacturers.Select(m => m.Name).ToListAsync()).OrderBy(x => x));
+        // ActionLogs stamped with the target company.
+        Assert.Equal(3, await ctx.ActionLogs.CountAsync(l => l.ItemType == ItemType.Manufacturer && l.CompanyId == s.companyId));
+    }
+
+    [Fact]
+    public async Task ManufacturersImport_SkipsInstructionRowAboveHeader()
+    {
+        // Header detection must still skip a descriptive instruction row in col A that merely STARTS
+        // WITH the header text but has no 2nd column (e.g. "Ten nha san xuat ..." note), while trusting
+        // the real single-column header that is an EXACT match.
+        using var wb = new XLWorkbook();
+        var ws = wb.AddWorksheet("3_NhaSanXuat");
+        ws.Cell(1, 1).Value = "Ten nha san xuat — danh sach cac hang";
+        ws.Cell(2, 1).Value = "Ten nha san xuat";
+        ws.Cell(3, 1).Value = "HP";
+        var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        ms.Position = 0;
+
+        var s = await SeedAsync(nameof(ManufacturersImport_SkipsInstructionRowAboveHeader));
+        await using var ctx = s.ctx;
+        var svc = BuildService(ctx);
+
+        var result = await svc.ImportReferenceAsync(ms, s.actingUserId, s.companyId);
+
+        Assert.Equal(1, result.Created);
+        Assert.Equal(0, result.Errors.Count(e => e.Message.Contains("thiếu cột")));
+        Assert.Equal("HP", (await ctx.Manufacturers.SingleAsync()).Name);
+    }
+
     // ─────────────────────────── SystemInfo / SystemPosition import ───────────────────────────
 
     private static MemoryStream SystemsWorkbook(params string[] names)

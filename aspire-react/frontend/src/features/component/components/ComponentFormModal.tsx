@@ -193,7 +193,6 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
         const payload: CreateComponentPayload = {
           name: String(vals.name),
           serial: vals.serial ? String(vals.serial) : undefined,
-          qty: typeof vals.qty === 'number' ? vals.qty : 0,
           minAmt: typeof vals.minAmt === 'number' ? vals.minAmt : 0,
           trackingType: effectiveTrackingType,
           categoryId: String(vals.categoryId),
@@ -208,6 +207,12 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
           notes: vals.notes ? String(vals.notes) : undefined,
           serialNumbers: effectiveTrackingType === 'Serial' ? serials : undefined,
         };
+        // [Fix] NEVER send qty for Serial components — backend derives quantity from the serial list and
+        // rejects an explicit qty (even 0) with "Không gửi qty khi tạo linh kiện Serial". A leftover qty from
+        // a prior Bulk toggle (or the form default) must not leak into the payload. Bulk keeps sending qty.
+        if (effectiveTrackingType === 'Bulk') {
+          payload.qty = typeof vals.qty === 'number' ? vals.qty : 0;
+        }
         await componentsApi.create(payload);
         message.success('Tạo mới thành công');
       }
