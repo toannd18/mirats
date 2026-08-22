@@ -123,7 +123,7 @@ export default function DashboardPage() {
           <Card><Statistic title="Sẵn sàng" value={summary?.rtdAssets ?? 0} prefix={<InboxOutlined />} /></Card>
         </Col>
         <Col xs={12} sm={8} md={4}>
-          <Card><Statistic title="Sắp hết" value={summary?.lowStockCount ?? 0} valueStyle={{ color: '#fa8c16' }} prefix={<WarningOutlined />} /></Card>
+          <Card><Statistic title="Sắp hết" value={summary?.lowStockCount ?? 0} styles={{ content: { color: '#fa8c16' } }} prefix={<WarningOutlined />} /></Card>
         </Col>
         <Col xs={12} sm={8} md={4}>
           <Card><Statistic title="Tổng giá trị" value={formatMoney(summary?.totalAssetValue)} /></Card>

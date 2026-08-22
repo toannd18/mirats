@@ -117,7 +117,7 @@ const AssetDetailPage: React.FC = () => {
           <Tag color={ASSET_STATUS_COLORS[status] ?? 'default'}>{ASSET_STATUS_LABELS[status]}</Tag>
           {!asset.isConfirmed && <Tag color="warning">Chưa xác nhận</Tag>}
         </div>
-        {status === 'Archived' && <Alert type="error" showIcon style={{ marginTop: 12, borderRadius: 8 }} message="Tài sản đã kết thúc vòng đời (Đã thu hồi). Chỉ xem, không thể sửa đổi." />}
+        {status === 'Archived' && <Alert type="error" showIcon style={{ marginTop: 12, borderRadius: 8 }} title="Tài sản đã kết thúc vòng đời (Đã thu hồi). Chỉ xem, không thể sửa đổi." />}
       </Card>
 
       {/* Asset Information */}

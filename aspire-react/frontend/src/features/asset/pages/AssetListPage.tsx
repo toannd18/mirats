@@ -353,7 +353,7 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
         <Text>{formData?.notes ? String(formData.notes) : '-'}</Text>
       </Card>
 
-      <Alert type="info" showIcon style={{ borderRadius: 8 }} message={
+      <Alert type="info" showIcon style={{ borderRadius: 8 }} title={
         <Space direction="vertical" size={2}>
           <span>Sau khi xác nhận, tài sản sẽ được tạo chính thức với trạng thái “Chờ cấp phát”. Tài sản sẽ sẵn sàng để cấp phát ngay sau khi tạo.</span>
           <span>Sau khi tạo, chỉ Tên và Ghi chú có thể được chỉnh sửa. Các thông tin khác không thể thay đổi và tài sản không thể xóa.</span>
@@ -378,7 +378,7 @@ function AssetCreateFormModal({ open, onClose, onSubmit, lookups }: {
   const locationOpts = lookups.locations.map(l => ({ value: l.id, label: l.name }));
   const supplierOpts = lookups.suppliers.map(s => ({ value: s.id, label: s.name }));
   return (
-    <Modal title="Tạo tài sản mới" open={open} onCancel={onClose} width={760} footer={null} destroyOnClose>
+    <Modal title="Tạo tài sản mới" open={open} onCancel={onClose} width={760} footer={null} destroyOnHidden>
       <Form form={form} layout="vertical" size="middle" onFinish={onSubmit}>
         <Card size="small" title="Thông tin chung" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px 16px 4px' } }}>
           <Row gutter={[16, 0]}>
@@ -397,7 +397,7 @@ function AssetCreateFormModal({ open, onClose, onSubmit, lookups }: {
         </Card>
         <Card size="small" title="Tài chính" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px 16px 4px' } }}>
           <Row gutter={[16, 0]}>
-            <Col xs={24} md={12} lg={12}><Form.Item name="purchaseCost" label="Giá mua"><InputNumber min={0} style={{ width: '100%' }} addonAfter="VND" formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => (v?.replace(/,/g, '') ?? '') as unknown as 0} /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="purchaseCost" label="Giá mua"><Space.Compact block><InputNumber min={0} style={{ width: '100%' }} formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => (v?.replace(/,/g, '') ?? '') as unknown as 0} /><Button style={{ width: 56 }}>VND</Button></Space.Compact></Form.Item></Col>
             <Col xs={24} md={12} lg={12}><Form.Item name="purchaseDate" label="Ngày mua"><DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" /></Form.Item></Col>
             <Col xs={24} md={12} lg={12}><Form.Item name="warrantyMonths" label="Thời hạn bảo hành"><InputNumber min={0} max={120} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={24} md={12} lg={12}><Form.Item name="orderNumber" label="Số đơn hàng"><Input /></Form.Item></Col>

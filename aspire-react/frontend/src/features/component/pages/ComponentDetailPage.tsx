@@ -399,7 +399,7 @@ export default function ComponentDetailPage() {
         title={historyUnit ? `Lịch sử serial ${historyUnit.serialNo ?? historyUnit.id}` : 'Lịch sử'}
         open={!!historyUnit}
         onClose={() => setHistoryUnit(null)}
-        width={720}
+        size={720}
       >
         {historyUnit && (
           <ActionLogTable
@@ -456,7 +456,7 @@ function StockInModal({ open, onClose, onOk }: StockInModalProps) {
 
   return (
     <Modal title="Nhập kho serial mới" open={open} onCancel={onClose} onOk={submit}
-      okText="Nhập kho" cancelText="Hủy" confirmLoading={submitting} destroyOnClose width={560}>
+      okText="Nhập kho" cancelText="Hủy" confirmLoading={submitting} destroyOnHidden width={560}>
       <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
         Mỗi dòng một serial — có thể paste nhiều dòng cùng lúc.
       </Text>
@@ -515,7 +515,7 @@ function CheckoutModal({ open, onClose, trackingType, inStockUnits, assets, comp
 
   return (
     <Modal title="Cấp phát linh kiện" open={open} onCancel={onClose} onOk={submit}
-      okText="Cấp phát" cancelText="Hủy" confirmLoading={submitting} destroyOnClose width={520}>
+      okText="Cấp phát" cancelText="Hủy" confirmLoading={submitting} destroyOnHidden width={520}>
       {!componentCompanyId && (
         <Alert type="warning" style={{ marginBottom: 12 }}
           message="Linh kiện chưa xác định công ty — không thể cấp phát. Hãy bổ sung công ty trước (chỉ hiển thị trong form Sửa)." />
@@ -591,7 +591,7 @@ function CheckinModal({ open, onClose, trackingType, allocatedUnits, assets, onO
 
   return (
     <Modal title="Thu hồi linh kiện" open={open} onCancel={onClose} onOk={submit}
-      okText="Thu hồi" cancelText="Hủy" confirmLoading={submitting} destroyOnClose width={520}>
+      okText="Thu hồi" cancelText="Hủy" confirmLoading={submitting} destroyOnHidden width={520}>
       {trackingType === 'Bulk' ? (
         <>
           <Text strong style={{ display: 'block', marginBottom: 8 }}>Tài sản trả về *</Text>

@@ -206,9 +206,12 @@ export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item label="Đơn giá" name="purchaseCost">
-                <InputNumber min={0} style={{ width: '100%' }} addonAfter="VND" placeholder="0"
-                  formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={(value) => (value?.replace(/,/g, '') ?? '') as unknown as 0} />
+                <Space.Compact block>
+                  <InputNumber min={0} style={{ width: '100%' }} placeholder="0"
+                    formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={(value) => (value?.replace(/,/g, '') ?? '') as unknown as 0} />
+                  <Button style={{ width: 56 }}>VND</Button>
+                </Space.Compact>
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>

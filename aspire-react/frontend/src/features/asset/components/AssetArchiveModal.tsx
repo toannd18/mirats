@@ -46,7 +46,7 @@ const AssetArchiveModal: React.FC<AssetArchiveModalProps> = ({ open, asset, onCl
   return (
     <Modal title={<Space><InboxOutlined style={{ color: '#fa8c16' }} /><span>Lưu trữ / Thanh lý tài sản</span></Space>}
       open={open} onCancel={onClose} okText="Xác nhận lưu trữ" cancelText="Hủy"
-      okButtonProps={{ disabled: !locationId, danger: true }} onOk={handleSubmit} confirmLoading={submitting} destroyOnClose width={560}>
+      okButtonProps={{ disabled: !locationId, danger: true }} onOk={handleSubmit} confirmLoading={submitting} destroyOnHidden width={560}>
       {asset && (
         <Descriptions bordered size="small" column={1} style={{ marginBottom: 16 }}>
           <Descriptions.Item label="Mã tài sản"><Text strong>{asset.assetTag}</Text></Descriptions.Item>

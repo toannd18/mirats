@@ -353,7 +353,7 @@ export default function AssetMaintenanceSection({ assetId }: { assetId: string }
         onCancel={() => setFormOpen(false)}
         onOk={form.submit}
         confirmLoading={false}
-        destroyOnClose
+        destroyOnHidden
         width={600}
         okText={editing ? 'Cập nhật' : 'Tạo mới'}
         cancelText="Hủy"
@@ -380,7 +380,7 @@ export default function AssetMaintenanceSection({ assetId }: { assetId: string }
           <Form.Item label="Nhà cung cấp thực hiện" name="supplierId">
             <Select showSearch allowClear placeholder="Chọn nhà cung cấp..." options={suppliers}
               filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
-              dropdownRender={(menu) => (
+              popupRender={(menu) => (
                 <>
                   {menu}
                   <Divider style={{ margin: '8px 0' }} />

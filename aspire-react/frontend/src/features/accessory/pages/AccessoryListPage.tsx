@@ -547,7 +547,7 @@ const AccessoryListPage: React.FC = () => {
         onCancel={() => { setCheckinModalOpen(false); setCheckinCheckouts([]); }}
         footer={null}
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         {checkinLoading ? (
           <div style={{ textAlign: 'center', padding: 24 }}>

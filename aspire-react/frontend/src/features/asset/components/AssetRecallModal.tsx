@@ -46,7 +46,7 @@ const AssetRecallModal: React.FC<AssetRecallModalProps> = ({ open, asset, onClos
   return (
     <Modal title={<Space><RollbackOutlined style={{ color: '#fa8c16' }} /><span>Thu hồi tài sản</span></Space>}
       open={open} onCancel={onClose} okText="Xác nhận thu hồi" cancelText="Hủy"
-      okButtonProps={{ disabled: !locationId }} onOk={handleSubmit} confirmLoading={submitting} destroyOnClose width={560}>
+      okButtonProps={{ disabled: !locationId }} onOk={handleSubmit} confirmLoading={submitting} destroyOnHidden width={560}>
       {asset && (
         <Descriptions bordered size="small" column={1} style={{ marginBottom: 16 }}>
           <Descriptions.Item label="Mã tài sản"><Text strong>{asset.assetTag}</Text></Descriptions.Item>

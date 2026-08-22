@@ -96,7 +96,7 @@ export default function CompanyTreeSelect({
       placeholder={placeholder}
       treeDefaultExpandAll
       filterTreeNode={(input, treeNode) => (treeNode?.title as string)?.toLowerCase().includes(input.toLowerCase())}
-      dropdownRender={allowQuickAdd ? (menu) => (
+      popupRender={allowQuickAdd ? (menu) => (
         <>
           {menu}
           <Divider style={{ margin: '8px 0' }} />

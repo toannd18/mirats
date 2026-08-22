@@ -121,7 +121,7 @@ const AccessoryCheckoutModal: React.FC<AccessoryCheckoutModalProps> = ({
             name: string;
           }[];
 
-          let positions: { id: string; name: string; systemName: string }[] = [];
+          const positions: { id: string; name: string; systemName: string }[] = [];
           for (const sys of systems) {
             // Client-side company filter for system-info
             if (accessory?.companyId && sys.companyId !== accessory.companyId) continue;
@@ -211,7 +211,7 @@ const AccessoryCheckoutModal: React.FC<AccessoryCheckoutModalProps> = ({
       cancelText="Hủy"
       confirmLoading={submitting}
       okButtonProps={{ disabled: !targetId || quantity < 1 }}
-      destroyOnClose
+      destroyOnHidden
       width={520}
     >
       {/* Accessory info */}

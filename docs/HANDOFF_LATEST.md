@@ -2370,6 +2370,37 @@ Mở rộng Import cho SystemInfo/SystemPosition — mô hình y hệt T1-T6. Ve
 ### ⚠️ Lưu ý
 - Lỗ hổng này cùng bài học: **mọi ràng buộc nghiệp vụ phải enforce ở backend**, UI ẩn nút chỉ là lớp trải nghiệm. (Đã audit: Accessory/License/Component **không có** khái niệm Pending/Confirmed như Consumable — không cần gate tương tự; chỉ Consumable có workflow Confirm.)
 
+## 61. T-DEP1 — DỌN SẠCH DEPRECATION ANT D 6 (2026-08-22)
+
+### Phạm vi (audit console thật + typings `node_modules/antd/es` 6.5.3)
+Thay thế toàn bộ deprecated API còn sót — nhiều chỗ hơn báo cáo audit ban đầu (audit đếm 11× destroyOnClose, thực tế quét grep ra 12 prop + phát hiện thêm khi verify console):
+- **12× `destroyOnClose` → `destroyOnHidden`** (Modal): AssetRecallModal, AssetMaintenanceSection, AssetArchiveModal, AssetAllocationModal, AccessoryListPage, AssetListPage, AccessoryCheckoutModal, ComponentDetailPage ×3, AccessoryCheckinModal, ComponentFormModal (+1 comment sửa theo).
+- **5× `dropdownRender` → `popupRender`** (Select/TreeSelect, cùng signature `(menu) => ReactNode`): CompanyTreeSelect, AssetMaintenanceSection, ComponentFormModal ×3.
+- **1× `Statistic valueStyle` → `styles={{ content: ... }}`**: DashboardPage ("Sắp hết" #fa8c16).
+- **Phát hiện thêm khi verify console thật** (báo cáo audit bỏ sót):
+  - 1× `maskClosable={false}` → `mask={{ closable: false }}` (ComponentFormModal).
+  - 1× `Drawer width={720}` → `size={720}` (ComponentDetailPage — Drawer lịch sử serial; App.tsx đã dùng size từ trước).
+  - 4× `Alert message=` → `title=` (ComponentFormModal ×2, AssetListPage review-alert, AssetDetailPage archived-alert).
+  - 3× `InputNumber addonAfter="VND"` → `Space.Compact block` bọc InputNumber + Button "VND" (AssetListPage Giá mua, ConsumableFormModal Unit Cost, AccessoryFormModal Đơn giá).
+  - 1× lint error pre-existing `prefer-const` trong AccessoryCheckoutModal (let→const) — giảm 1 error cho `npm run lint`.
+
+### Xác nhận API (typings antd 6.5.3, không đoán)
+- Modal `destroyOnHidden?: boolean`; `maskClosable` @deprecated → `mask.closable`.
+- Select/TreeSelect `popupRender?: (menu) => ReactElement` — cùng signature dropdownRender.
+- Statistic `styles.content` (semantic styles); `valueStyle` @deprecated.
+- Drawer `size?: 'default' | 'large' | number | string`; InputNumber `addonAfter` @deprecated → Space.Compact.
+
+### Verify
+- `npm run build` **0 lỗi TS** (chạy lại sau mỗi nhóm fix).
+- `npm run lint`: các file T-DEP1 chạm đều sạch; lỗi duy nhất còn lại của file đã chạm là warning `exhaustive-deps` pre-existing (đã xác nhận bằng stash-compare). Full-repo lint: HEAD trước đó 33 errors → sau T-DEP1 32 (giảm 1 nhờ prefer-const).
+- **Console thật (playwright, admin)**: đi qua Dashboard + Component List/Detail + mở cả 3 modal con (Nhập kho/Cấp phát/Thu hồi) + Drawer lịch sử serial + modal Sửa component + dropdown quick-add NSX (`popupRender` render đúng menu + input quick-add) + Asset create modal (Space.Compact VND render đúng): **0 errors / 0 warnings deprecation**.
+- `maskClosable`/`Alert message`/`InputNumber addonAfter` không còn emit bất kỳ warning nào.
+
+### ⚠️ Lưu ý
+- `maskClosable` KHÔNG phải "hợp lệ ở v6" như báo cáo audit nói — antd 6.5.3 đánh dấu @deprecated → đã sửa.
+- Các task UI/UX tiếp theo (T-RESP1...) làm trên nền đã sạch deprecation; khi thêm Modal/Select mới dùng ngay `destroyOnHidden`/`popupRender`.
+
+
 
 
 

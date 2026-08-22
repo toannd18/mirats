@@ -114,7 +114,7 @@ const AssetAllocationModal: React.FC<AllocationModalProps> = ({ open, asset, onC
   return (
     <Modal title="Cấp phát tài sản" open={open} onCancel={onClose} okText="Cấp phát" cancelText="Hủy"
       okButtonProps={{ disabled: !targetId || (targetType === 'SystemPosition' && !locationId) }}
-      onOk={handleSubmit} confirmLoading={submitting} destroyOnClose width={560}>
+      onOk={handleSubmit} confirmLoading={submitting} destroyOnHidden width={560}>
       {asset && (
         <Descriptions bordered size="small" column={1} style={{ marginBottom: 16 }}>
           <Descriptions.Item label="Mã tài sản"><Text strong>{asset.assetTag}</Text></Descriptions.Item>

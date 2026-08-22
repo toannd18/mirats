@@ -257,7 +257,10 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item label="Unit Cost" name="purchaseCost">
-                <InputNumber min={0} style={{ width: '100%' }} addonAfter="VND" placeholder="Đơn giá" disabled={confirmedLocked} />
+                <Space.Compact block>
+                  <InputNumber min={0} style={{ width: '100%' }} placeholder="Đơn giá" disabled={confirmedLocked} />
+                  <Button style={{ width: 56 }}>VND</Button>
+                </Space.Compact>
               </Form.Item>
             </Col>
           </Row>

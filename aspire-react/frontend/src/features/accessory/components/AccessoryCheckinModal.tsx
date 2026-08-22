@@ -83,7 +83,7 @@ const AccessoryCheckinModal: React.FC<AccessoryCheckinModalProps> = ({
       cancelText="Hủy"
       confirmLoading={submitting}
       okButtonProps={{ disabled: returnQty < 1 || !checkout }}
-      destroyOnClose
+      destroyOnHidden
       width={520}
     >
       {checkout && (

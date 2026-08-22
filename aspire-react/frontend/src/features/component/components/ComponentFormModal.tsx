@@ -129,7 +129,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
     }
   };
 
-  // Load options + component data every time the modal opens (destroyOnClose keeps this component mounted).
+  // Load options + component data every time the modal opens (destroyOnHidden keeps this component mounted).
   useEffect(() => {
     if (!open) return;
     void loadCategories();
@@ -245,8 +245,8 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
       title={isEdit ? 'Sửa linh kiện' : 'Tạo linh kiện mới'}
       onCancel={handleClose}
       width={isMobile ? '95%' : 720}
-      destroyOnClose
-      maskClosable={false}
+      destroyOnHidden
+      mask={{ closable: false }}
       footer={[
         <Button key="cancel" onClick={handleClose}>Hủy</Button>,
         <Button key="submit" type="primary" htmlType="submit" form="component-form-modal"
@@ -293,7 +293,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
                 <Form.Item label="Danh mục" name="categoryId" rules={[{ required: true, message: 'Chọn danh mục' }]}>
                   <Select showSearch placeholder="Chọn danh mục..." options={categoryOptions}
                     filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
-                    dropdownRender={(menu) => (
+                    popupRender={(menu) => (
                       <>
                         {menu}
                         <Divider style={{ margin: '8px 0' }} />
@@ -341,7 +341,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
               </Col>
               <Col xs={24} sm={12}>
                 <Alert type="info" style={{ marginTop: 30 }}
-                  message="Qty = tổng số serial — được quản lý qua màn hình Nhập kho ở trang chi tiết." />
+                  title="Qty = tổng số serial — được quản lý qua màn hình Nhập kho ở trang chi tiết." />
               </Col>
             </Row>
           ) : (
@@ -362,7 +362,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
                   </Text>
                   {hasDuplicateSerials && (
                     <Alert type="warning" style={{ marginTop: 8 }}
-                      message="Có serial trùng nhau trong danh sách — hãy kiểm tra lại trước khi lưu." />
+                      title="Có serial trùng nhau trong danh sách — hãy kiểm tra lại trước khi lưu." />
                   )}
                 </Card>
               </Col>
@@ -399,7 +399,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
               <Form.Item label="Nhà sản xuất" name="manufacturerId">
                 <Select showSearch allowClear placeholder="Chọn nhà sản xuất..." options={manufacturerOptions}
                   filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
-                  dropdownRender={(menu) => (
+                  popupRender={(menu) => (
                     <>
                       {menu}
                       <Divider style={{ margin: '8px 0' }} />
@@ -417,7 +417,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
               <Form.Item label="Nhà cung cấp" name="supplierId">
                 <Select showSearch allowClear placeholder="Chọn nhà cung cấp..." options={supplierOptions}
                   filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
-                  dropdownRender={(menu) => (
+                  popupRender={(menu) => (
                     <>
                       {menu}
                       <Divider style={{ margin: '8px 0' }} />
