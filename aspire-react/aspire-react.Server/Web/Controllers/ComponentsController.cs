@@ -63,7 +63,7 @@ public class ComponentsController : ControllerBase
         var total = await query.CountAsync();
         var items = await query.OrderBy(c => c.Name).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(c => new {
-                c.Id, c.Name, c.Serial, c.Qty, c.MinAmt, c.ModelNumber, c.OrderNumber, c.PurchaseCost, c.PurchaseDate,
+                c.Id, c.Name, c.Serial, c.Qty, c.MinAmt, c.ModelNumber, c.OrderNumber, c.PurchaseCost, c.PurchaseDate, c.Notes,
                 TrackingType = c.TrackingType.ToString(),
                 Remaining = c.TrackingType == TrackingType.Serial
                     ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
@@ -102,7 +102,7 @@ public class ComponentsController : ControllerBase
 
         var result = items.Select(c => new
         {
-            c.Id, c.Name, c.Serial, c.Qty, c.MinAmt, c.ModelNumber, c.OrderNumber, c.PurchaseCost, c.PurchaseDate,
+            c.Id, c.Name, c.Serial, c.Qty, c.MinAmt, c.ModelNumber, c.OrderNumber, c.PurchaseCost, c.PurchaseDate, c.Notes,
             c.TrackingType, c.Remaining, c.IsLowStock,
             canDelete = !hasHistory.Contains(c.Id),
             c.Category, c.Company, c.Location, c.Supplier, c.Manufacturer

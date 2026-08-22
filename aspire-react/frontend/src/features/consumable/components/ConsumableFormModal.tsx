@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  App, Button, Col, DatePicker, Divider, Form, Grid, Input, InputNumber, Modal,
+  Alert, App, Button, Col, DatePicker, Divider, Form, Grid, Input, InputNumber, Modal,
   Row, Select, Space, Spin,
 } from 'antd';
 import { LockOutlined, SaveOutlined } from '@ant-design/icons';
@@ -47,6 +47,8 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
   const [saving, setSaving] = useState(false);
   // ST4 — company cannot change once the consumable has ever been checked out (FIELD_LOCKED).
   const [companyLocked, setCompanyLocked] = useState(false);
+  // Đã xác nhận (Confirmed) → chỉ Vị trí + Ghi chú được sửa (mirror backend CONFIRMED_CONSUMABLE_LOCKED).
+  const [confirmedLocked, setConfirmedLocked] = useState(false);
 
   const [categoryOptions, setCategoryOptions] = useState<OptionItem[]>([]);
   const [manufacturerOptions, setManufacturerOptions] = useState<OptionItem[]>([]);
@@ -91,12 +93,15 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
           });
           // Mirrors backend FIELD_LOCKED: has ever been checked out → company can't change.
           setCompanyLocked((checkoutRes.data.data ?? []).length > 0);
+          // Đã xác nhận → khóa mọi field trừ Vị trí + Ghi chú (mirror CONFIRMED_CONSUMABLE_LOCKED).
+          setConfirmedLocked(d.status === 'Confirmed');
         })
         .catch(() => void message.error('Lỗi tải vật tư'))
         .finally(() => setLoading(false));
     } else {
       form.resetFields();
       setCompanyLocked(false);
+      setConfirmedLocked(false);
     }
   }, [open, isEdit, consumableId, form, message]);
 
@@ -160,36 +165,44 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
     >
       <Spin spinning={loading}>
         <Form id="consumable-form-modal" form={form} layout="vertical" onFinish={(v) => void submit(v)}>
+          {confirmedLocked && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              title="Vật tư đã xác nhận — chỉ Vị trí và Ghi chú được sửa."
+            />
+          )}
           {/* ── Thông tin cơ bản ── */}
           <Divider titlePlacement="start" plain style={{ marginTop: 0 }}>Thông tin cơ bản</Divider>
           <Row gutter={[16, 8]}>
             <Col xs={24} sm={12}>
               <Form.Item label="Tên vật tư" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
-                <Input placeholder="Tên vật tư" />
+                <Input placeholder="Tên vật tư" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item label="Item No." name="itemNo">
-                <Input placeholder="Mã vật tư" />
+                <Input placeholder="Mã vật tư" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item label="Danh mục" name="categoryId" rules={[{ required: true, message: 'Vui lòng chọn danh mục' }]}>
-                <Select showSearch allowClear placeholder="Chọn danh mục" options={categoryOptions} filterOption={filterFn} />
+                <Select showSearch allowClear placeholder="Chọn danh mục" options={categoryOptions} filterOption={filterFn} disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item
-                label={companyLocked ? (
+                label={companyLocked || confirmedLocked ? (
                   <Space size={4}>
                     <LockOutlined style={{ color: '#faad14' }} />
                     <span>Công ty</span>
                   </Space>
                 ) : 'Công ty'}
                 name="companyId"
-                extra={companyLocked ? 'Đã từng được cấp phát — không thể đổi công ty' : undefined}
+                extra={companyLocked ? 'Đã từng được cấp phát — không thể đổi công ty' : (confirmedLocked ? 'Vật tư đã xác nhận — không thể đổi công ty' : undefined)}
               >
-                <CompanyTreeSelect disabled={companyLocked} />
+                <CompanyTreeSelect disabled={companyLocked || confirmedLocked} />
               </Form.Item>
             </Col>
           </Row>
@@ -199,12 +212,12 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
           <Row gutter={[16, 8]}>
             <Col xs={24} sm={12}>
               <Form.Item label="Số lượng" name="qty" rules={[{ required: true, message: 'Vui lòng nhập số lượng' }]}>
-                <InputNumber min={0} style={{ width: '100%' }} placeholder="Số lượng" />
+                <InputNumber min={0} style={{ width: '100%' }} placeholder="Số lượng" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item label="Số lượng tối thiểu" name="minAmt">
-                <InputNumber min={0} style={{ width: '100%' }} placeholder="Số lượng cảnh báo" />
+                <InputNumber min={0} style={{ width: '100%' }} placeholder="Số lượng cảnh báo" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
           </Row>
@@ -214,12 +227,12 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
           <Row gutter={[16, 8]}>
             <Col xs={24} sm={12}>
               <Form.Item label="Nhà cung cấp" name="supplierId">
-                <Select showSearch allowClear placeholder="Chọn nhà cung cấp" options={supplierOptions} filterOption={filterFn} />
+                <Select showSearch allowClear placeholder="Chọn nhà cung cấp" options={supplierOptions} filterOption={filterFn} disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item label="Nhà sản xuất" name="manufacturerId">
-                <Select showSearch allowClear placeholder="Chọn nhà sản xuất" options={manufacturerOptions} filterOption={filterFn} />
+                <Select showSearch allowClear placeholder="Chọn nhà sản xuất" options={manufacturerOptions} filterOption={filterFn} disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -229,22 +242,22 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item label="Model No." name="modelNumber">
-                <Input placeholder="Số hiệu Model" />
+                <Input placeholder="Số hiệu Model" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item label="Order Number" name="orderNumber">
-                <Input placeholder="Số đơn hàng" />
+                <Input placeholder="Số đơn hàng" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item label="Purchase Date" name="purchaseDate">
-                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" placeholder="Chọn ngày" />
+                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" placeholder="Chọn ngày" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item label="Unit Cost" name="purchaseCost">
-                <InputNumber min={0} style={{ width: '100%' }} addonAfter="VND" placeholder="Đơn giá" />
+                <InputNumber min={0} style={{ width: '100%' }} addonAfter="VND" placeholder="Đơn giá" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
           </Row>

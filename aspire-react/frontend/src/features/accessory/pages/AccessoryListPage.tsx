@@ -7,7 +7,7 @@ import {
   PlusOutlined, EditOutlined, DeleteOutlined,
   EyeOutlined, SendOutlined,
   GiftOutlined, EnvironmentOutlined, InboxOutlined,
-  AlertOutlined, RollbackOutlined,
+  AlertOutlined, RollbackOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import { ProList } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -20,7 +20,7 @@ import AccessoryCheckoutModal from '../components/AccessoryCheckoutModal';
 import AccessoryFormModal from '../components/AccessoryFormModal';
 import { statusColors } from '../../../theme/designTokens';
 
-const { Text, Title } = Typography;
+const { Text, Title, Paragraph } = Typography;
 
 // ==================== Styles ====================
 
@@ -332,9 +332,11 @@ const AccessoryListPage: React.FC = () => {
         itemRender={(record) => (
           <Card
             hoverable
+            onClick={() => navigate(`/accessories/${record.id}/view`)}
             style={{
               borderRadius: 12,
               marginBottom: 16,
+              cursor: 'pointer',
               transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
             styles={{ body: { padding: '20px 20px 16px' } }}
@@ -437,6 +439,23 @@ const AccessoryListPage: React.FC = () => {
                   <Text strong style={{ fontSize: 14 }}>{record.remaining.toLocaleString('vi-VN')}</Text>
                 )}
               </div>
+
+              {record.notes && (
+                <>
+                  <div style={{ ...dataRowStyle, gridColumn: '1 / -1' }}>
+                    <FileTextOutlined style={labelIconStyle} />
+                    <Text type="secondary" style={{ fontSize: 12 }}>Ghi chú</Text>
+                  </div>
+                  <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
+                    <Paragraph
+                      ellipsis={{ rows: 2, tooltip: record.notes }}
+                      style={{ fontSize: 13, margin: 0 }}
+                    >
+                      {record.notes}
+                    </Paragraph>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Divider + Actions */}
@@ -447,7 +466,7 @@ const AccessoryListPage: React.FC = () => {
                 <Button
                   size="middle"
                   icon={<EditOutlined />}
-                  onClick={() => { setFormModalAccessoryId(record.id); setFormModalOpen(true); }}
+                  onClick={(e) => { e.stopPropagation(); setFormModalAccessoryId(record.id); setFormModalOpen(true); }}
                 >
                   Sửa
                 </Button>
@@ -455,7 +474,7 @@ const AccessoryListPage: React.FC = () => {
               <Button
                 size="middle"
                 icon={<EyeOutlined />}
-                onClick={() => navigate(`/accessories/${record.id}/view`)}
+                onClick={(e) => { e.stopPropagation(); navigate(`/accessories/${record.id}/view`); }}
               >
                 Xem
               </Button>
@@ -465,7 +484,7 @@ const AccessoryListPage: React.FC = () => {
                   type="primary"
                   ghost
                   icon={<SendOutlined />}
-                  onClick={() => openCheckout(record)}
+                  onClick={(e) => { e.stopPropagation(); openCheckout(record); }}
                   disabled={record.remaining <= 0}
                 >
                   Cấp phát
@@ -475,7 +494,7 @@ const AccessoryListPage: React.FC = () => {
                 <Button
                   size="middle"
                   icon={<RollbackOutlined />}
-                  onClick={() => openCheckin(record)}
+                  onClick={(e) => { e.stopPropagation(); openCheckin(record); }}
                   disabled={record.checkedOutQty <= 0}
                 >
                   Thu hồi
@@ -490,7 +509,7 @@ const AccessoryListPage: React.FC = () => {
                   okButtonProps={{ danger: true }}
                   cancelText="Hủy"
                 >
-                  <Button size="middle" danger icon={<DeleteOutlined />}
+                  <Button size="middle" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()}
                     disabled={record.checkedOutQty > 0}>
                     Xóa
                   </Button>

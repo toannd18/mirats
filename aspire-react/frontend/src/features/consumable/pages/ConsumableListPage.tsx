@@ -7,7 +7,7 @@ import {
   PlusOutlined, EditOutlined, DeleteOutlined,
   CheckCircleOutlined, EyeOutlined, SendOutlined,
   AppstoreOutlined, EnvironmentOutlined, InboxOutlined,
-  AlertOutlined,
+  AlertOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import { ProList } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -19,7 +19,7 @@ import ConsumableCheckoutModal from '../components/ConsumableCheckoutModal';
 import ConsumableFormModal from '../components/ConsumableFormModal';
 import { statusColors } from '../../../theme/designTokens';
 
-const { Text, Title } = Typography;
+const { Text, Title, Paragraph } = Typography;
 
 // ==================== Types ====================
 
@@ -27,6 +27,7 @@ interface ConsumableDto {
   id: string;
   name: string;
   itemNo: string | null;
+  notes: string | null;
   qty: number;
   minAmt: number;
   status: string; // "Pending" | "Confirmed" (enum serialized as string — JsonStringEnumConverter)
@@ -126,6 +127,7 @@ const ConsumableListPage: React.FC = () => {
           id: d.id,
           name: d.name,
           itemNo: d.itemNo,
+          notes: d.notes ?? null,
           qty: d.qty,
           minAmt: d.minAmt,
           status: d.status,
@@ -261,9 +263,11 @@ const ConsumableListPage: React.FC = () => {
         itemRender={(record) => (
           <Card
             hoverable
+            onClick={() => navigate(`/consumables/${record.id}/view`)}
             style={{
               borderRadius: 12,
               marginBottom: 16,
+              cursor: 'pointer',
               transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
             styles={{ body: { padding: '20px 20px 16px' } }}
@@ -363,6 +367,23 @@ const ConsumableListPage: React.FC = () => {
                   <Text strong style={{ fontSize: 14 }}>{record.remaining.toLocaleString('vi-VN')}</Text>
                 )}
               </div>
+
+              {record.notes && (
+                <>
+                  <div style={{ ...dataRowStyle, gridColumn: '1 / -1' }}>
+                    <FileTextOutlined style={labelIconStyle} />
+                    <Text type="secondary" style={{ fontSize: 12 }}>Ghi chú</Text>
+                  </div>
+                  <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
+                    <Paragraph
+                      ellipsis={{ rows: 2, tooltip: record.notes }}
+                      style={{ fontSize: 13, margin: 0 }}
+                    >
+                      {record.notes}
+                    </Paragraph>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* ── Divider + Actions ── */}
@@ -373,7 +394,7 @@ const ConsumableListPage: React.FC = () => {
                 <Button
                   size="middle"
                   icon={<EyeOutlined />}
-                  onClick={() => navigate(`/consumables/${record.id}/view`)}
+                  onClick={(e) => { e.stopPropagation(); navigate(`/consumables/${record.id}/view`); }}
                 >
                   Xem
                 </Button>
@@ -383,7 +404,7 @@ const ConsumableListPage: React.FC = () => {
                     <Button
                       size="middle"
                       icon={<EditOutlined />}
-                      onClick={() => { setFormModalConsumableId(record.id); setFormModalOpen(true); }}
+                      onClick={(e) => { e.stopPropagation(); setFormModalConsumableId(record.id); setFormModalOpen(true); }}
                     >
                       Sửa
                     </Button>
@@ -396,7 +417,7 @@ const ConsumableListPage: React.FC = () => {
                       okText="Xác nhận"
                       cancelText="Hủy"
                     >
-                      <Button size="middle" type="primary" icon={<CheckCircleOutlined />}>
+                      <Button size="middle" type="primary" icon={<CheckCircleOutlined />} onClick={(e) => e.stopPropagation()}>
                         Xác nhận
                       </Button>
                     </Popconfirm>
@@ -410,20 +431,20 @@ const ConsumableListPage: React.FC = () => {
                       okButtonProps={{ danger: true }}
                       cancelText="Hủy"
                     >
-                      <Button size="middle" danger icon={<DeleteOutlined />}>
+                      <Button size="middle" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()}>
                         Xóa
                       </Button>
                     </Popconfirm>
                   )}
                 </>
               )}
-              {canCheckout && (
+              {canCheckout && isConfirmed(record.status) && (
                 <Button
                   size="middle"
                   type="primary"
                   ghost
                   icon={<SendOutlined />}
-                  onClick={() => openCheckout(record)}
+                  onClick={(e) => { e.stopPropagation(); openCheckout(record); }}
                   disabled={record.remaining <= 0}
                 >
                   Cấp phát

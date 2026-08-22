@@ -26,7 +26,7 @@ interface SystemInfoDto {
   positions: SystemPositionDto[];
 }
 
-const CODE_PATTERN = /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/;
+const CODE_PATTERN = /^[A-Z]{3,4}-\d{4}-\d{3}$/;
 
 export default function SystemInfoListPage() {
   const [open, setOpen] = useState(false);
@@ -206,11 +206,11 @@ export default function SystemInfoListPage() {
           <Form.Item label="Mã hệ thống" name="code"
             rules={[
               { required: true, message: 'Vui lòng nhập mã' },
-              { pattern: CODE_PATTERN, message: 'Định dạng: XXX-YYY-ZZZ (3 chữ/số, gạch nối, viết hoa)' },
+              { pattern: CODE_PATTERN, message: 'Định dạng: XXX(X)-YYYY-ZZZ (3-4 chữ hoa - 4 số năm - 3 số thứ tự)' },
             ]}
             getValueFromEvent={(e) => e.target.value.toUpperCase()}
           >
-            <Input placeholder="VD: SYS-001-COR" maxLength={11} style={{ textTransform: 'uppercase' }} />
+            <Input placeholder="VD: SYS-2026-001" maxLength={13} style={{ textTransform: 'uppercase' }} />
           </Form.Item>
           <Form.Item label="Tên hệ thống" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
             <Input placeholder="Tên hệ thống" />
@@ -230,11 +230,11 @@ export default function SystemInfoListPage() {
           <Form.Item label="Mã vị trí" name="code"
             rules={[
               { required: true, message: 'Vui lòng nhập mã' },
-              { pattern: CODE_PATTERN, message: 'Định dạng: XXX-YYY-ZZZ (3 chữ/số, gạch nối, viết hoa)' },
+              { pattern: CODE_PATTERN, message: 'Định dạng: XXX(X)-YYYY-ZZZ (3-4 chữ hoa - 4 số năm - 3 số thứ tự)' },
             ]}
             getValueFromEvent={(e) => e.target.value.toUpperCase()}
           >
-            <Input placeholder="VD: POS-001-NOD" maxLength={11} style={{ textTransform: 'uppercase' }} />
+            <Input placeholder="VD: POS-2026-001" maxLength={13} style={{ textTransform: 'uppercase' }} />
           </Form.Item>
           <Form.Item label="Tên vị trí" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
             <Input placeholder="Tên vị trí" />

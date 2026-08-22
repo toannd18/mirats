@@ -50,7 +50,7 @@ public class ConsumableTests
     }
 
     private static async Task<(Guid consumableId, Guid companyId)> SeedConsumableAsync(
-        AppDbContext ctx, int qty = 10, Guid? companyId = null)
+        AppDbContext ctx, int qty = 10, Guid? companyId = null, ConsumableStatus? status = null)
     {
         var (defaultCompanyId, categoryId) = await SeedCompanyAndCategoryAsync(ctx);
         var c = new Consumable
@@ -59,7 +59,8 @@ public class ConsumableTests
             Qty = qty,
             MinAmt = 1,
             CategoryId = categoryId,
-            CompanyId = companyId ?? defaultCompanyId
+            CompanyId = companyId ?? defaultCompanyId,
+            Status = status ?? ConsumableStatus.Pending
         };
         ctx.Consumables.Add(c);
         await ctx.SaveChangesAsync();
@@ -105,7 +106,7 @@ public class ConsumableTests
     public async Task Checkout_Succeeds_DecreasesRemaining_AndWritesCompleteActionLog()
     {
         await using var ctx = CreateContext(nameof(Checkout_Succeeds_DecreasesRemaining_AndWritesCompleteActionLog));
-        var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10);
+        var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10, status: ConsumableStatus.Confirmed);
         var userId = await SeedUserAsync(ctx, companyId);
         var actorId = await SeedUserAsync(ctx, companyId, "admin");
         var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
@@ -132,10 +133,27 @@ public class ConsumableTests
     }
 
     [Fact]
+    public async Task Checkout_Pending_Blocked_WithConfirmErrorCode()
+    {
+        await using var ctx = CreateContext(nameof(Checkout_Pending_Blocked_WithConfirmErrorCode));
+        var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10, status: ConsumableStatus.Pending);
+        var userId = await SeedUserAsync(ctx, companyId);
+        var actorId = await SeedUserAsync(ctx, companyId, "admin");
+        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
+
+        var result = await service.CheckoutAsync(consumableId, userId, quantity: 1, note: null, actorId);
+
+        Assert.False(result.Success);
+        Assert.Equal("CONSUMABLE_NOT_CONFIRMED", result.ErrorCode);
+        Assert.Empty(await ctx.ConsumableCheckouts.ToListAsync());
+        Assert.Empty(await ctx.ActionLogs.ToListAsync());
+    }
+
+    [Fact]
     public async Task Checkout_CrossCompany_Blocked_NoCheckoutNoLog()
     {
         await using var ctx = CreateContext(nameof(Checkout_CrossCompany_Blocked_NoCheckoutNoLog));
-        var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10);
+        var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10, status: ConsumableStatus.Confirmed);
         var otherCompany = new Company { Name = "CÃ´ng ty KhÃ¡c" };
         ctx.Companies.Add(otherCompany);
         await ctx.SaveChangesAsync();
@@ -155,7 +173,7 @@ public class ConsumableTests
     public async Task Checkout_InsufficientStock_Blocked()
     {
         await using var ctx = CreateContext(nameof(Checkout_InsufficientStock_Blocked));
-        var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 2);
+        var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 2, status: ConsumableStatus.Confirmed);
         var userId = await SeedUserAsync(ctx, companyId);
         var actorId = await SeedUserAsync(ctx, companyId, "admin");
         var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
@@ -172,7 +190,7 @@ public class ConsumableTests
     public async Task Checkout_InvalidQuantity_Blocked()
     {
         await using var ctx = CreateContext(nameof(Checkout_InvalidQuantity_Blocked));
-        var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10);
+        var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10, status: ConsumableStatus.Confirmed);
         var userId = await SeedUserAsync(ctx, companyId);
         var actorId = await SeedUserAsync(ctx, companyId, "admin");
         var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
@@ -187,7 +205,7 @@ public class ConsumableTests
     public async Task Checkout_UserNotFound_Blocked()
     {
         await using var ctx = CreateContext(nameof(Checkout_UserNotFound_Blocked));
-        var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10);
+        var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10, status: ConsumableStatus.Confirmed);
         var actorId = await SeedUserAsync(ctx, companyId, "admin");
         var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
 

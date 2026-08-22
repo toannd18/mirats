@@ -6,7 +6,7 @@ import { ProList } from '@ant-design/pro-components';
 import type { ActionType } from '@ant-design/pro-components';
 import {
   PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined, EyeOutlined,
-  AlertOutlined, EnvironmentOutlined, InboxOutlined, AppstoreOutlined,
+  AlertOutlined, EnvironmentOutlined, InboxOutlined, AppstoreOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../../../services/api-client';
@@ -16,7 +16,7 @@ import { isSuperUser } from '../../../services/keycloak';
 import ComponentFormModal from '../components/ComponentFormModal';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
-const { Text, Title } = Typography;
+const { Text, Title, Paragraph } = Typography;
 
 // CategoryType.Component = 4
 const COMPONENT_CATEGORY_TYPE = 4;
@@ -33,6 +33,7 @@ interface ListItem {
   isLowStock: boolean;
   trackingType: 'Bulk' | 'Serial';
   canDelete?: boolean;
+  notes: string | null;
   category: { id: string; name: string } | null;
   company: { id: string; name: string } | null;
   location: { id: string; name: string } | null;
@@ -232,9 +233,11 @@ export default function ComponentListPage() {
         itemRender={(record) => (
           <Card
             hoverable
+            onClick={() => navigate(`/components/${record.id}`)}
             style={{
               borderRadius: 12,
               marginBottom: 16,
+              cursor: 'pointer',
               transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
             styles={{ body: { padding: '20px 20px 16px' } }}
@@ -351,6 +354,23 @@ export default function ComponentListPage() {
                   </div>
                 </>
               )}
+
+              {record.notes && (
+                <>
+                  <div style={{ ...dataRowStyle, gridColumn: '1 / -1' }}>
+                    <FileTextOutlined style={labelIconStyle} />
+                    <Text type="secondary" style={{ fontSize: 12 }}>Ghi chú</Text>
+                  </div>
+                  <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
+                    <Paragraph
+                      ellipsis={{ rows: 2, tooltip: record.notes }}
+                      style={{ fontSize: 13, margin: 0 }}
+                    >
+                      {record.notes}
+                    </Paragraph>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* ── Divider + Actions ── */}
@@ -360,7 +380,7 @@ export default function ComponentListPage() {
               <Button
                 size="middle"
                 icon={<EyeOutlined />}
-                onClick={() => navigate(`/components/${record.id}`)}
+                onClick={(e) => { e.stopPropagation(); navigate(`/components/${record.id}`); }}
               >
                 Chi tiết
               </Button>
@@ -368,7 +388,7 @@ export default function ComponentListPage() {
                 <Button
                   size="middle"
                   icon={<EditOutlined />}
-                  onClick={() => navigate(`/components/${record.id}/edit`)}
+                  onClick={(e) => { e.stopPropagation(); navigate(`/components/${record.id}/edit`); }}
                 >
                   Sửa
                 </Button>
@@ -383,7 +403,13 @@ export default function ComponentListPage() {
                     okButtonProps={{ danger: true }}
                     cancelText="Hủy"
                   >
-                    <Button size="middle" danger icon={<DeleteOutlined />} disabled={record.canDelete === false}>
+                    <Button
+                      size="middle"
+                      danger
+                      icon={<DeleteOutlined />}
+                      disabled={record.canDelete === false}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       Xóa
                     </Button>
                   </Popconfirm>

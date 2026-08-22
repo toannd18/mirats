@@ -6,6 +6,7 @@ export interface LicenseListItem {
   id: string;
   name: string;
   serial: string | null;
+  notes: string | null;
   seats: number;
   reassignable: boolean;
   expirationDate: string | null;

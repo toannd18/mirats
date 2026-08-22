@@ -55,7 +55,7 @@ public class AccessoriesController : ControllerBase
         var total = await query.CountAsync();
         var items = await query.OrderBy(a => a.Name).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(a => new {
-                a.Id, a.Name, a.ItemNo, a.Qty, a.MinAmt,
+                a.Id, a.Name, a.ItemNo, a.Notes, a.Qty, a.MinAmt,
                 a.CompanyId,
                 CompanyName = a.Company != null ? a.Company.Name : null,
                 Remaining = a.Qty - a.Checkouts.Sum(ch => ch.AssignedQty - ch.ReturnedQty),

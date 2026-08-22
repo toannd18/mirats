@@ -29,7 +29,7 @@ import {
 import { statusColors } from '../../../theme/designTokens';
 import { formatMoney } from '../../../utils/format';
 
-const { Text, Title } = Typography;
+const { Text, Title, Paragraph } = Typography;
 
 // ==================== AssetListPage ====================
 
@@ -122,7 +122,8 @@ const AssetListPage: React.FC = () => {
             : (record.assignedTo.name ?? ALLOCATION_TARGET_LABELS[record.assignedTo.type as AllocationTargetType] ?? record.assignedTo.type);
           const isDeployed = record.assignedTo != null;
           return (
-            <Card size="small" style={{ borderRadius: 12, marginBottom: 12, borderLeft: `4px solid ${statusColor}`, transition: 'box-shadow 0.2s' }}
+            <Card size="small" style={{ borderRadius: 12, marginBottom: 12, borderLeft: `4px solid ${statusColor}`, cursor: 'pointer', transition: 'box-shadow 0.2s' }}
+              onClick={() => navigate(`/assets/${record.id}`)}
               styles={{ body: { padding: '16px' } }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                 <div style={{ width: 40, height: 40, borderRadius: 10, background: statusColor === statusColors.ready ? '#e6f4ff' : statusColor === statusColors.active ? '#f6ffed' : '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -146,27 +147,33 @@ const AssetListPage: React.FC = () => {
                 <span><Text type="secondary">Serial:</Text> <Text style={{ fontFamily: 'monospace' }}>{record.serial || '-'}</Text></span>
                 <span><Text type="secondary">Vị trí:</Text> <Text>{record.location?.name || '-'}</Text></span>
                 {isDeployed && assignedLabel && <span><Text type="secondary">Đang giữ:</Text> <Text strong>{assignedLabel}</Text></span>}
+                {record.notes && (
+                  <div style={{ gridColumn: '1 / -1', minWidth: 0, marginTop: 2 }}>
+                    <div><Text type="secondary">Ghi chú:</Text></div>
+                    <Paragraph ellipsis={{ rows: 2, tooltip: record.notes }} style={{ fontSize: 12, margin: 0 }}>{record.notes}</Paragraph>
+                  </div>
+                )}
               </div>
               <Divider style={{ margin: '8px 0' }} />
               <Space size="small" wrap style={{ justifyContent: 'flex-end', width: '100%' }}>
-                {has('view') && <Button size="small" icon={<EyeOutlined />} onClick={() => navigate(`/assets/${record.id}`)}>Xem</Button>}
-                {has('edit') && canEdit && <Button size="small" icon={<EditOutlined />} onClick={() => { setEditModalAssetId(record.id); setEditModalOpen(true); }}>Sửa</Button>}
+                {has('view') && <Button size="small" icon={<EyeOutlined />} onClick={(e) => { e.stopPropagation(); navigate(`/assets/${record.id}`); }}>Xem</Button>}
+                {has('edit') && canEdit && <Button size="small" icon={<EditOutlined />} onClick={(e) => { e.stopPropagation(); setEditModalAssetId(record.id); setEditModalOpen(true); }}>Sửa</Button>}
                 {has('confirm') && canEdit && (
                   <Popconfirm title="Xác nhận tài sản" description="Sau khi xác nhận, chỉ có thể sửa Tên và Ghi chú. Không thể xóa tài sản này." okText="Xác nhận" cancelText="Hủy" onConfirm={async () => { try { await assetService.confirm(record.id); void message.success('Đã xác nhận'); actionRef.current?.reload(); } catch { void message.error('Lỗi xác nhận'); } }}>
-                    <Button size="small" type="primary" ghost icon={<CheckSquareOutlined />}>Xác nhận</Button>
+                    <Button size="small" type="primary" ghost icon={<CheckSquareOutlined />} onClick={(e) => e.stopPropagation()}>Xác nhận</Button>
                   </Popconfirm>
                 )}
-                {has('allocate') && canCheckout && <Button size="small" type="primary" ghost icon={<SendOutlined />} onClick={() => { setAllocAsset(record); setAllocOpen(true); }}>Cấp phát</Button>}
-                {has('archive') && canEdit && <Button size="small" danger icon={<InboxOutlined />} onClick={() => { setArchiveAsset(record); setArchiveOpen(true); }}>Lưu trữ</Button>}
-                {has('recall') && canCheckin && <Button size="small" icon={<RollbackOutlined />} onClick={() => { setRecallAsset(record); setRecallOpen(true); }}>Thu hồi</Button>}
+                {has('allocate') && canCheckout && <Button size="small" type="primary" ghost icon={<SendOutlined />} onClick={(e) => { e.stopPropagation(); setAllocAsset(record); setAllocOpen(true); }}>Cấp phát</Button>}
+                {has('archive') && canEdit && <Button size="small" danger icon={<InboxOutlined />} onClick={(e) => { e.stopPropagation(); setArchiveAsset(record); setArchiveOpen(true); }}>Lưu trữ</Button>}
+                {has('recall') && canCheckin && <Button size="small" icon={<RollbackOutlined />} onClick={(e) => { e.stopPropagation(); setRecallAsset(record); setRecallOpen(true); }}>Thu hồi</Button>}
                 {has('unarchive') && canEdit && (
                   <Popconfirm title="Mở lại tài sản?" description="Tài sản sẽ trở về trạng thái Chờ cấp phát." okText="Mở lại" cancelText="Hủy" onConfirm={async () => { try { await assetService.unarchive(record.id); void message.success('Đã mở lại'); actionRef.current?.reload(); } catch { void message.error('Lỗi mở lại'); } }}>
-                    <Button size="small" icon={<UndoOutlined />}>Mở lại</Button>
+                    <Button size="small" icon={<UndoOutlined />} onClick={(e) => e.stopPropagation()}>Mở lại</Button>
                   </Popconfirm>
                 )}
                 {has('delete') && canDelete && (
                   <Popconfirm title="Xóa tài sản?" description="Tài sản chưa xác nhận sẽ bị xóa vĩnh viễn." okText="Xóa" cancelText="Hủy" okButtonProps={{ danger: true }} onConfirm={async () => { try { await apiClient.delete(`/assets/${record.id}`); void message.success('Đã xóa'); actionRef.current?.reload(); } catch { void message.error('Không thể xóa'); } }}>
-                    <Button size="small" danger icon={<DeleteOutlined />}>Xóa</Button>
+                    <Button size="small" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()}>Xóa</Button>
                   </Popconfirm>
                 )}
               </Space>

@@ -27,6 +27,7 @@ interface ConsumableDetail {
   id: string;
   name: string;
   itemNo: string | null;
+  status: string; // "Pending" | "Confirmed" (enum serialized as string)
   qty: number;
   minAmt: number;
   remaining: number;
@@ -319,7 +320,7 @@ const ConsumableDetailPage: React.FC = () => {
         )}
         <div style={{ flex: 1 }} />
         <Space>
-          {canCheckout && (
+          {canCheckout && detail.status === 'Confirmed' && (
             <Button type="primary" ghost icon={<SendOutlined />}
               onClick={() => setCheckoutModalOpen(true)}
               disabled={detail.remaining <= 0}>

@@ -76,7 +76,7 @@ public class LicensesController : ControllerBase
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(l => new
             {
-                l.Id, l.Name, l.Serial, l.Seats, l.Reassignable, l.ExpirationDate, l.TerminationDate, l.MinSeats,
+                l.Id, l.Name, l.Serial, l.Notes, l.Seats, l.Reassignable, l.ExpirationDate, l.TerminationDate, l.MinSeats,
                 AssignedSeats = l.LicenseSeats.Count(s => s.UserId != null || s.AssetId != null || s.SystemInfoId != null),
                 AvailableSeats = l.Seats - l.LicenseSeats.Count(s => s.UserId != null || s.AssetId != null || s.SystemInfoId != null),
                 ExpiringSoon = l.ExpirationDate != null && l.ExpirationDate <= soon && l.ExpirationDate > now,

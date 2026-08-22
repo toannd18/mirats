@@ -68,7 +68,7 @@ public class AssetsController : ControllerBase
         var total = await query.CountAsync();
         var assets = await query.OrderBy(a => a.AssetTag).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(a => new {
-                a.Id, a.AssetTag, a.Name, a.Serial, a.PurchaseCost, a.PurchaseDate,
+                a.Id, a.AssetTag, a.Name, a.Serial, a.Notes, a.PurchaseCost, a.PurchaseDate,
                 Status = a.Status.ToString(), a.IsConfirmed, a.CheckoutCounter, a.CheckinCounter,
                 a.LastCheckout, a.LastCheckin,
                 Model = a.Model == null ? null : new { a.Model.Id, a.Model.Name },
@@ -96,7 +96,7 @@ public class AssetsController : ControllerBase
         var enriched = assets.Select(a => {
             string? an = null;
             if (a.AssignedTo != null) an = a.AssignedTo.type switch { "User" => uDict.GetValueOrDefault(a.AssignedTo.targetId), "Department" => dDict.GetValueOrDefault(a.AssignedTo.targetId), "SystemPosition" => pDict.GetValueOrDefault(a.AssignedTo.targetId), _ => null };
-            return new { a.Id, a.AssetTag, a.Name, a.Serial, a.PurchaseCost, a.PurchaseDate, a.Status, a.IsConfirmed, a.CheckoutCounter, a.CheckinCounter, a.LastCheckout, a.LastCheckin, a.Model, a.Category, a.Manufacturer, a.Location, a.Company, AssignedTo = a.AssignedTo == null ? null : new { a.AssignedTo.type, a.AssignedTo.targetId, name = an } };
+            return new { a.Id, a.AssetTag, a.Name, a.Serial, a.Notes, a.PurchaseCost, a.PurchaseDate, a.Status, a.IsConfirmed, a.CheckoutCounter, a.CheckinCounter, a.LastCheckout, a.LastCheckin, a.Model, a.Category, a.Manufacturer, a.Location, a.Company, AssignedTo = a.AssignedTo == null ? null : new { a.AssignedTo.type, a.AssignedTo.targetId, name = an } };
         }).ToList();
 
         return Ok(new { status = "success", data = enriched, pagination = new { page, pageSize, totalItems = total, totalPages = (int)Math.Ceiling((double)total / pageSize), hasNextPage = page * pageSize < total, hasPreviousPage = page > 1 } });

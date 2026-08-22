@@ -281,6 +281,7 @@ export default function ComponentDetailPage() {
           <Descriptions.Item label="Số đơn hàng">{component.orderNumber || '-'}</Descriptions.Item>
           <Descriptions.Item label="Ngày mua">{component.purchaseDate ? new Date(component.purchaseDate).toLocaleDateString('vi-VN') : '-'}</Descriptions.Item>
           <Descriptions.Item label="Giá mua">{component.purchaseCost != null ? component.purchaseCost.toLocaleString('vi-VN') : '-'}</Descriptions.Item>
+          <Descriptions.Item label="Ghi chú" span={{ xs: 1, sm: 2 }}>{component.notes || '-'}</Descriptions.Item>
         </Descriptions>
 
         <Space style={{ marginTop: 16 }}>

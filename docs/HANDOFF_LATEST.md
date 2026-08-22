@@ -2222,3 +2222,155 @@ Mở rộng Import cho SystemInfo/SystemPosition — mô hình y hệt T1-T6. Ve
 - Công ty floater dùng `NOCO` — không công ty nào được đặt Code = NOCO.
 - Nếu admin cấu hình format thiếu `{COMPANY}`: hệ thống vẫn cho phép nhưng cảnh báo; nguy cơ trùng mã giữa công ty là do admin tự chấp nhận.
 
+## 55. FIX LỖI "ĐỊNH DẠNG MÃ HỆ THỐNG XXX-YYYY-ZZZ PHẢI VIẾT HOA" (2026-08-21)
+
+### Root cause (điều tra Bước 0)
+- **Backend** `SystemInfoController.cs` L37 (Task T7): `CodeRegex = ^[A-Z]{3}-\d{4}-\d{3}$` → format `XXX-YYYY-ZZZ` (3 chữ hoa - 4 số năm - 3 số thứ tự, VD `SYS-2026-001`), **case-sensitive**.
+- **Frontend** `SystemInfoListPage.tsx` L29: `CODE_PATTERN = ^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$` → vẫn là format CŨ `XXX-YYY-ZZZ` (3-3-3) **chưa cập nhật theo T7**. Placeholder `VD: SYS-001-COR`, `maxLength={11}` cũng là format cũ.
+- **Nguồn lỗi:** UI Admin nhập tay. Người dùng theo placeholder gõ `SYS-001-COR` (3-3-3) → frontend pattern cũ cho qua → backend format mới từ chối (thiếu 4 số năm) → lỗi "phải viết hoa". **KHÔNG phải lỗi sinh mã tự động** (Import `GenerateSystemCodeAsync` đã sinh `SYS-2026-001` uppercase đúng).
+- **Tái hiện API thật:** `code:"sys-2026-001"` → 400 "phải viết hoa" (case-sensitive); `code:"SYS-2026-001"` → 200 OK.
+
+### Fix
+- **Backend** (nới cho phép chữ thường + tự chuẩn hóa hoa): thêm `dto = dto with { Code = dto.Code?.Trim().ToUpperInvariant() ?? string.Empty }` ở ĐẦU mỗi method Create/Update/AddPosition/UpdatePosition — chuẩn hóa hoa TRƯỚC khi validate → chữ thường được chấp nhận và lưu hoa, người dùng không cần nhớ quy tắc.
+- **Frontend** `SystemInfoListPage.tsx`: `CODE_PATTERN` → `^[A-Z]{3}-\d{4}-\d{3}$`; message → "Định dạng: XXX-YYYY-ZZZ (3 chữ hoa - 4 số năm - 3 số thứ tự)"; placeholder → `VD: SYS-2026-001` / `VD: POS-2026-001`; `maxLength` → 12. Giữ `getValueFromEvent` + `.toUpperCase()` tự viết hoa khi gõ.
+
+### Verify
+- **API thật:** `code:"sys-2026-042"` (lowercase) → tạo thành công, DB lưu `SYS-2026-042` (uppercase). Lỗi trước đây không còn.
+- **UI thật (playwright-cli, admin):** placeholder `VD: SYS-2026-001`; gõ `sys-2026-050` tự viết hoa thành `SYS-2026-050`, submit thành công, DB lưu `SYS-2026-050`.
+- `dotnet test` fast suite **332/332 PASS** · `npm run build` **0 lỗi TS**.
+- **Dọn sạch test data:** các system test (Test upper/lowercase, QA-*) + action_logs = 0.
+
+## 56. NỚI FORMAT MÃ HỆ THỐNG/VỊ TRÍ: PREFIX TỪ 3 → 3-4 CHỮ HOA (2026-08-21)
+
+### Thay đổi (mở rộng regex prefix `{3}` → `{3,4}`)
+- **Backend** `SystemInfoController.cs` L38: `CodeRegex = ^[A-Z]{3,4}-\d{4}-\d{3}$` (trước: `^[A-Z]{3}-...`). Message → "Mã hệ thống/vị trí phải đúng định dạng XXX(X)-YYYY-ZZZ (3-4 chữ hoa, viết hoa)." (4 chỗ).
+- **Frontend** `SystemInfoListPage.tsx`: `CODE_PATTERN = /^[A-Z]{3,4}-\d{4}-\d{3}$/`; message → "XXX(X)-YYYY-ZZZ (3-4 chữ hoa - 4 số năm - 3 số thứ tự)"; `maxLength` → 13 (2 form system + position).
+
+### Verify
+- **API thật:** `syst-2026-001` (4 chữ, lowercase) → tạo thành công, lưu `SYST-2026-001`; `SYS-2026-007` (3 chữ) → vẫn OK; `SY-2026-001` (2 chữ) → **400** "XXX(X)-YYYY-ZZZ (3-4 chữ hoa...)".
+- `dotnet build` 0 lỗi · `npm run build` 0 lỗi TS.
+- **Dọn test data:** hệ thống QA (QA Four-letter/Three-letter prefix) + action_logs = 0. Còn lại 1 hệ thống có sẵn `RDP-2026-001` (dữ liệu thật, không phải test).
+
+## 57. HIỂN THỊ "GHI CHÚ" CHO COMPONENT (DETAIL + LIST CARD) + CLICK-TO-DETAIL (2026-08-22)
+
+### Audit Bước 0 (trước khi sửa)
+- Component entity **có** `Notes` (`Domain/Entities/Component.cs` L23); `ComponentFormModal` đã lưu Notes khi Tạo/Sửa → dữ liệu có trong DB nhưng **không hiển thị** trên UI.
+- API: `GET /components/{id}` **đã trả** `notes` (ComponentsController L145) — nhưng `GET /components` (list) **KHÔNG trả** `notes`: projection query-level có `c.Notes` nhưng **projection thứ 2** (L103-109, `items.Select(...)` — chính là response trả ra) **thiếu** `c.Notes` → phải sửa cả backend.
+- Đối chiếu pattern các trang khác: Asset (`span={2}`), Accessory/Consumable (`span={{ xs: 1, sm: 2 }}` + `detail.notes || '-'`) → áp dụng đúng pattern này cho Component Detail.
+- Card-click-to-detail: **chưa có** ListPage nào (Asset/Accessory/Consumable/License) làm — chỉ có nút điều hướng → task yêu cầu thêm cho Component (toàn card click + `stopPropagation` cho nút).
+
+### Thay đổi
+- **Backend** `ComponentsController.cs`: thêm `c.Notes` vào **projection thứ 2** của list (L106) — đây mới là response thật (lần đầu sửa nhầm projection query-level L66, API vẫn thiếu notes → debug: response keys không có `notes`).
+- **Frontend** `ComponentDetailPage.tsx`: thêm `<Descriptions.Item label="Ghi chú" span={{ xs: 1, sm: 2 }}>{component.notes || '-'}</Descriptions.Item>` cuối bảng Descriptions (sau "Giá mua"), đúng style Accessory/Consumable.
+- **Frontend** `ComponentListPage.tsx`:
+  - `ListItem` thêm `notes: string | null`.
+  - Card: thêm dòng "Ghi chú" (icon `FileTextOutlined`) full-width trong dataGrid, **chỉ hiển thị khi có notes**; dùng `Typography.Paragraph ellipsis={{ rows: 2, tooltip: record.notes }}` → rút gọn 2 dòng + tooltip hover hiện đầy đủ (trang Chi tiết hiển thị đầy đủ).
+  - Card: `onClick={() => navigate(\`/components/${record.id}\`)}` + `cursor: 'pointer'` (toàn card click được).
+  - 3 nút Chi tiết/Sửa/Xóa: thêm `e.stopPropagation()` (click nút không kích hoạt điều hướng card).
+
+### Verify (UI thật playwright-cli, admin, stack Aspire)
+- **Detail:** bảng thông tin có dòng "Ghi chú" sau "Giá mua" hiển thị `Ngan 1 - RDP. ECC Registered, 4GB DDR3 1600MHz. Test OK 08/05/2024` (dữ liệu thật của RAM HP 4GB 1Rx4 PC3-12800R-R).
+- **List Card:** card RAM HP hiển thị "Ghi chú" + nội dung; card không có notes (QCR-*) **không** hiển thị dòng này (chỉ 1 "Ghi chú" trên toàn trang). Long-note test: `ant-typography-ellipsis-multiple-line` + `-webkit-line-clamp: 2`; hover → tooltip hiện đầy đủ.
+- **Click-to-detail:** click toàn card → điều hướng `/components/{id}` đúng. Nút "Sửa" → mở modal edit tại `/components/{id}/edit` (không điều hướng nhầm). Nút "Xóa" → mở Popconfirm, path vẫn `/components` (stopPropagation hoạt động). Nút "Chi tiết" → `/components/{id}`.
+- `npm run build` **0 lỗi TS** · `dotnet build` 0 lỗi · `dotnet test` fast suite (`--filter "Category!=Concurrency"`) **332/332 PASS**.
+- **API thật:** list trả `notes` cho RAM HP; detail trả notes đầy đủ.
+- **Dọn test data:** QA-COMP-NOTES-TEST (tạo để test ellipsis) đã xóa + logs; QCR-* residue (5 components QCR-COMP-0..4 + QCR-CO + QCR-COMP category + 5 QCR-ACC + 5 QCR-CON + 5 QCR-AST + 5 component_assignments + 27 action_logs) do test suite concurrency (Category=Concurrency, chạy không filter khi stack đang chạy) sinh ra — **đã xóa hết** (pg_dump backup trước: `backups/db-backup-20260822-qcr-cleanup.sql`). Còn lại đúng baseline: 1 component RAM HP (có notes), 9 action_logs cũ của RDP Aircon (dữ liệu thật, giữ nguyên).
+
+### ⚠️ Lưu ý cho người sau
+- `dotnet test aspire-react.sln` không filter sẽ chạy cả `ConcurrencyRaceAuditTests` (Category=Concurrency) — các test này gọi API thật trên localhost:5428 và **tạo dữ liệu QCR-\*** không tự dọn → chỉ chạy khi stack đang lên và dọn sạch sau đó (fast suite chuẩn: `--filter "Category!=Concurrency"`).
+
+## 58. HIỂN THỊ "GHI CHÚ" CHO LIST — ASSET / LICENSE / ACCESSORY / CONSUMABLE (2026-08-22)
+
+### Audit Bước 0 (từng trang riêng biệt, không giả định giống nhau)
+| Trang | UI thật | API List trả Notes? | Frontend DTO có notes? | Kết luận |
+|---|---|---|---|---|
+| Asset | Card (ProList grid) | ❌ thiếu ở **cả 2 projection** (query L70-83 + enriched L96-99) | ✅ AssetDto.notes | sửa backend + frontend |
+| License | Card (ProList grid) | ❌ thiếu (1 projection L77-89) | ❌ LicenseListItem (notes chỉ ở LicenseDetailDto) | sửa backend + DTO + frontend |
+| Accessory | Card (ProList grid) | ❌ thiếu (1 projection L57-66) | ❌ AccessoryDto (notes chỉ ở AccessoryDetail) | sửa backend + DTO + frontend |
+| Consumable | Card (ProList grid) | ❌ thiếu (1 projection L54-62) | ❌ ConsumableDto (inline) | sửa backend + DTO + frontend |
+
+→ Cả 4 trang đều **Card view** (không phải ProTable) → click-to-detail áp dụng ở mức **toàn card** (giống Component), không phải row click.
+
+### Thay đổi
+- **Backend** (4 controller, thêm `Notes` vào projection list — bài học Component: kiểm tra **số lượng projection** trong method, Asset có 2 nên sửa cả 2):
+  - `AssetsController.cs`: `a.Notes` ở projection query-level **và** projection enriched (response thật).
+  - `LicensesController.cs`: `l.Notes` · `AccessoriesController.cs`: `a.Notes` · `ConsumablesController.cs`: `c.Notes`.
+- **Frontend** (4 ListPage — pattern giống Component §57: dòng "Ghi chú" full-width trong grid, chỉ hiện khi có notes, `Paragraph ellipsis={{rows:2, tooltip}}`):
+  - `AssetListPage.tsx`: dòng "Ghi chú:" trong grid; Card thêm `onClick → /assets/{id}` + `cursor:pointer`; `stopPropagation` trên 8 nút (Xem/Sửa/Xác nhận/Cấp phát/Lưu trữ/Thu hồi/Mở lại/Xóa).
+  - `LicenseListPage.tsx`: dòng "Ghi chú" (icon FileTextOutlined) trong dataGrid; Card `onClick → /licenses/{id}` (mở LicenseDetailModal); `stopPropagation` trên Cấp phát/Chi tiết/Sửa/Xóa.
+  - `AccessoryListPage.tsx`: dòng "Ghi chú" trong dataGrid; Card `onClick → /accessories/{id}/view`; `stopPropagation` trên Sửa/Xem/Cấp phát/Thu hồi/Xóa.
+  - `ConsumableListPage.tsx`: thêm `notes` vào ConsumableDto + dòng "Ghi chú"; Card `onClick → /consumables/{id}/view`; `stopPropagation` trên Xem/Sửa/Xác nhận/Xóa/Cấp phát.
+  - DTO phụ: `licenses.service.ts` LicenseListItem + `accessories.service.ts` AccessoryDto thêm `notes`; `AccessoryDetailPage.tsx` (accessoryDtoForModal) + `ConsumableListPage.tsx` (?checkout= auto-open) bổ sung `notes` — lỗi TS2741 build lần đầu đã sửa.
+
+### Verify (UI thật playwright-cli, admin — từng trang riêng biệt)
+- **API thật:** cả 5 list endpoint (/assets /licenses /accessories /consumables /components) đều trả `notes`.
+- **Asset:** card TE-AST-001 hiển thị "Ngăn 1. Local unit" (dữ liệu thật, 8/12 card có notes); click card → `/assets/{id}` (detail có Ghi chú); nút Sửa → mở modal, path giữ `/assets`.
+- **License:** card QA-LIC-NOTES-TEST hiển thị Ghi chú; click card → `/licenses/{id}` + mở LicenseDetailModal (modal hiển thị notes); nút Chi tiết hoạt động.
+- **Accessory:** card QA-ACC-NOTES-TEST hiển thị Ghi chú; click card → `/accessories/{id}/view`; nút Sửa → mở modal "Sửa phụ kiện", path giữ `/accessories`.
+- **Consumable:** card QA-CON-NOTES-TEST hiển thị Ghi chú; click card → `/consumables/{id}/view`; nút Sửa → mở modal, path giữ `/consumables`.
+- Ellipsis: `ant-typography-ellipsis-multiple-line` + `-webkit-line-clamp: 2` xác nhận trên card.
+- Ảnh trước/sau mỗi trang (stash tạm 4 ListPage → chụp "before" → pop): `asset-list-before/after.png`, `license-list-before/after.png`, `accessory-list-before/after.png`, `consumable-list-before/after.png`.
+- `npm run build` **0 lỗi TS** · `dotnet build` 0 lỗi · `dotnet test` fast suite (`--filter "Category!=Concurrency"`) **332/332 PASS**.
+- **Dọn test data:** QA-LIC-NOTES-TEST (+2 seats) + QA-LIC-CAT + QA-ACC-NOTES-TEST + QA-CON-NOTES-TEST + 7 action_logs đã xóa (licenses/accessories/consumables = 0). Còn lại dữ liệu thật: 14 assets (nhiều cái có notes), 1 component RAM HP, 1 system RDP.
+
+### ⚠️ Lưu ý
+- Cả 4 ListPage giờ đều **click-to-detail toàn card** (giống Component); nút hành động bên trong đều `stopPropagation`.
+- Khi thêm field vào list projection backend: kiểm tra **số lượng projection** trong method (Asset có 2 — Component từng dính lỗi sửa nhầm projection đầu, response vẫn thiếu field).
+
+## 59. CONSUMABLE: ẨN NÚT "CẤP PHÁT" KHI CHỜ XÁC NHẬN + MỞ KHÓA VỊ TRÍ/GHI CHÚ SAU KHI CẤP PHÁT (2026-08-22)
+
+### Audit Bước 0
+- **ConsumableStatus enum** (`Domain/Enums/ConsumableStatus.cs`): chỉ 2 trạng thái `Pending = 1` (Chờ xác nhận) / `Confirmed = 2` (Đã xác nhận). Vòng đời: Tạo → **Pending** (trạng thái NGAY SAU KHI TẠO, chưa confirm) → `Confirm` → **Confirmed** → `Checkout` (cấp phát).
+- **Nút "Cấp phát"** hiện tại hiển thị BẤT KỂ trạng thái ở cả List (ConsumableListPage L441, chỉ gate `canCheckout` + `remaining > 0`) và Detail (ConsumableDetailPage L322) — cần thêm điều kiện trạng thái. Permission `consumables.checkout` giữ nguyên.
+- **Backend Update** (`ConsumablesController.Update` L139): `Status == Confirmed → chặn TẤT CẢ field` — chặn cả Vị trí/Ghi chú → **vấn đề nằm ở backend**, không chỉ frontend. Form frontend vốn KHÔNG khóa Location/Notes (chỉ khóa Company khi đã từng cấp phát).
+- **Detail API thiếu `status`** trong response → Detail page và Form không biết trạng thái để gate.
+- ⚠️ Phát hiện thêm: `CheckoutAsync` (ConsumableAllocationService) KHÔNG kiểm tra Status — backend hiện vẫn cho phép checkout vật tư Pending qua API (task chỉ yêu cầu ẩn nút UI, không đổi backend validate → ghi nhận để cân nhắc sau).
+
+### Thay đổi
+- **Backend** `ConsumablesController.cs`:
+  - `GetConsumable`: thêm `Status = c.Status.ToString()` vào response.
+  - `Update`: thay block chặn cứng `Confirmed` bằng **khóa field có điều kiện** (mirror Task F Asset): khi Confirmed, chỉ Vị trí (`LocationId`) + Ghi chú (`Notes`) được sửa; các field khác (name/itemNo/qty/minAmt/categoryId/manufacturerId/supplierId/companyId/modelNumber/orderNumber/purchaseCost/purchaseDate/image) bị từ chối với `error_code = CONFIRMED_CONSUMABLE_LOCKED` nếu payload gửi GIÁ TRỊ KHÁC giá trị hiện tại (**patch-aware**: gửi giá trị giống hiện tại thì không bị chặn — form sửa submit đủ field vẫn OK). Thêm ActionLog cho nhánh Confirmed (changes: locationId, notes).
+- **Frontend**:
+  - `ConsumableListPage`: nút Cấp phát thêm điều kiện `isConfirmed(record.status)`.
+  - `ConsumableDetailPage`: thêm `status` vào `ConsumableDetail`; nút Cấp phát chỉ hiện khi `detail.status === 'Confirmed'`.
+  - `ConsumableFormModal`: thêm state `confirmedLocked` (đọc từ `d.status === 'Confirmed'`); Alert cảnh báo "Vật tư đã xác nhận — chỉ Vị trí và Ghi chú được sửa."; disable 12 field (name/itemNo/categoryId/companyId/qty/minAmt/supplierId/manufacturerId/modelNumber/orderNumber/purchaseDate/purchaseCost), GIỮ editable Vị trí + Ghi chú. (Alert dùng prop `title` — tránh deprecation `message`.)
+
+### Verify (UI thật playwright-cli, admin; stack Aspire)
+- **Kịch bản 1 — ẩn nút:** List: QA-CON-PENDING (tag "Chờ xác nhận") → **KHÔNG có** nút Cấp phát; QA-CON-DONE (tag "Đã xác nhận") → **có** nút. Detail: Pending → không có; Confirmed → có.
+- **Kịch bản 2 — sửa sau khi cấp phát:** QA-CON-EDIT (Confirmed + đã checkout 3) → mở Sửa: Alert hiện, Tên/Số lượng/Danh mục **disabled**, **Vị trí + Ghi chú editable** → đổi Vị trí → "Tủ #2 - Phòng T&E" + Ghi chú mới → Lưu → **PUT 200 OK**, modal đóng, Detail hiển thị Vị trí/Ghi chú mới (verify API: status=Confirmed, loc=Tủ #2, notes mới).
+- **Backend từ chối đúng:** PUT qty=99 → 400 `CONFIRMED_CONSUMABLE_LOCKED` ("qty"); PUT name khác → 400; PUT qty=10 (cùng giá trị) → 200 (patch-aware).
+- Ảnh trước/sau (stash tạm 3 file frontend → chụp → pop): `cons-list-before.png` (Pending card CÓ nút) ↔ `cons-cap-btn-list.png` (không có), `cons-edit-before.png` (modal không Alert, mọi field enabled) ↔ `cons-edit-confirmed.png` (Alert + field khóa), `cons-edit-after-save.png` (detail sau lưu).
+- `npm run build` **0 lỗi TS** · `dotnet build` 0 lỗi · `dotnet test` fast suite (`--filter "Category!=Concurrency"`) **332/332 PASS**.
+- **Dọn test data:** QA-CON-PENDING + QA-CON-DONE + QA-CON-EDIT (+2 checkout +9 action_logs) đã xóa; consumables = 0.
+
+### ⚠️ Lưu ý
+- Khóa field Confirmed dùng cơ chế **patch-aware so giá trị**: form sửa gửi toàn bộ field (giá trị không đổi) vẫn 200; chỉ field gửi giá trị KHÁC mới bị 400.
+
+## 60. BẮT BUỘC: CHẶN CHECKOUT VẬT TƯ PENDING Ở TẦNG API (CONSUMABLE_NOT_CONFIRMED) (2026-08-22)
+
+### Lỗ hổng
+- Trước fix này, `ConsumableAllocationService.CheckoutAsync` **không kiểm tra Status** — dù UI đã ẩn nút "Cấp phát" cho vật tư Pending (§59), gọi thẳng `POST /consumables/{id}/checkout` qua API vẫn checkout được vật tư chưa xác nhận → bỏ qua ràng buộc nghiệp vụ.
+
+### Fix
+- `ConsumableAllocationService.CheckoutAsync`: thêm gate ngay sau check NOT_FOUND:
+  ```csharp
+  if (consumable.Status != ConsumableStatus.Confirmed)
+      return new ConsumableCheckoutResult(false,
+          "Vật tư chưa được xác nhận — không thể cấp phát. Hãy xác nhận vật tư trước.", "CONSUMABLE_NOT_CONFIRMED");
+  ```
+  Controller `RunTransactional` vốn map `!Success → 400 { message, error_code }` → API trả 400 có mã rõ ràng.
+- **Tests** `ConsumableTests.cs`: `SeedConsumableAsync` thêm param `status` (mặc định Pending); 5 test checkout cũ seed `Confirmed` (để chạm đúng các nhánh lỗi cũ); thêm test mới `Checkout_Pending_Blocked_WithConfirmErrorCode` (expect `CONSUMABLE_NOT_CONFIRMED`, không có checkout/log).
+
+### Verify (API thật — bỏ qua UI)
+- Tạo QA-CON-NOTCONFIRMED (Pending, qty 5) → `POST /checkout` → **400** `{"error_code":"CONSUMABLE_NOT_CONFIRMED","message":"Vật tư chưa được xác nhận — không thể cấp phát..."}` ✅
+- `PUT /confirm` → 200 → `POST /checkout` lại → **200** "1 consumable(s) checked out." ✅ (Confirmed vẫn checkout bình thường)
+- `dotnet test` fast suite (`--filter "Category!=Concurrency"`) **333/333 PASS** (332 + 1 test mới).
+- **Dọn test data:** QA-CON-NOTCONFIRMED (+1 checkout +3 action_logs) đã xóa; consumables = 0.
+
+### ⚠️ Lưu ý
+- Lỗ hổng này cùng bài học: **mọi ràng buộc nghiệp vụ phải enforce ở backend**, UI ẩn nút chỉ là lớp trải nghiệm. (Đã audit: Accessory/License/Component **không có** khái niệm Pending/Confirmed như Consumable — không cần gate tương tự; chỉ Consumable có workflow Confirm.)
+
+
+
+
+

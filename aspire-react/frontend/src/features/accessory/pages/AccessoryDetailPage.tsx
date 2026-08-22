@@ -214,6 +214,7 @@ const AccessoryDetailPage: React.FC = () => {
 
   const accessoryDtoForModal = {
     id: detail.id, name: detail.name, itemNo: detail.itemNo,
+    notes: detail.notes ?? null,
     qty: detail.qty, minAmt: detail.minAmt, remaining: detail.remaining,
     checkedOutQty: detail.checkedOutQty, isLowStock: detail.isLowStock,
     companyId: detail.companyId, companyName: detail.company?.name ?? null,

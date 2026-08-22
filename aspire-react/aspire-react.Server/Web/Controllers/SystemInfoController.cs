@@ -33,8 +33,9 @@ public class SystemInfoController : ControllerBase
         return Guid.TryParse(sub, out var id) ? id : Guid.Empty;
     }
 
-    // Code format: XXX-YYYY-ZZZ — 3-letter prefix (SYS/POS), 4-digit year, 3-digit per-year sequence.
-    private static readonly Regex CodeRegex = new(@"^[A-Z]{3}-\d{4}-\d{3}$", RegexOptions.Compiled);
+    // Code format: XXX(X)-YYYY-ZZZ — 3-4 uppercase letters prefix (SYS/POS/SYST...), 4-digit year,
+    // 3-digit per-year sequence. Prefix length 3..4 letters (accepted uppercase only after normalize).
+    private static readonly Regex CodeRegex = new(@"^[A-Z]{3,4}-\d{4}-\d{3}$", RegexOptions.Compiled);
 
     [HttpGet, Authorize(Policy = "systems.view")]
     public async Task<IActionResult> GetAll()
@@ -101,8 +102,11 @@ public class SystemInfoController : ControllerBase
     [HttpPost, Authorize(Policy = "systems.create")]
     public async Task<IActionResult> Create([FromBody] SystemInfoDto dto)
     {
+        // Normalize code to uppercase FIRST so a lowercase client input is accepted and stored uppercase
+        // (the user does not need to remember the case rule). Validation then runs on the normalized value.
+        dto = dto with { Code = dto.Code?.Trim().ToUpperInvariant() ?? string.Empty };
         if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
-            return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX-YYYY-ZZZ (viết hoa)." });
+            return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX(X)-YYYY-ZZZ (3-4 chữ hoa, viết hoa)." });
         if (await _context.SystemInfos.AnyAsync(x => x.Code == dto.Code))
             return BadRequest(new { status = "error", message = "Mã hệ thống đã tồn tại." });
 
@@ -124,6 +128,7 @@ public class SystemInfoController : ControllerBase
     [HttpPut("{id:guid}"), Authorize(Policy = "systems.edit")]
     public async Task<IActionResult> Update(Guid id, [FromBody] SystemInfoDto dto)
     {
+        dto = dto with { Code = dto.Code?.Trim().ToUpperInvariant() ?? string.Empty };
         var s = await _context.SystemInfos.FindAsync(id);
         if (s == null) return NotFound(new { status = "error", message = "Not found." });
 
@@ -133,7 +138,7 @@ public class SystemInfoController : ControllerBase
             return NotFound(new { status = "error", message = "Not found." });
 
         if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
-            return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX-YYYY-ZZZ (viết hoa)." });
+            return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX(X)-YYYY-ZZZ (3-4 chữ hoa, viết hoa)." });
         if (await _context.SystemInfos.AnyAsync(x => x.Code == dto.Code && x.Id != id))
             return BadRequest(new { status = "error", message = "Mã hệ thống đã tồn tại." });
 
@@ -170,8 +175,9 @@ public class SystemInfoController : ControllerBase
     [HttpPost("{systemInfoId:guid}/positions"), Authorize(Policy = "systems.create")]
     public async Task<IActionResult> AddPosition(Guid systemInfoId, [FromBody] SystemPositionDto dto)
     {
+        dto = dto with { Code = dto.Code?.Trim().ToUpperInvariant() ?? string.Empty };
         if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
-            return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX-YYYY-ZZZ (viết hoa)." });
+            return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX(X)-YYYY-ZZZ (3-4 chữ hoa, viết hoa)." });
         if (await _context.SystemPositions.AnyAsync(x => x.Code == dto.Code))
             return BadRequest(new { status = "error", message = "Mã vị trí đã tồn tại." });
         var sys = await _context.SystemInfos.FindAsync(systemInfoId);
@@ -195,6 +201,7 @@ public class SystemInfoController : ControllerBase
     [HttpPut("{systemInfoId:guid}/positions/{posId:guid}"), Authorize(Policy = "systems.edit")]
     public async Task<IActionResult> UpdatePosition(Guid systemInfoId, Guid posId, [FromBody] SystemPositionDto dto)
     {
+        dto = dto with { Code = dto.Code?.Trim().ToUpperInvariant() ?? string.Empty };
         var pos = await _context.SystemPositions.Include(p => p.SystemInfo)
             .FirstOrDefaultAsync(p => p.Id == posId && p.SystemInfoId == systemInfoId);
         if (pos == null) return NotFound(new { status = "error", message = "Position not found." });
@@ -206,7 +213,7 @@ public class SystemInfoController : ControllerBase
             return NotFound(new { status = "error", message = "Position not found." });
 
         if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
-            return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX-YYYY-ZZZ (viết hoa)." });
+            return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX(X)-YYYY-ZZZ (3-4 chữ hoa, viết hoa)." });
         if (await _context.SystemPositions.AnyAsync(x => x.Code == dto.Code && x.Id != posId))
             return BadRequest(new { status = "error", message = "Mã vị trí đã tồn tại." });
 

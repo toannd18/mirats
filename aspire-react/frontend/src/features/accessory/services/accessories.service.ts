@@ -4,6 +4,7 @@ export interface AccessoryDto {
   id: string;
   name: string;
   itemNo: string | null;
+  notes: string | null;
   qty: number;
   minAmt: number;
   remaining: number;

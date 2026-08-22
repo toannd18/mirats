@@ -49,6 +49,13 @@ public class ConsumableAllocationService : IConsumableAllocationService
         if (consumable == null)
             return new ConsumableCheckoutResult(false, "Consumable not found.", "NOT_FOUND");
 
+        // ─── Status gate: only Confirmed consumables can be allocated. A Pending (Chờ xác nhận)
+        // consumable must be confirmed first — mirrors the business rule enforced on the UI (the
+        // "Cấp phát" button is hidden while Pending) so direct API calls cannot bypass it.
+        if (consumable.Status != ConsumableStatus.Confirmed)
+            return new ConsumableCheckoutResult(false,
+                "Vật tư chưa được xác nhận — không thể cấp phát. Hãy xác nhận vật tư trước.", "CONSUMABLE_NOT_CONFIRMED");
+
         if (quantity <= 0)
             return new ConsumableCheckoutResult(false, $"S��` l�����ng c���p phA�t ph���i l��>n h��n 0.", "INVALID_QUANTITY");
 

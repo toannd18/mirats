@@ -7,7 +7,7 @@ import type { ActionType } from '@ant-design/pro-components';
 import {
   PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined, EyeOutlined,
   SendOutlined, TeamOutlined, InboxOutlined, CalendarOutlined, EnvironmentOutlined,
-  AlertOutlined, SafetyCertificateOutlined,
+  AlertOutlined, SafetyCertificateOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../../../services/api-client';
@@ -21,7 +21,7 @@ import { statusColors } from '../../../theme/designTokens';
 import { formatDate } from '../../../utils/format';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
-const { Text, Title } = Typography;
+const { Text, Title, Paragraph } = Typography;
 
 // CategoryType.License = 5
 const LICENSE_CATEGORY_TYPE = 5;
@@ -268,9 +268,11 @@ export default function LicenseListPage() {
           return (
             <Card
               hoverable
+              onClick={() => navigate(`/licenses/${record.id}`)}
               style={{
                 borderRadius: 12,
                 marginBottom: 16,
+                cursor: 'pointer',
                 transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
               }}
               styles={{ body: { padding: '20px 20px 16px' } }}
@@ -389,6 +391,23 @@ export default function LicenseListPage() {
                     </div>
                   </>
                 )}
+
+                {record.notes && (
+                  <>
+                    <div style={{ ...dataRowStyle, gridColumn: '1 / -1' }}>
+                      <FileTextOutlined style={labelIconStyle} />
+                      <Text type="secondary" style={{ fontSize: 12 }}>Ghi chú</Text>
+                    </div>
+                    <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
+                      <Paragraph
+                        ellipsis={{ rows: 2, tooltip: record.notes }}
+                        style={{ fontSize: 13, margin: 0 }}
+                      >
+                        {record.notes}
+                      </Paragraph>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* ── Divider + Actions ── */}
@@ -401,7 +420,7 @@ export default function LicenseListPage() {
                     type="primary"
                     ghost
                     icon={<SendOutlined />}
-                    onClick={() => setCheckoutLicense(record)}
+                    onClick={(e) => { e.stopPropagation(); setCheckoutLicense(record); }}
                     disabled={record.availableSeats <= 0}
                   >
                     Cấp phát
@@ -410,7 +429,7 @@ export default function LicenseListPage() {
                 <Button
                   size="middle"
                   icon={<EyeOutlined />}
-                  onClick={() => navigate(`/licenses/${record.id}`)}
+                  onClick={(e) => { e.stopPropagation(); navigate(`/licenses/${record.id}`); }}
                 >
                   Chi tiết
                 </Button>
@@ -418,7 +437,7 @@ export default function LicenseListPage() {
                   <Button
                     size="middle"
                     icon={<EditOutlined />}
-                    onClick={() => navigate(`/licenses/${record.id}/edit`)}
+                    onClick={(e) => { e.stopPropagation(); navigate(`/licenses/${record.id}/edit`); }}
                   >
                     Sửa
                   </Button>
@@ -432,7 +451,7 @@ export default function LicenseListPage() {
                     okButtonProps={{ danger: true }}
                     cancelText="Hủy"
                   >
-                    <Button size="middle" danger icon={<DeleteOutlined />}>
+                    <Button size="middle" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()}>
                       Xóa
                     </Button>
                   </Popconfirm>
