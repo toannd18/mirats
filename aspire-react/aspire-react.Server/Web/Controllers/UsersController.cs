@@ -367,6 +367,16 @@ public class UsersController : ControllerBase
             });
         }
 
+        // [SEC-FIX S3, 2026-08-23] Company-scoping on CREATE (mirrors UpdateUser/DeleteUser scope
+        // check in this controller + the Create conventions of Component/Consumable/SystemInfo):
+        // a regular user may only create users for their own company (or a company-less floater);
+        // Superuser (GetCurrentUserCompanyIdAsync → null) may create for any company. Never trust
+        // the client-supplied CompanyId alone. Out-of-scope → 400 COMPANY_MISMATCH (this is a
+        // create, not access to an existing record — no hide-existence).
+        var actorCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (actorCompanyId.HasValue && command.CompanyId.HasValue && command.CompanyId.Value != actorCompanyId.Value)
+            return BadRequest(new { status = "error", message = "Bạn chỉ được tạo người dùng cho công ty của mình.", error_code = "COMPANY_MISMATCH" });
+
         var result = await _mediator.Send(command);
 
         if (!result.Success)

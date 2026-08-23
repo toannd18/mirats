@@ -2809,6 +2809,25 @@ Các action endpoint checkout/checkin/allocate chỉ validate **target↔record*
 - ⚠️ **Lưu ý status code:** các service trả `NOT_FOUND` nhưng controller map thành **400** (RunTransactional/controller switch) thay vì 404 — hide-existence vẫn đúng (message/error_code giống hệt case không tồn tại) nhưng lệch convention 404. Đây là vấn đề riêng đã có trong backlog (Y2/Y3/CS-10/CS-11 — thống nhất 404-vs-400), KHÔNG thuộc phạm vi S2/S4-S6.
 - Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn QA sạch (consumable/accessory/component QCR mới + 2 user DB + Keycloak) — users về 1 (admin).
 
+## 68. SEC-FIX S3: CreateUser validate CompanyId theo scope actor (2026-08-23)
+
+### Lỗ hổng
+`UsersController.CreateUser` không validate CompanyId payload — user công ty A có `users.create` tạo được user thuộc công ty B (đã tái hiện: tạo thành công 201).
+
+### Thay đổi
+- `UsersController.CreateUser` — thêm scope check **ở controller** (trước `_mediator.Send`, sau validator): `actorCompanyId = GetCurrentUserCompanyIdAsync()`; user thường gửi `CompanyId` khác công ty mình → **400 `COMPANY_MISMATCH`** (convention Create — không phải 404 hide-existence vì đây là tạo mới, không truy cập record tồn tại). Mirror UpdateUser/DeleteUser scope + convention Component/Consumable/SystemInfo Create. Superuser bypass; floater (CompanyId null) vẫn OK.
+
+### Verify thực nghiệm (API thật, user QA qa-s3-a MIRA có Admin quyền)
+| Kịch bản | Trước fix | Sau fix |
+|---|---|---|
+| qa-s3-a (MIRA) tạo user với CompanyId = QCR — *tấn công gốc* | 201 tạo thành công | **400 `COMPANY_MISMATCH`** ✅ |
+| qa-s3-a tạo user CÙNG công ty MIRA | 201 | **201** ✅ |
+| Superuser tạo user cho QCR | 201 | **201** ✅ |
+| qa-s3-a tạo user floater (CompanyId null) | 201 | **201** ✅ |
+
+- Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn QA: 4 user (DB + Keycloak) đã xóa — users về 1 (admin).
+
+
 
 
 
