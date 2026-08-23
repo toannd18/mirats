@@ -7,6 +7,14 @@ namespace aspire_react.Server.Infrastructure.Services;
 
 public interface ICompanyScopeService
 {
+    /// <summary>
+    /// ⚠️ [CS-7 post-fix note, 2026-08-23] PLACEHOLDER — currently ALWAYS returns an empty list
+    /// (see implementation below). Do NOT use it for any company-isolation check: a
+    /// "userCompanyIds.Count == 0" guard is always true and silently disables the gate (this exact
+    /// bug leaked /action-logs/by-system cross-company until the 2026-08-23 fix). For scoping use
+    /// <see cref="GetCurrentUserCompanyIdAsync"/> instead. Kept only because AppDbContext's global
+    /// query filter (already a documented no-op) and SystemsController still reference it.
+    /// </summary>
     Task<List<Guid>> GetUserCompanyIdsAsync();
     bool IsSuperUser();
     /// <summary>
@@ -138,6 +146,7 @@ public class CompanyScopeService : ICompanyScopeService
         // has company assignments (UserCompanies table). Placeholder for Phase 5 expansion.
         // In current implementation, admin/superuser bypasses filters,
         // and regular users have no company restrictions until FMCS is fully configured.
+        // ⚠️ [CS-7 note] This placeholder caused the by-system gate NO-OP fixed on 2026-08-23.
         var companyIds = new List<Guid>();
         _cache.Set(cacheKey, companyIds, CacheDuration);
         return Task.FromResult(companyIds);

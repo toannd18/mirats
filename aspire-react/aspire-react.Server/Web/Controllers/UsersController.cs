@@ -275,6 +275,16 @@ public class UsersController : ControllerBase
         if (user == null)
             return NotFound(new { status = "error", message = "User not found." });
 
+        // [SEC-FIX CS-3, 2026-08-23] Company-scoping: a company admin may only manage groups of
+        // users in their own company (or floater); Superuser (GetCurrentUserCompanyIdAsync → null)
+        // is unrestricted. Mirrors the exact pattern of UpdateUser/DeleteUser above. Previously a
+        // company admin could assign ANY group (incl. Admin) to a user of ANOTHER company (verified
+        // empirically: cross-company PUT returned 200) while the same target was filtered out of
+        // GET /users — read was scoped, write was not. Out-of-scope → 404 (hide existence).
+        var actorCompanyScope = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (actorCompanyScope.HasValue && user.CompanyId.HasValue && user.CompanyId.Value != actorCompanyScope.Value)
+            return NotFound(new { status = "error", message = "User not found." });
+
         var requestedIds = (request.GroupIds ?? new List<Guid>()).Distinct().ToList();
         var validGroupIds = await _context.PermissionGroups
             .Where(g => requestedIds.Contains(g.Id))

@@ -167,14 +167,17 @@ public class ActionLogsController : ControllerBase
         if (pageSize is < 1 or > 100) pageSize = 20;
 
         // ──── Company isolation ────
-        // SystemInfo carries CompanyId (nullable) and Checkout enforces a company match. Apply the
-        // same scope here: superuser / no configured companies → unrestricted; otherwise the system
-        // must be company-less or belong to one of the user's companies.
-        var userCompanyIds = await _companyScope.GetUserCompanyIdsAsync();
+        // [SEC-FIX CS-7, 2026-08-23] The old gate called GetUserCompanyIdsAsync() — a placeholder
+        // that ALWAYS returns [] (CompanyScopeService.cs) → "userCompanyIds.Count == 0" was always
+        // true for regular users, so the system-visibility check was a NO-OP and any user could
+        // read another company's full system history (verified empirically: cross-company GET
+        // returned 200 with logs + asset names). Now uses GetCurrentUserCompanyIdAsync() — the
+        // same working pattern as IsItemVisibleAsync below. Superuser (null) is unrestricted;
+        // a regular user may only view history of company-less systems or their own company's.
+        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
         var systemVisible = await _context.SystemInfos.AsNoTracking().AnyAsync(s =>
             s.Id == systemInfoId &&
-            (_companyScope.IsSuperUser() || userCompanyIds.Count == 0 ||
-             s.CompanyId == null || userCompanyIds.Contains(s.CompanyId.Value)));
+            (userCompanyId == null || s.CompanyId == null || s.CompanyId == userCompanyId.Value));
         if (!systemVisible)
             return NotFound(new { status = "error", message = "Hệ thống không tồn tại hoặc ngoài phạm vi công ty của bạn." });
 

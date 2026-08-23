@@ -2668,6 +2668,44 @@ Không bị: SystemDetailPage (`column={{xs:1,sm:2,md:3}}` ✓), UserDetailPage 
 ### Kết thúc chuỗi UI/UX
 Toàn bộ 7 task (T-RESP1→4, T-A11Y1, T-CLEAN1, T-TOKEN1, T-UX1) + fix bug title dọc (4 trang detail) đã xong, verify thật từng phần. Sẵn sàng commit GỘP DUY NHẤT theo quy trình an toàn (git status → secret grep → .gitignore → push → verify SHA).
 
+## 63. SEC-FIX KHẨN CẤP: CS-3 LEO THANG ĐẶC QUYỀN + CS-7 LỘ LOG CHÉO CÔNG TY + CI-1 CI LUÔN ĐỎ (2026-08-23)
+
+### Nguồn gốc phát hiện
+- **2 vòng review độc lập** (company-scoping 22 controller; patch-safety/CI) + **1 vòng hợp nhất** + **1 vòng xác minh thực nghiệm** — mọi lỗ hổng đều được tái hiện bằng API thật trước khi vá (HTTP thật, không suy luận từ code tĩnh).
+- CS-3 từng tấn công thành công: user Công ty A gán nhóm **Admin** cho user Công ty B → **200 + persist** (trong khi GET /users của A không thấy B — read scoped, write không).
+- CS-7 từng tấn công thành công: user A đọc `GET /action-logs/by-system` của hệ thống Công ty B → **200 kèm toàn bộ log + tên asset/vị trí/địa điểm** (`AST-QCRC-2026-001 - ...`).
+- CI-1: **8/9 lần chạy CI liên tiếp đỏ** đúng step "Run unit tests" (GitHub API) vì ConcurrencyRaceAuditTests cần live stack mà runner không có.
+
+### Fix 1 — CS-3 (`UsersController.UpdateUserGroups`)
+- Thêm company-scoping ngay sau khi load target user (trước mọi logic khác), **copy nguyên pattern UpdateUser/DeleteUser** (:444-450/:503-512): `actorCompanyScope = GetCurrentUserCompanyIdAsync()`; khác scope → **404 "User not found."** (hide existence). Superuser (null) bypass.
+- File: `aspire-react.Server/Web/Controllers/UsersController.cs` (block `[SEC-FIX CS-3, 2026-08-23]`).
+
+### Fix 2 — CS-7 (`ActionLogsController.GetBySystem`)
+- Thay gate NO-OP dùng `GetUserCompanyIdsAsync()` (placeholder luôn trả `[]` → `Count == 0` luôn đúng) bằng `GetCurrentUserCompanyIdAsync()` — cùng pattern `IsItemVisibleAsync` đã đúng. Superuser (null) xem tất cả; user thường chỉ thấy hệ thống floater/cùng công ty; out-of-scope → 404.
+- `GetUserCompanyIdsAsync` **không xóa** (còn được tham chiếu ở `AppDbContext.cs:533-534` global filter no-op + `SystemsController.cs:42`) — thay vào đó thêm ⚠️ cảnh báo XML-doc trên interface + implementation (`CompanyScopeService.cs`) rằng đây là placeholder và cấm dùng cho gate isolation.
+- File: `aspire-react.Server/Web/Controllers/ActionLogsController.cs`, `.../Infrastructure/Services/CompanyScopeService.cs`.
+
+### Fix 3 — CI-1 (`.github/workflows/ci.yml`)
+- Step "Run unit tests" thêm `--filter "Category!=Concurrency"` + comment giải thích lý do + hướng dẫn chạy tay khi stack sống. **Không đụng** 2 chỗ `|| true` (format/lint) — backlog riêng (B9/CI-2).
+
+### Verify thực nghiệm (stack Aspire thật, binary mới sau restart)
+| Kịch bản | Trước fix | Sau fix |
+|---|---|---|
+| qa-fix-a (Cty MIRA) PUT groups của qa-fix-b (Cty QCR-CO) | 200 + persist | **404 "User not found."** ✅ |
+| qa-fix-a tự gán nhóm cho chính mình (same-company) | 200 | **200** ✅ (không phá chức năng hợp lệ) |
+| Superuser gán nhóm cho bất kỳ ai | 200 | **200** ✅ (bypass đúng) |
+| qa-fix-a GET by-system hệ thống Cty B | 200 + log | **404** ✅ (message y hệt case system không tồn tại — không lộ tồn tại) |
+| qa-fix-b (chủ Cty B, đủ quyền) xem log hệ thống mình | 200 | **200** ✅ đầy đủ log |
+| Superuser GET by-system | 200 | **200** ✅ |
+
+- Build Release + Debug 0 lỗi · fast suite `--filter "Category!=Concurrency"`: **333/333 PASS** (0 regression).
+- Dữ liệu QA (2 user + asset/location/system/position + assignments + action_logs) đã dọn sạch cả DB lẫn Keycloak (verify: users=1 admin; companies=2 nguyên vẹn).
+
+### ⚠️ Phát hiện phụ trong lúc verify (chưa fix — backlog)
+- `DELETE /system-infos/{id}` trả **500** khi xóa system còn ActionLog tham chiếu qua `TargetSystemInfoId` (đã dọn bằng SQL trực tiếp). Cần điều tra FK/handler delete-guard cho ActionLog references.
+- Xác minh thêm (phiên trước): JIT provisioning không gán CompanyId cho user mới (floater) + secret Keycloak dev là literal placeholder `${KEYCLOAK_BACKEND_CLIENT_SECRET}` (AppHost/compose không truyền env vào container Keycloak) + 14 vị trí fallback claim (PermissionHandler có fallback fail-closed 🟡) — đã liệt kê trong báo cáo hợp nhất 2026-08-23, chờ backlog riêng.
+
+
 
 
 

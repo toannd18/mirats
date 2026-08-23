@@ -32,8 +32,13 @@ jobs:
         run: dotnet build aspire-react.sln --configuration Release --no-restore
 
       - name: Run unit tests
-        run: dotnet test aspire-react.sln --configuration Release --no-build --verbosity normal
-
+        # [SEC/CI-FIX CS-1, 2026-08-23] Exclude Category=Concurrency: ConcurrencyRaceAuditTests
+        # (aspire-react.Tests/ConcurrencyRaceAuditTests.cs) requires the LIVE Aspire stack
+        # (hardcoded http://localhost:5428 + Keycloak :8080, real Postgres FOR UPDATE locks).
+        # Without this filter every CI run failed 8+ times in a row at this exact step because
+        # the runner has no stack. Run those tests manually with:
+        #   dotnet test aspire-react.Tests --filter "Category=Concurrency"   (while Aspire is up)
+        run: dotnet test aspire-react.sln --configuration Release --no-build --verbosity normal --filter "Category!=Concurrency"
       - name: Format check
         run: dotnet format aspire-react.sln --verify-no-changes --no-restore || true
 
