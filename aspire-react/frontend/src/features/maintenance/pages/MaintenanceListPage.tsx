@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import {
-  App, Button, Col, DatePicker, Form, Grid, Input, InputNumber, Modal, Row, Select, Spin, Switch,
+  App, Button, Col, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Spin, Switch,
 } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import type { ActionType } from '@ant-design/pro-components';
@@ -8,6 +8,7 @@ import dayjs from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { assetService, type CreateMaintenanceForAssetPayload } from '../../asset/services/asset.service';
 import { usePermission } from '../../../hooks/usePermission';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import MaintenanceTable, { MAINTENANCE_TYPE_OPTIONS } from '../components/MaintenanceTable';
 import { isSuperUser } from '../../../services/keycloak';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
@@ -20,9 +21,7 @@ interface AssetOption {
 
 export default function MaintenanceListPage() {
   const { message } = App.useApp();
-  const { useBreakpoint } = Grid;
-  const screens = useBreakpoint();
-  const isMobile = !screens.md;
+  const isMobile = useIsMobile();
   const actionRef = useRef<ActionType | undefined>(undefined);
   const superUser = isSuperUser();
   // ST6b — create maintenance requires assets.edit (backend POST maintenances).

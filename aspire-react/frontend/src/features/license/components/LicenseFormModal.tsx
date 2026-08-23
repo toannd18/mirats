@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
-  App, Button, Col, DatePicker, Divider, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Switch, Tag, Tooltip, Grid,
+  App, Button, Col, DatePicker, Divider, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Switch, Tag, Tooltip,
 } from 'antd';
 import { LockOutlined, PlusOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { licensesApi, type CreateLicensePayload, type LicenseDetailDto } from '../services/licenses.service';
 import { isSuperUser } from '../../../services/keycloak';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
@@ -31,9 +32,7 @@ function LockedFieldTag({ value }: { value: string }) {
 
 export default function LicenseFormModal({ open, licenseId, onClose, onSaved }: LicenseFormModalProps) {
   const { message, modal } = App.useApp();
-  const { useBreakpoint } = Grid;
-  const screens = useBreakpoint();
-  const isMobile = !screens.md;
+  const isMobile = useIsMobile();
   const [form] = Form.useForm();
   const isEdit = !!licenseId;
   const superUser = isSuperUser();

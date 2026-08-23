@@ -9,35 +9,17 @@ import {
   CalendarOutlined, DollarOutlined, UserSwitchOutlined,
   RollbackOutlined, SendOutlined, HistoryOutlined,
 } from '@ant-design/icons';
-import { ProTable } from '@ant-design/pro-components';
-import type { ProColumns } from '@ant-design/pro-components';
 import { useNavigate, useParams } from 'react-router-dom';
 import { accessoriesApi, checkoutTypeToLabel, checkoutTypeToColor } from '../services/accessories.service';
 import type { AccessoryDetail, AccessoryCheckoutDto } from '../services/accessories.service';
 import AccessoryCheckoutModal from '../components/AccessoryCheckoutModal';
 import AccessoryCheckinModal from '../components/AccessoryCheckinModal';
 import { usePermission } from '../../../hooks/usePermission';
-import { ACTION_TYPE_TAGS } from '../../../shared/components/ActionLogTable';
+import ActionLogTable, { type ActionLogRow } from '../../../shared/components/ActionLogTable';
 import { formatDate, formatMoney } from '../../../utils/format';
+import { uiColors } from '../../../theme/designTokens';
 
 const { Title, Text } = Typography;
-
-// ==================== ProTable DTO ====================
-
-interface ActionLogItem {
-  id: string;
-  itemType: string;
-  itemId: string;
-  actionType: string;
-  actionTypeValue: number;
-  targetType: string | null;
-  targetId: string | null;
-  targetName: string | null;
-  creatorName: string | null;
-  note: string | null;
-  logMeta: string | null;
-  actionDate: string;
-}
 
 // ==================== Component ====================
 
@@ -105,7 +87,7 @@ const AccessoryDetailPage: React.FC = () => {
       render: (v: number) => <Text type="warning" strong>{v.toLocaleString('vi-VN')}</Text> },
     { title: 'Người cấp', dataIndex: 'createdByName', key: 'issuer', width: 130,
       render: (_v: string | null, record: AccessoryCheckoutDto) => (
-        <Space size={4}><UserSwitchOutlined style={{ color: '#8c8c8c' }} /><Text>{getFullName(record.createdByFirstName, record.createdByLastName, record.createdByName)}</Text></Space>
+        <Space size={4}><UserSwitchOutlined style={{ color: uiColors.labelGray }} /><Text>{getFullName(record.createdByFirstName, record.createdByLastName, record.createdByName)}</Text></Space>
       ) },
     { title: 'Ghi chú', dataIndex: 'note', key: 'note', ellipsis: true, width: 100,
       render: (v: string | null) => v || '-' },
@@ -120,89 +102,9 @@ const AccessoryDetailPage: React.FC = () => {
       ) },
   ];
 
-  // ──── ProTable Columns: Action Logs ────
-
-  const actionLogColumns: ProColumns<ActionLogItem>[] = [
-    {
-      title: 'Thời gian',
-      dataIndex: 'actionDate',
-      key: 'actionDate',
-      valueType: 'dateTime',
-      width: 160,
-    },
-    {
-      title: 'Hành động',
-      dataIndex: 'actionTypeValue',
-      key: 'actionTypeValue',
-      width: 110,
-      render: (_, record) => {
-        const info = ACTION_TYPE_TAGS[record.actionTypeValue] ?? { label: record.actionType, color: 'default' };
-        return <Tag color={info.color}>{info.label}</Tag>;
-      },
-    },
-    {
-      title: 'Người thực hiện',
-      dataIndex: 'creatorName',
-      key: 'creatorName',
-      width: 160,
-      ellipsis: true,
-      render: (_, record) => (
-        <Space size={4}>
-          <UserSwitchOutlined style={{ color: '#8c8c8c' }} />
-          <Text>{record.creatorName || '-'}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: 'Đối tượng liên quan',
-      dataIndex: 'targetName',
-      key: 'targetName',
-      width: 160,
-      ellipsis: true,
-      search: false,
-      render: (_, record) => record.targetName || '-',
-    },
-    {
-      title: 'Chi tiết / Ghi chú',
-      key: 'detail',
-      width: 280,
-      ellipsis: true,
-      search: false,
-      render: (_, record) => {
-        const parts: string[] = [];
-        if (record.note) parts.push(record.note);
-        if (record.logMeta) {
-          try {
-            const meta = JSON.parse(record.logMeta);
-            if (meta.changes && typeof meta.changes === 'object') {
-              // New format (from Checkout/CheckinAccessoryCommand): { changes: { field: { old, new } } }
-              const c = meta.changes as Record<string, { old?: unknown; new?: unknown }>;
-              const label: Record<string, string> = {
-                quantity: 'SL', checkout_type: 'Loại', return_qty: 'Đã trả',
-              };
-              for (const [k, v] of Object.entries(c)) {
-                if (k === 'quantity') parts.push(`SL: ${v?.new}`);
-                else if (k === 'return_qty') parts.push(`Đã trả: ${v?.new}`);
-                else if (k === 'checkout_type') parts.push(`Loại: ${v?.new}`);
-                else parts.push(`${label[k] ?? k}: ${v?.new ?? ''}`);
-              }
-            } else {
-              // Legacy format (raw top-level): { quantity, returnQty, remaining, checkoutType }
-              if (meta.quantity != null) parts.push(`SL: ${meta.quantity}`);
-              if (meta.returnQty != null) parts.push(`Đã trả: ${meta.returnQty}`);
-              if (meta.remaining != null) parts.push(`Còn: ${meta.remaining}`);
-              if (meta.checkoutType) parts.push(`Loại: ${meta.checkoutType}`);
-            }
-          } catch {
-            parts.push(record.logMeta.substring(0, 80));
-          }
-        }
-        return <Text type="secondary">{parts.join(' · ') || '-'}</Text>;
-      },
-    },
-  ];
-
   // ──── Loading / Error ────
+  // (T-RESP4: cột "Lịch sử hoạt động" đã chuyển sang ActionLogTable dùng chung —
+  //  bỏ actionLogColumns local; định nghĩa logMeta chi tiết giờ nằm trong formatLogDetail shared.)
 
   if (loading) {
     return <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spin size="large" /></div>;
@@ -232,7 +134,7 @@ const AccessoryDetailPage: React.FC = () => {
           Đang cấp phát
           {activeCheckouts.length > 0 && (
             <Badge count={activeCheckouts.length} size="small"
-              style={{ marginLeft: 8, backgroundColor: '#fa8c16' }} />
+              style={{ marginLeft: 8, backgroundColor: uiColors.warningAmber }} />
           )}
         </span>
       ),
@@ -252,27 +154,21 @@ const AccessoryDetailPage: React.FC = () => {
           Lịch sử hoạt động
         </span>
       ),
+      // T-RESP4: dùng ActionLogTable DÙNG CHUNG — tự responsive mobile (Card),
+      // desktop ProTable với cột target "Đối tượng liên quan" như cũ.
       children: (
-        <ProTable<ActionLogItem>
-          rowKey="id"
-          columns={actionLogColumns}
-          search={false}
-          toolBarRender={false}
-          options={false}
-          scroll={{ x: 'max-content' }}
-          ghost
-          pagination={{ defaultPageSize: 15, showSizeChanger: false, showTotal: (t) => `${t} sự kiện` }}
+        <ActionLogTable
+          targetColumnTitle="Đối tượng liên quan"
+          emptyText="Chưa có hoạt động nào"
+          pagination={{ pageSize: 15, showSizeChanger: false }}
           request={async () => {
             try {
               const res = await accessoriesApi.getLogs(id!);
-              return { data: res.data.data ?? [], success: true, total: res.data.data?.length ?? 0 };
+              return { data: (res.data.data ?? []) as ActionLogRow[], success: true, total: res.data.data?.length ?? 0 };
             } catch {
               void message.error('Không thể tải lịch sử hoạt động');
               return { data: [], success: false, total: 0 };
             }
-          }}
-          locale={{
-            emptyText: <Empty description="Chưa có hoạt động nào" />,
           }}
         />
       ),
@@ -282,7 +178,8 @@ const AccessoryDetailPage: React.FC = () => {
   return (
     <div style={{ maxWidth: 1000 }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+      {/* Header — flexWrap: 'wrap' bắt buộc (bug title dọc trên mobile — cùng pattern ConsumableDetailPage) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/accessories')} size="middle">Quay lại</Button>
         <Title level={4} style={{ margin: 0 }}>Chi tiết phụ kiện</Title>
         {detail.isLowStock && (
@@ -302,7 +199,7 @@ const AccessoryDetailPage: React.FC = () => {
 
       {/* Stock Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16, marginBottom: 24 }}>
-        <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: '#f6ffed', borderColor: '#b7eb8f' }}>
+        <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: uiColors.stockSuccessBg, borderColor: uiColors.stockSuccessBorder }}>
           <Text type="secondary" style={{ fontSize: 12 }}>Tổng số lượng</Text>
           <div><Text strong style={{ fontSize: 24 }}>{detail.qty.toLocaleString('vi-VN')}</Text></div>
         </Card>

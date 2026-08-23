@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
-  App, Button, Col, DatePicker, Divider, Form, Grid, Input, InputNumber, Modal,
+  App, Button, Col, DatePicker, Divider, Form, Input, InputNumber, Modal,
   Row, Select, Space, Spin,
 } from 'antd';
 import { LockOutlined, SaveOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { accessoriesApi } from '../services/accessories.service';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
@@ -35,9 +36,7 @@ interface OptionItem { label: string; value: string; }
  */
 export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved }: AccessoryFormModalProps) {
   const { message, modal } = App.useApp();
-  const { useBreakpoint } = Grid;
-  const screens = useBreakpoint();
-  const isMobile = !screens.md;
+  const isMobile = useIsMobile();
   const [form] = Form.useForm();
   const isEdit = !!accessoryId;
 

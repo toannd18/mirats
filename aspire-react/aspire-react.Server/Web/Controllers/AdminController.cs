@@ -357,7 +357,9 @@ public class AdminController : ControllerBase
         return Ok(new { status = "success", data = list }); }
 
     // === Depreciations ===
-    [HttpGet("depreciations"), Authorize]
+    // T-CLEAN1: trước đây chỉ [Authorize] trần (review #33 BACKEND_ARCHITECTURE_REVIEW_2026-08-15) —
+    // mọi user đăng nhập đều đọc được. Siết về policy chuẩn như các master-data khác.
+    [HttpGet("depreciations"), Authorize(Policy = "depreciations.view")]
     public async Task<IActionResult> GetDepreciations() {
         var list = await _context.Depreciations.AsNoTracking().OrderBy(d => d.Name).ToListAsync();
         return Ok(new { status = "success", data = list }); }

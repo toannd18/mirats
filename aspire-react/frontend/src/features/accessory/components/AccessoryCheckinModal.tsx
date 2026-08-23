@@ -5,6 +5,7 @@ import {
 import { RollbackOutlined, EnvironmentOutlined } from '@ant-design/icons';
 import { accessoriesApi, checkoutTypeToLabel } from '../services/accessories.service';
 import type { AccessoryCheckoutDto, CheckinRequest } from '../services/accessories.service';
+import { uiColors } from '../../../theme/designTokens';
 
 const { Text, Title } = Typography;
 
@@ -72,7 +73,7 @@ const AccessoryCheckinModal: React.FC<AccessoryCheckinModalProps> = ({
     <Modal
       title={
         <Space>
-          <RollbackOutlined style={{ color: '#fa8c16' }} />
+          <RollbackOutlined style={{ color: uiColors.warningAmber }} />
           <span>Thu hồi phụ kiện</span>
         </Space>
       }
@@ -99,7 +100,7 @@ const AccessoryCheckinModal: React.FC<AccessoryCheckinModalProps> = ({
             </Descriptions.Item>
             <Descriptions.Item label="Đối tượng nhận">
               <Space>
-                <EnvironmentOutlined style={{ color: '#8c8c8c' }} />
+                <EnvironmentOutlined style={{ color: uiColors.labelGray }} />
                 <Text strong>{checkout.targetName ?? checkout.targetId}</Text>
               </Space>
             </Descriptions.Item>

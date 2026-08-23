@@ -1,10 +1,13 @@
-import { useState, useRef } from 'react';
-import { Button, Space, Input, Tag, Modal, Form, Select, Switch, ColorPicker, message } from 'antd';
+import { useState, useRef, type ReactNode } from 'react';
+import { Button, Space, Input, Tag, Modal, Form, Select, Switch, ColorPicker, Card, Divider, Typography, Popconfirm, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { ProTable } from '@ant-design/pro-components';
+import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
+import { useIsMobile } from '../../../hooks/useIsMobile';
+
+const { Text } = Typography;
 
 // ST6b — permission gating (mirrors backend [Authorize(Policy=...)]).
 const CATEGORY_TYPE_LABELS: Record<string, string> = {
@@ -35,8 +38,10 @@ export default function CategoryListPage() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form] = Form.useForm();
+  // ST7b — 1 actionRef dùng chung cho ProTable (desktop) và ProList (mobile Card).
   const actionRef = useRef<ActionType | null>(null);
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
+  const isMobile = useIsMobile();
 
   // ST6b — permission gating (mirrors backend [Authorize(Policy=...)]).
   const canCreate = usePermission('categories.create');
@@ -69,20 +74,17 @@ export default function CategoryListPage() {
     setOpen(false);
   };
 
-  const handleDelete = (record: CategoryRow) => {
-    Modal.confirm({
-      title: 'Xóa danh mục?',
-      content: `Bạn có chắc muốn xóa "${record.name}"?`,
-      onOk: async () => {
-        try {
-          await apiClient.delete(`/categories/${record.id}`);
-          message.success('Đã xóa danh mục');
-          actionRef.current?.reload();
-        } catch (err: any) {
-          message.error(err?.response?.data?.message || 'Không thể xóa danh mục');
-        }
-      },
-    });
+  // ST7b: confirm nằm ở Popconfirm trong renderActions (dùng chung 2 view) —
+  // hàm này chỉ thực hiện xóa sau khi đã confirm.
+  const handleDelete = async (record: CategoryRow) => {
+    try {
+      await apiClient.delete(`/categories/${record.id}`);
+      message.success('Đã xóa danh mục');
+      actionRef.current?.reload();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      message.error(e?.response?.data?.message || 'Không thể xóa danh mục');
+    }
   };
 
   const save = async () => {
@@ -97,12 +99,89 @@ export default function CategoryListPage() {
       }
       handleClose();
       actionRef.current?.reload();
-    } catch (err: any) {
-      if (err?.errorFields) return; // Form validation error, don't show message
-      const serverMsg = err?.response?.data?.message;
-      message.error(serverMsg || 'Lỗi lưu danh mục');
+    } catch (err: unknown) {
+      if ((err as { errorFields?: unknown }).errorFields) return; // validation error — không hiện message
+      const e = err as { response?: { data?: { message?: string } } };
+      message.error(e?.response?.data?.message || 'Lỗi lưu danh mục');
     }
   };
+
+  // ST7b — 1 fetch dùng chung cho ProTable (desktop) và ProList (mobile Card) — không trùng code.
+  const fetchList = async () => {
+    const params: Record<string, unknown> = {};
+    if (typeFilter !== undefined) params.type = typeFilter;
+    const r = await apiClient.get('/categories', { params });
+    return { list: (r.data.data ?? []) as CategoryRow[], total: (r.data.data ?? []).length };
+  };
+
+  // ST7b — action buttons dùng chung cho cột "Thao tác" (desktop) và Card (mobile):
+  // permission-gating + handler nằm MỘT chỗ duy nhất giữa 2 view.
+  const renderActions = (r: CategoryRow): ReactNode[] => [
+    canEdit && <Button key="edit" size="small" onClick={() => handleEdit(r)}>Sửa</Button>,
+    canDelete && (
+      <Popconfirm
+        key="del"
+        title="Xóa danh mục này?"
+        onConfirm={() => handleDelete(r)}
+      >
+        <Button size="small" danger>Xóa</Button>
+      </Popconfirm>
+    ),
+  ].filter(Boolean) as ReactNode[];
+
+  // Modal tạo/sửa — định nghĩa MỘT lần, render chung cho cả mobile (ProList) và desktop (ProTable).
+  const formModal = (
+    <Modal
+      open={open}
+      title={editingId ? 'Sửa danh mục' : 'Tạo danh mục mới'}
+      onOk={form.submit}
+      onCancel={handleClose}
+      destroyOnHidden
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={save}
+        initialValues={{ tagColor: '#1890ff', categoryType: 'Asset', useDefaultEula: true }}
+      >
+        <Form.Item label="Tên" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
+          <Input placeholder="Tên danh mục" />
+        </Form.Item>
+
+        <Form.Item
+          label="Màu"
+          name="tagColor"
+          getValueFromEvent={(color) => (typeof color === 'string' ? color : color.toHexString())}
+        >
+          <ColorPicker format="hex" showText />
+        </Form.Item>
+
+        <Form.Item label="Loại" name="categoryType" rules={[{ required: true }]}>
+          <Select disabled={!!editingId}>
+            {Object.entries(CATEGORY_TYPE_LABELS).filter(([k]) => !/^\d+$/.test(k)).map(([key, label]) => (
+              <Select.Option key={key} value={key}>{label}</Select.Option>
+            ))}
+          </Select>
+        </Form.Item>
+
+        <Form.Item label="Bắt buộc xác nhận" name="requireAcceptance" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+
+        <Form.Item label="Gửi Email khi Checkin" name="checkinEmail" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+
+        <Form.Item label="EULA Mặc định" name="useDefaultEula" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+
+        <Form.Item label="Ghi chú" name="notes">
+          <Input.TextArea rows={2} placeholder="Ghi chú thêm về danh mục" />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
 
   const columns: ProColumns<CategoryRow>[] = [
     { title: 'Tên', dataIndex: 'name', key: 'name' },
@@ -134,14 +213,84 @@ export default function CategoryListPage() {
       key: 'actions',
       valueType: 'option' as const,
       width: 120,
-      render: (_, r) => (
-        <Space size="small">
-          {canEdit && <Button size="small" onClick={() => handleEdit(r)}>Sửa</Button>}
-          {canDelete && <Button size="small" danger onClick={() => handleDelete(r)}>Xóa</Button>}
-        </Space>
-      ),
+      render: (_, r) => <Space size="small">{renderActions(r)}</Space>,
     },
   ];
+
+  // ─── Mobile (ST7b): ProList Card thay Table — cùng fetch + cùng renderActions ───
+  if (isMobile) {
+    return (
+      <div>
+        <ProList<CategoryRow>
+          headerTitle="Danh sách danh mục"
+          actionRef={actionRef}
+          rowKey="id"
+          ghost
+          cardProps={false}
+          search={false}
+          grid={{ gutter: 16, xs: 1, sm: 1 }}
+          toolBarRender={() => [
+            <Select
+              key="typeFilter"
+              allowClear
+              placeholder="Lọc theo loại"
+              style={{ minWidth: 140 }}
+              value={typeFilter}
+              onChange={v => { setTypeFilter(v); actionRef.current?.reload(); }}
+              options={Object.entries(CATEGORY_TYPE_LABELS).filter(([k]) => !/^\d+$/.test(k)).map(([key, label]) => ({ label, value: key }))}
+            />,
+            canCreate && (
+              <Button key="add" type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+                Thêm
+              </Button>
+            ),
+          ]}
+          request={async () => {
+            try {
+              const { list, total } = await fetchList();
+              return { data: list, success: true, total };
+            } catch {
+              message.error('Lỗi tải danh mục');
+              return { data: [], success: false, total: 0 };
+            }
+          }}
+          pagination={{ defaultPageSize: 20, showSizeChanger: false }}
+          itemRender={(record) => (
+            <Card hoverable style={{ borderRadius: 12, marginBottom: 16 }} styles={{ body: { padding: 16 } }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                {record.tagColor && (
+                  <span aria-hidden style={{ width: 12, height: 12, borderRadius: '50%', background: record.tagColor, flexShrink: 0 }} />
+                )}
+                <Text strong style={{ fontSize: 15 }}>{record.name}</Text>
+                <Tag style={{ marginInlineEnd: 0 }} color="blue">
+                  {CATEGORY_TYPE_LABELS[record.categoryType] || `#${record.categoryType}`}
+                </Tag>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', padding: '10px 12px', background: '#fafafa', borderRadius: 8 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>Màu</Text>
+                <Text style={{ fontSize: 13 }}>{record.tagColor ? <Tag color={record.tagColor} style={{ margin: 0 }}>{record.tagColor}</Tag> : '-'}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>Chính sách</Text>
+                <Text style={{ fontSize: 13 }}>
+                  {(record.requireAcceptance || record.checkinEmail || record.useDefaultEula)
+                    ? (
+                      <Space size={4} wrap>
+                        {record.requireAcceptance && <Tag color="orange" style={{ margin: 0 }}>Cần xác nhận</Tag>}
+                        {record.checkinEmail && <Tag color="blue" style={{ margin: 0 }}>Gửi Email</Tag>}
+                        {record.useDefaultEula && <Tag color="green" style={{ margin: 0 }}>EULA</Tag>}
+                      </Space>
+                    )
+                    : '-'}
+                </Text>
+              </div>
+              <Divider style={{ margin: '10px 0' }} />
+              <Space size="small" wrap>{renderActions(record)}</Space>
+            </Card>
+          )}
+        />
+        {formModal}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -171,10 +320,8 @@ export default function CategoryListPage() {
         options={{ reload: true, density: true, setting: true }}
         request={async () => {
           try {
-            const params: Record<string, unknown> = {};
-            if (typeFilter !== undefined) params.type = typeFilter;
-            const r = await apiClient.get('/categories', { params });
-            return { data: r.data.data ?? [], success: true, total: (r.data.data ?? []).length };
+            const { list, total } = await fetchList();
+            return { data: list, success: true, total };
           } catch {
             message.error('Lỗi tải danh mục');
             return { data: [], success: false, total: 0 };
@@ -184,56 +331,7 @@ export default function CategoryListPage() {
         scroll={{ x: 'max-content' }}
       />
 
-      <Modal
-        open={open}
-        title={editingId ? 'Sửa danh mục' : 'Tạo danh mục mới'}
-        onOk={form.submit}
-        onCancel={handleClose}
-        destroyOnHidden
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={save}
-          initialValues={{ tagColor: '#1890ff', categoryType: 'Asset', useDefaultEula: true }}
-        >
-          <Form.Item label="Tên" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
-            <Input placeholder="Tên danh mục" />
-          </Form.Item>
-
-          <Form.Item
-            label="Màu"
-            name="tagColor"
-            getValueFromEvent={(color) => (typeof color === 'string' ? color : color.toHexString())}
-          >
-            <ColorPicker format="hex" showText />
-          </Form.Item>
-
-          <Form.Item label="Loại" name="categoryType" rules={[{ required: true }]}>
-            <Select disabled={!!editingId}>
-              {Object.entries(CATEGORY_TYPE_LABELS).filter(([k]) => !/^\d+$/.test(k)).map(([key, label]) => (
-                <Select.Option key={key} value={key}>{label}</Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-
-          <Form.Item label="Bắt buộc xác nhận" name="requireAcceptance" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-
-          <Form.Item label="Gửi Email khi Checkin" name="checkinEmail" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-
-          <Form.Item label="EULA Mặc định" name="useDefaultEula" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-
-          <Form.Item label="Ghi chú" name="notes">
-            <Input.TextArea rows={2} placeholder="Ghi chú thêm về danh mục" />
-          </Form.Item>
-        </Form>
-      </Modal>
+      {formModal}
     </div>
   );
 }

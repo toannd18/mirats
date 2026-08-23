@@ -197,7 +197,7 @@ export default function SystemInfoListPage() {
           }
         }}
         expandable={{ expandedRowRender, defaultExpandAllRows: false }}
-       // scroll={{ x: 'max-content' }}
+        scroll={{ x: 'max-content' }}
       />
 
       {/* System Info Modal */}

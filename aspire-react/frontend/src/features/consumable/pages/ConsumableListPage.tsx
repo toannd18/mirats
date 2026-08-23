@@ -17,7 +17,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { usePermission } from '../../../hooks/usePermission';
 import ConsumableCheckoutModal from '../components/ConsumableCheckoutModal';
 import ConsumableFormModal from '../components/ConsumableFormModal';
-import { statusColors } from '../../../theme/designTokens';
+import { statusColors, uiColors, cardBadgeGradients } from '../../../theme/designTokens';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -45,7 +45,7 @@ const iconBadgeStyle: React.CSSProperties = {
   width: 48,
   height: 48,
   borderRadius: 12,
-  background: 'linear-gradient(135deg, #e6f4ff 0%, #bae0ff 100%)',
+  background: cardBadgeGradients.lightBlue,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -69,7 +69,7 @@ const dataRowStyle: React.CSSProperties = {
 };
 
 const labelIconStyle: React.CSSProperties = {
-  color: '#8c8c8c',
+  color: uiColors.labelGray,
   fontSize: 13,
 };
 

@@ -12,6 +12,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../../../services/api-client';
 import { componentsApi } from '../services/components.service';
 import { usePermission } from '../../../hooks/usePermission';
+import { uiColors, cardBadgeGradients } from '../../../theme/designTokens';
 import { isSuperUser } from '../../../services/keycloak';
 import ComponentFormModal from '../components/ComponentFormModal';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
@@ -47,7 +48,7 @@ const iconBadgeStyle: React.CSSProperties = {
   width: 48,
   height: 48,
   borderRadius: 12,
-  background: 'linear-gradient(135deg, #f0f5ff 0%, #adc6ff 100%)',
+  background: cardBadgeGradients.blue,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -71,7 +72,7 @@ const dataRowStyle: React.CSSProperties = {
 };
 
 const labelIconStyle: React.CSSProperties = {
-  color: '#8c8c8c',
+  color: uiColors.labelGray,
   fontSize: 13,
 };
 

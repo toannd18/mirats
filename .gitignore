@@ -81,3 +81,10 @@ test-results/
 # =============================================================================
 tmp/
 opencode-temp/
+
+# =============================================================================
+# QA evidence + scratch (repo is PUBLIC — never commit screenshots/backups)
+# =============================================================================
+screenshots/
+backups/
+docs/assets-template(1).xlsx

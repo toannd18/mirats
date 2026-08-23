@@ -4,6 +4,7 @@ import { RollbackOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { assetService } from '../services/asset.service';
 import type { AssetDto } from '../types/asset';
+import { uiColors } from '../../../theme/designTokens';
 
 const { Text } = Typography;
 
@@ -44,7 +45,7 @@ const AssetRecallModal: React.FC<AssetRecallModalProps> = ({ open, asset, onClos
   };
 
   return (
-    <Modal title={<Space><RollbackOutlined style={{ color: '#fa8c16' }} /><span>Thu hồi tài sản</span></Space>}
+    <Modal title={<Space><RollbackOutlined style={{ color: uiColors.warningAmber }} /><span>Thu hồi tài sản</span></Space>}
       open={open} onCancel={onClose} okText="Xác nhận thu hồi" cancelText="Hủy"
       okButtonProps={{ disabled: !locationId }} onOk={handleSubmit} confirmLoading={submitting} destroyOnHidden width={560}>
       {asset && (

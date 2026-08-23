@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import {
-  App, Col, DatePicker, Form, Grid, Input, InputNumber, Modal, Row, Select, Switch,
+  App, Col, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Switch,
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { assetService, type AssetMaintenanceDto } from '../../asset/services/asset.service';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 
 interface MaintenanceCompleteModalProps {
   /** The in-progress maintenance being completed. `null` = modal closed. */
@@ -27,9 +28,7 @@ interface MaintenanceCompleteModalProps {
  */
 export default function MaintenanceCompleteModal({ record, onClose, onSaved }: MaintenanceCompleteModalProps) {
   const { message } = App.useApp();
-  const { useBreakpoint } = Grid;
-  const screens = useBreakpoint();
-  const isMobile = !screens.md;
+  const isMobile = useIsMobile();
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [suppliers, setSuppliers] = useState<{ label: string; value: string }[]>([]);

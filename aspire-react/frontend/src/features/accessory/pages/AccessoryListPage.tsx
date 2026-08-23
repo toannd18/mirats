@@ -18,7 +18,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { usePermission } from '../../../hooks/usePermission';
 import AccessoryCheckoutModal from '../components/AccessoryCheckoutModal';
 import AccessoryFormModal from '../components/AccessoryFormModal';
-import { statusColors } from '../../../theme/designTokens';
+import { statusColors, uiColors, cardBadgeGradients } from '../../../theme/designTokens';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -28,7 +28,7 @@ const iconBadgeStyle: React.CSSProperties = {
   width: 48,
   height: 48,
   borderRadius: 12,
-  background: 'linear-gradient(135deg, #f0e6ff 0%, #d4baff 100%)',
+  background: cardBadgeGradients.purple,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -52,7 +52,7 @@ const dataRowStyle: React.CSSProperties = {
 };
 
 const labelIconStyle: React.CSSProperties = {
-  color: '#8c8c8c',
+  color: uiColors.labelGray,
   fontSize: 13,
 };
 

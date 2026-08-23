@@ -4,6 +4,7 @@ import { InboxOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { assetService } from '../services/asset.service';
 import type { AssetDto } from '../types/asset';
+import { uiColors } from '../../../theme/designTokens';
 
 const { Text } = Typography;
 
@@ -44,7 +45,7 @@ const AssetArchiveModal: React.FC<AssetArchiveModalProps> = ({ open, asset, onCl
   };
 
   return (
-    <Modal title={<Space><InboxOutlined style={{ color: '#fa8c16' }} /><span>Lưu trữ / Thanh lý tài sản</span></Space>}
+    <Modal title={<Space><InboxOutlined style={{ color: uiColors.warningAmber }} /><span>Lưu trữ / Thanh lý tài sản</span></Space>}
       open={open} onCancel={onClose} okText="Xác nhận lưu trữ" cancelText="Hủy"
       okButtonProps={{ disabled: !locationId, danger: true }} onOk={handleSubmit} confirmLoading={submitting} destroyOnHidden width={560}>
       {asset && (

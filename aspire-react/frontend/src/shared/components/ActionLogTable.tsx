@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
-import { Empty, Space, Tag, Typography } from 'antd';
+import { Card, Divider, Empty, Space, Tag, Typography } from 'antd';
 import { UserSwitchOutlined } from '@ant-design/icons';
-import { ProTable } from '@ant-design/pro-components';
+import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { uiColors } from '../../theme/designTokens';
 
 const { Text } = Typography;
 
@@ -119,7 +121,7 @@ function baseColumns(targetColumnTitle: string): ProColumns<ActionLogRow>[] {
     {
       title: 'Người thực hiện', dataIndex: 'creatorName', key: 'creatorName', width: 180, ellipsis: true,
       render: (_, record) => (
-        <Space size={4}><UserSwitchOutlined style={{ color: '#8c8c8c' }} /><Text>{record.creatorName || '-'}</Text></Space>
+        <Space size={4}><UserSwitchOutlined style={{ color: uiColors.labelGray }} /><Text>{record.creatorName || '-'}</Text></Space>
       ),
     },
     {
@@ -182,6 +184,7 @@ const ActionLogTable: React.FC<ActionLogTableProps> = ({
   pagination = { pageSize: 10, showSizeChanger: false },
   emptyText = 'Chưa có lịch sử',
 }) => {
+  const isMobile = useIsMobile();
   const columns = useMemo(
     () => [...baseColumns(targetColumnTitle), ...extraColumns],
     [targetColumnTitle, extraColumns],
@@ -195,6 +198,66 @@ const ActionLogTable: React.FC<ActionLogTableProps> = ({
     () => columns.reduce((sum, col) => sum + (typeof col.width === 'number' ? col.width : 0), 0),
     [columns],
   );
+
+  // ─── Mobile (T-RESP4, ST7b): Card list thay Table — dùng chung request/params của caller.
+  // Áp dụng TẠI ĐÂY (component dùng chung) nên MỌI Detail page nhúng ActionLogTable đều
+  // responsive mà không cần sửa từng trang (Asset/Component/System/SystemHistory).
+  if (isMobile) {
+    return (
+      <ProList<ActionLogRow>
+        rowKey="id"
+        actionRef={actionRef}
+        ghost
+        cardProps={false}
+        search={false}
+        grid={{ gutter: 12, xs: 1, sm: 1 }}
+        headerTitle={headerTitle}
+        request={request as never}
+        params={params}
+        pagination={{ pageSize: pagination === false ? 10 : (pagination.pageSize ?? 10), showSizeChanger: false }}
+        locale={{ emptyText: <Empty description={emptyText} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+        itemRender={(record) => {
+          const info = ACTION_TYPE_TAGS[record.actionTypeValue] ?? { color: 'default', label: record.actionType };
+          const parts: string[] = [];
+          if (record.locationName) parts.push(`Vị trí: ${record.locationName}`);
+          if (record.targetSystemInfoName) parts.push(`Hệ thống: ${record.targetSystemInfoName}`);
+          const metaDetail = formatLogDetail(null, record.logMeta);
+          if (metaDetail !== '—') parts.push(metaDetail);
+          if (record.note) parts.push(record.note);
+          const detail = parts.join(' · ') || '—';
+          return (
+            <Card size="small" style={{ borderRadius: 10, marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <Tag color={info.color} style={{ marginInlineEnd: 0 }}>{info.label}</Tag>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {new Date(record.actionDate).toLocaleString('vi-VN')}
+                </Text>
+              </div>
+              {record.itemName && (
+                <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 6 }}>{record.itemName}</Text>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 10px' }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>Người thực hiện</Text>
+                <Text style={{ fontSize: 13 }}>{record.creatorName || '-'}</Text>
+                {record.targetName && (
+                  <>
+                    <Text type="secondary" style={{ fontSize: 12 }}>{targetColumnTitle}</Text>
+                    <Text style={{ fontSize: 13, wordBreak: 'break-word' }}>{record.targetName}</Text>
+                  </>
+                )}
+              </div>
+              {detail !== '—' && (
+                <>
+                  <Divider style={{ margin: '8px 0' }} />
+                  <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{detail}</Text>
+                </>
+              )}
+            </Card>
+          );
+        }}
+      />
+    );
+  }
 
   return (
     <ProTable<ActionLogRow>

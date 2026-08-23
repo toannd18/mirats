@@ -9,15 +9,14 @@ import {
   CalendarOutlined, DollarOutlined, UserOutlined,
   UserSwitchOutlined, SendOutlined, HistoryOutlined,
 } from '@ant-design/icons';
-import { ProTable } from '@ant-design/pro-components';
-import type { ProColumns } from '@ant-design/pro-components';
 import { useNavigate, useParams } from 'react-router-dom';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 import ConsumableCheckoutModal from '../components/ConsumableCheckoutModal';
 import ConsumableFormModal from '../components/ConsumableFormModal';
-import { ACTION_TYPE_TAGS } from '../../../shared/components/ActionLogTable';
+import ActionLogTable, { type ActionLogRow } from '../../../shared/components/ActionLogTable';
 import { formatDate, formatMoney } from '../../../utils/format';
+import { uiColors } from '../../../theme/designTokens';
 
 const { Title, Text } = Typography;
 
@@ -63,21 +62,6 @@ interface CheckoutRecord {
   quantity: number;
   note: string | null;
   createdAt: string;
-}
-
-interface ActionLogItem {
-  id: string;
-  itemType: string;
-  itemId: string;
-  actionType: string;
-  actionTypeValue: number;
-  targetType: string | null;
-  targetId: string | null;
-  targetName: string | null;
-  creatorName: string | null;
-  note: string | null;
-  logMeta: string | null;
-  actionDate: string;
 }
 
 // ==================== Component ====================
@@ -165,7 +149,7 @@ const ConsumableDetailPage: React.FC = () => {
       width: 160,
       render: (_v: string | null, record: CheckoutRecord) => (
         <Space size={4}>
-          <UserOutlined style={{ color: '#8c8c8c' }} />
+          <UserOutlined style={{ color: uiColors.labelGray }} />
           <Text>{getFullName(record.firstName, record.lastName, record.userName)}</Text>
         </Space>
       ),
@@ -177,7 +161,7 @@ const ConsumableDetailPage: React.FC = () => {
       width: 160,
       render: (_v: string | null, record: CheckoutRecord) => (
         <Space size={4}>
-          <UserSwitchOutlined style={{ color: '#8c8c8c' }} />
+          <UserSwitchOutlined style={{ color: uiColors.labelGray }} />
           <Text>{getFullName(record.createdByFirstName, record.createdByLastName, record.createdByName)}</Text>
         </Space>
       ),
@@ -199,49 +183,9 @@ const ConsumableDetailPage: React.FC = () => {
     },
   ];
 
-  // ──── ProTable Columns: Action Logs ────
-
-  const actionLogColumns: ProColumns<ActionLogItem>[] = [
-    {
-      title: 'Thời gian',
-      dataIndex: 'actionDate',
-      key: 'actionDate',
-      valueType: 'dateTime',
-      width: 160,
-    },
-    {
-      title: 'Hành động',
-      dataIndex: 'actionTypeValue',
-      key: 'actionTypeValue',
-      width: 110,
-      render: (_, record) => {
-        const info = ACTION_TYPE_TAGS[record.actionTypeValue] ?? { label: record.actionType, color: 'default' };
-        return <Tag color={info.color}>{info.label}</Tag>;
-      },
-    },
-    {
-      title: 'Người thực hiện',
-      dataIndex: 'creatorName',
-      key: 'creatorName',
-      width: 160,
-      ellipsis: true,
-      render: (_, record) => (
-        <Space size={4}>
-          <UserSwitchOutlined style={{ color: '#8c8c8c' }} />
-          <Text>{record.creatorName || '-'}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: 'Nội dung',
-      dataIndex: 'note',
-      key: 'note',
-      ellipsis: true,
-      render: (_: unknown, record: ActionLogItem) => record.note || '-',
-    },
-  ];
-
   // ──── Tab Items ────
+  // (T-RESP4: cột "Lịch sử hoạt động" đã chuyển sang ActionLogTable dùng chung —
+  //  bỏ actionLogColumns local để tránh 2 nguồn định nghĩa.)
 
   const tabItems = [
     {
@@ -273,26 +217,21 @@ const ConsumableDetailPage: React.FC = () => {
           Lịch sử hoạt động
         </span>
       ),
+      // T-RESP4: dùng ActionLogTable DÙNG CHUNG — component tự responsive mobile (Card),
+      // desktop giữ ProTable với cột "Nội dung" thay "Chi tiết" tổng hợp.
       children: (
-        <ProTable<ActionLogItem>
-          rowKey="id"
-          columns={actionLogColumns}
-          search={false}
-          toolBarRender={false}
-          options={false}
-          ghost
-          pagination={{ defaultPageSize: 15, showSizeChanger: false, showTotal: (t) => `${t} sự kiện` }}
+        <ActionLogTable
+          targetColumnTitle="Nội dung"
+          emptyText="Chưa có hoạt động nào"
+          pagination={{ pageSize: 15, showSizeChanger: false }}
           request={async () => {
             try {
               const res = await apiClient.get('/action-logs', { params: { itemType: 2, itemId: id } });
-              return { data: res.data.data ?? [], success: true, total: res.data.data?.length ?? 0 };
+              return { data: (res.data.data ?? []) as ActionLogRow[], success: true, total: res.data.data?.length ?? 0 };
             } catch {
               void message.error('Không thể tải lịch sử hoạt động');
               return { data: [], success: false, total: 0 };
             }
-          }}
-          locale={{
-            emptyText: <Empty description="Chưa có hoạt động nào" />,
           }}
         />
       ),
@@ -301,8 +240,9 @@ const ConsumableDetailPage: React.FC = () => {
 
   return (
     <div style={{ maxWidth: 960 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+      {/* Header — flexWrap: 'wrap' bắt buộc (bug title dọc trên mobile: header nowrap +
+          word-break break-word của Typography khiến flex-shrink ép Title xuống 1 glyph/dòng) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
         <Button
           icon={<ArrowLeftOutlined />}
           onClick={() => navigate('/consumables')}
@@ -333,7 +273,7 @@ const ConsumableDetailPage: React.FC = () => {
 
       {/* Stock Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16, marginBottom: 24 }}>
-        <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: '#f6ffed', borderColor: '#b7eb8f' }}>
+        <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: uiColors.stockSuccessBg, borderColor: uiColors.stockSuccessBorder }}>
           <Text type="secondary" style={{ fontSize: 12 }}>Tổng số lượng</Text>
           <div><Text strong style={{ fontSize: 24 }}>{detail.qty.toLocaleString('vi-VN')}</Text></div>
         </Card>

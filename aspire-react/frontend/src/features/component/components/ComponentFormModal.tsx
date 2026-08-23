@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
   Alert, App, Button, Card, Col, DatePicker, Divider, Form, Input, InputNumber, Modal,
-  Radio, Row, Select, Space, Spin, Tag, Tooltip, Typography, Grid,
+  Radio, Row, Select, Space, Spin, Tag, Tooltip, Typography,
 } from 'antd';
 import { LockOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { componentsApi, type CreateComponentPayload, type ComponentDto, type TrackingType } from '../services/components.service';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
@@ -38,9 +39,7 @@ function LockedFieldTag({ value, color }: { value: string; color?: string }) {
 
 export default function ComponentFormModal({ open, componentId, onClose, onSaved }: ComponentFormModalProps) {
   const { message, modal } = App.useApp();
-  const { useBreakpoint } = Grid;
-  const screens = useBreakpoint();
-  const isMobile = !screens.md;
+  const isMobile = useIsMobile();
   const [form] = Form.useForm();
   const isEdit = !!componentId;
 

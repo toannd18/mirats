@@ -17,7 +17,7 @@ import { isSuperUser } from '../../../services/keycloak';
 import LicenseFormModal from '../components/LicenseFormModal';
 import LicenseDetailModal from '../components/LicenseDetailModal';
 import LicenseCheckoutModal from '../components/LicenseCheckoutModal';
-import { statusColors } from '../../../theme/designTokens';
+import { statusColors, uiColors, cardBadgeGradients } from '../../../theme/designTokens';
 import { formatDate } from '../../../utils/format';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
@@ -44,7 +44,7 @@ const iconBadgeStyle: React.CSSProperties = {
   width: 48,
   height: 48,
   borderRadius: 12,
-  background: 'linear-gradient(135deg, #f0f5ff 0%, #adc6ff 100%)',
+  background: cardBadgeGradients.blue,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -68,7 +68,7 @@ const dataRowStyle: React.CSSProperties = {
 };
 
 const labelIconStyle: React.CSSProperties = {
-  color: '#8c8c8c',
+  color: uiColors.labelGray,
   fontSize: 13,
 };
 

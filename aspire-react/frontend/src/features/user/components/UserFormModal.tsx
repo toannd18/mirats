@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Modal, Form, Input, Select, Switch, Space, App, Grid,
+  Modal, Form, Input, Select, Switch, Space, App,
 } from 'antd';
 import type { SelectProps } from 'antd';
 import apiClient from '../../../services/api-client';
 import type { UserDto, ReferenceOption } from '../types/users';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
 // ==================== Types ====================
@@ -41,9 +42,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
   open, user, onSuccess, onCancel,
 }) => {
   const { message } = App.useApp();
-  const { useBreakpoint } = Grid;
-  const screens = useBreakpoint();
-  const isMobile = !screens.md;
+  const isMobile = useIsMobile();
 
   const [form] = Form.useForm<FormValues>();
   const [submitting, setSubmitting] = useState(false);

@@ -2400,6 +2400,277 @@ Thay thế toàn bộ deprecated API còn sót — nhiều chỗ hơn báo cáo 
 - `maskClosable` KHÔNG phải "hợp lệ ở v6" như báo cáo audit nói — antd 6.5.3 đánh dấu @deprecated → đã sửa.
 - Các task UI/UX tiếp theo (T-RESP1...) làm trên nền đã sạch deprecation; khi thêm Modal/Select mới dùng ngay `destroyOnHidden`/`popupRender`.
 
+## 62. T-RESP1 — SHARED HOOK `useIsMobile()` + BASELINE SCROLL CHO ProTable (2026-08-22)
+
+### Thay đổi
+- **Hook mới** `src/hooks/useIsMobile.ts`: `Grid.useBreakpoint()` → `screens.md === false` (desktop-first an toàn khi `screens` rỗng render đầu). Thay thế pattern lặp `const screens = useBreakpoint(); const isMobile = !screens.md;` ở **9 file**:
+  - ConsumableFormModal, ComponentFormModal, AccessoryFormModal, AssetEditModal,
+    UserFormModal, LicenseFormModal, GroupFormModal, MaintenanceCompleteModal, MaintenanceListPage
+  (App.tsx giữ nguyên `Grid.useBreakpoint()` trực tiếp — layout shell cần nhiều breakpoint).
+- **Scroll baseline cho ProTable/Table** (4 chỗ thiếu/sai):
+  - `SystemInfoListPage`: bỏ comment — bật lại `scroll={{ x: 'max-content' }}` (trước đây bị tắt).
+  - `UserListPage`: `x: 900` → `'max-content'`.
+  - `GroupListPage`: `x: 900` → `'max-content'`.
+  - `PermissionMatrixPage`: `x: 800` → `'max-content'`.
+
+### Verify
+- `npm run build` **0 lỗi TS** · eslint 10 file T-RESP1: 0 error (1 warning exhaustive-deps pre-existing).
+- **375×812 thật (playwright)**: Users table scroll-x OK; Groups `.ant-table-content` scrollWidth 1164 > client 285 + overflow auto; SystemInfo scrollable (915px — trước đây bị cắt cột); PermissionMatrix scrollable. Component edit modal mobile: `width: 95%` qua hook mới, fit viewport. Console **0 errors / 0 warnings**.
+- Ảnh bằng chứng: `resp1-users-375.png`, `resp1-groups-375.png`, `resp1-systeminfo-375.png`, `resp1-component-edit-375.png`.
+
+### ⚠️ Lưu ý cho người sau
+- Modal/page mới cần biết mobile → dùng `useIsMobile()` từ `src/hooks/useIsMobile.ts`, KHÔNG viết lại `useBreakpoint` thủ công.
+- Table/ProTable mới luôn khai báo `scroll={{ x: 'max-content' }}` làm baseline responsive.
+- T-RESP2/3/4 (mobile Card cho từng nhóm trang) sẽ dùng chính hook này — pattern mẫu `MaintenanceTable.tsx` ST7b.
+- **Bổ sung verify desktop SystemInfoListPage (1440px)**: `scroll.x` bật lại KHÔNG gây lỗi desktop — scrollWidth 1076 = clientWidth 1076 (vừa khít), 1 row render đúng, console sạch. Ảnh `resp1-systeminfo-desktop-1440.png`.
+
+## 63. T-A11Y1 — CONTRAST DASHBOARD #888 → TOKEN AA + FIX TIMELINE `items.children` DEPRECATED (2026-08-22)
+
+### Audit Bước 0
+- `DashboardPage.tsx` L144-145: timestamp activity feed + dòng "bởi …" dùng `color: '#888', fontSize: 12/11` — đo WCAG (relative luminance, nền card trắng): **#888 = 3.54:1 FAIL AA** (cần ≥4.5 với chữ thường).
+- Fix đã nằm trong working tree từ phiên trước: thay bằng `textColors.secondary` (= `palette.mutedForeground` = **#475569**) — đo lại **7.58:1 PASS AA (AAA)**. Token export mới trong `designTokens.ts`: `textColors { primary: #020617, secondary: #475569, tertiary: #64748B }`.
+- Grep toàn source: **0** chỗ `#888` còn lại.
+- 🐛 **Phát hiện mới khi verify runtime**: console báo `[antd: Timeline] items.children is deprecated. Please use items.content instead` từ chính DashboardPage — typings antd 6.5.3 (`Timeline.d.ts` L24-25) xác nhận `children` @deprecated → `content`; useItems.js render qua fallback `content ?? children`. Báo cáo audit UI trước nói "Timeline children OK" là SAI ở runtime.
+
+### Thay đổi (2 file)
+- `DashboardPage.tsx`: `children:` → `content:` trong items của Timeline (kèm comment lý do).
+- `designTokens.ts`: export `textColors` (đã có từ working tree, giữ nguyên).
+
+### Verify (playwright-cli, admin, stack thật)
+- **DOM computed color**: BEFORE = `rgb(136,136,136)` (#888) → AFTER = `rgb(71,85,105)` (**#475569**) trên cả 2 phần tử; timeline render đủ 10 items sau khi đổi sang `content`.
+- **Console dashboard: 0 errors / 0 warnings** (Timeline deprecation biến mất).
+- Contrast đo lại: #475569 vs trắng = **7.58:1** (AA cần 4.5, AAA cần 7 — đạt cả hai).
+- `npx tsc -b` exit 0 · eslint 2 file chạm exit 0.
+- Ảnh: `a11y1-dashboard-before-1440.png`, `a11y1-activity-card-before-1440.png`, `a11y1-dashboard-after-1440.png`, `a11y1-activity-card-after-1440.png`, `a11y1-dashboard-after-375.png`.
+
+### ⚠️ Ghi nhận cho T-TOKEN1
+- Label gray `#8c8c8c` còn ~14 chỗ / 10 files (icon creator, statusColors.closed…) — đo được **3.36:1**, fail AA nếu dùng cho chữ thường trên nền trắng. Icon lớn có thể chấp nhận theo AA large-text/graphics (3:1) nhưng nên chuẩn hóa token.
+
+## 64. T-CLEAN1 — DEPRECIATIONLISTPAGE: ĐIỀU TRA NGUỒN GỐC + REFACTOR + VÁ POLICY BACKEND (2026-08-22)
+
+### Nguồn gốc file (điều tra đầy đủ)
+- Sinh ra cùng **Initial commit `6cd6ba0`**, không từng bị sửa (`git log --follow` chỉ 1 commit). Toàn bộ là **1 dòng minified 834 byte** — scaffold tự sinh/quick-port từ giai đoạn port Snipe-IT, không phải bị hỏng về sau.
+- **KHÔNG phải dead code**: route `/admin/depreciations` (App.tsx L543) + sidebar "Khấu hao" nhóm QUẢN_TRỊ (L177), gate menu `depreciations.view` (permMap L129). Nhưng `ProtectedRoute` chỉ check auth → gõ thẳng URL vẫn vào page.
+- Backend `AdminController.GetDepreciations` dùng `[Authorize]` **trần không policy** — đúng review #33 `BACKEND_ARCHITECTURE_REVIEW_2026-08-15` (key `depreciations.view` có sẵn trong PermissionCatalog L110 mà chưa gắn). → **lỗ hổng thật: mọi user đăng nhập đọc được dữ liệu khấu hao**.
+- Read-only hoàn toàn: chỉ 1 endpoint GET, không CRUD (workflow doc §210); bảng `depreciations` không có CompanyId (reference data toàn cục, không cần company-scoping). Endpoint phải giữ: `AssetModelListPage` đổ Select khấu hao + ReportsPage báo cáo khấu hao.
+- Audit cũ flag 2 lần (FRONTEND_AUDIT L210 + task T12 "chuyển ProTable + bổ sung gate") nhưng chưa từng xử lý.
+
+### Quyết định (user chọn qua tool question)
+Refactor page theo chuẩn admin chị em + gắn `[Authorize(Policy = "depreciations.view")]`. Không xóa (AssetModelListPage phụ thuộc data), không để nguyên (lỗ hổng).
+
+### Thay đổi (2 file)
+- **Backend** `AdminController.cs` L360: `[HttpGet("depreciations"), Authorize(Policy = "depreciations.view")]` (+ comment nguồn gốc). Superuser bypass sẵn qua PermissionHandler (realm role hoặc IsSuperUser local).
+- **Frontend** `DepreciationListPage.tsx`: viết lại 1 dòng minified → 64 dòng chuẩn CompanyListPage pattern: ProTable (`headerTitle="Cấu hình khấu hao"`, request, options reload/density/setting), `usePermission('depreciations.view')` gate toolbar, typed columns, `scroll={{ x: 'max-content' }}`. Trang CHỈ XEM (backend read-only) nên không có nút CRUD — đúng thực tế endpoint.
+
+### Verify bắt buộc (user yêu cầu test 2 chiều)
+Tạo QA user riêng `qa-tclean1-20260822-212801` (Keycloak REST, profile đủ + requiredActions=[] để lấy JWT được):
+
+| Test | Điều kiện | Kết quả |
+|---|---|---|
+| A | JWT user KHÔNG quyền nào | **HTTP 403** ✅ |
+| B | JWT user CÓ `depreciations.view` (grant trực tiếp DB `user_permissions Value=1`) | **HTTP 200** `{"status":"success","data":[]}` ✅ |
+
+- Lưu ý: JWT lifespan 5 phút — lần đầu TEST B dính 401 do hết hạn, refresh token → 200.
+- **UI thật (admin superuser)**: `/admin/depreciations` render ProTable cột Tên/Số tháng, nút toolbar "Tải lại", request thật từ UI trả **200**, empty state "Trống" (bảng depreciations không seed data — đúng thiết kế), console **0 errors / 0 warnings**. Ảnh `tclean1-depreciations-after-1440.png` + `-375.png`.
+- Build: `dotnet build aspire-react.Server` **0 error** · `tsc -b` exit 0 · eslint file mới exit 0.
+- **Dọn sạch QA user**: Keycloak DELETE 204 · DB DELETE `users` + `user_permissions` = 1+1, còn lại 0. Không đụng tài khoản thật.
+
+### ⚠️ Lưu ý cho người sau
+- `GET /depreciations` giờ YÊU CẦU `depreciations.view` — nếu có client/script ngoài gọi endpoint này bằng token user thường không có quyền sẽ bắt đầu nhận 403 (đây chính là mục đích).
+- Nếu sau này muốn CRUD khấu hao: catalog đã có sẵn `depreciations.create/edit/delete` — làm theo pattern Category/Manufacturer và bỏ ghi chú "trang chỉ xem".
+- StatusLabelsListPage vẫn chưa tồn tại (menu "Trạng thái" đã bị xóa từ phase trước) — `statuslabels.view` policy trên GET /statuslabels vẫn hoạt động độc lập.
+
+## 65. T-RESP2 (BATCH 1/2) — MOBILE CARD CHO 4 TRANG ADMIN MASTER-DATA THEO ST7b (2026-08-22)
+
+### Pattern áp dụng (user chốt: ST7b MaintenanceTable + useIsMobile từ T-RESP1)
+Mỗi trang branch theo `useIsMobile()`: **desktop giữ nguyên ProTable**, **mobile render ProList Card** — tái sử dụng:
+1. **1 fetch dùng chung** (`fetchList`) cho `request` của cả ProTable lẫn ProList — không trùng code gọi API.
+2. **1 `renderActions(record)` dùng chung** cho cột Thao tác (desktop) và cuối Card (mobile) — permission-gating (`usePermission`) + handler nằm MỘT chỗ.
+3. **1 `formModal`** (biến JSX Modal tạo/sửa) định nghĩa một lần, render ở cả 2 branch.
+4. Kèm dọn lint: `Modal.confirm` xóa → **Popconfirm trong renderActions** (confirm đúng 1 lần, đúng pattern CLAUDE.md), `catch (err: any)` → `catch (unknown)` + cast kiểu.
+
+### 4 trang chuyển đổi
+- `CategoryListPage`: card có chấm màu tagColor + tên + Tag loại + grid Màu/Chính sách; toolbar mobile có Select lọc loại + nút Thêm.
+- `ManufacturerListPage`: card tên + code Tag + Website (link break-all) + Support Email.
+- `SupplierListPage`: card tên + code Tag + grid Địa chỉ gộp/Người liên hệ/Điện thoại (tel:)/Email (mailto:).
+- `LocationListPage`: card tên + Tag "Địa điểm con" (nếu có parentId) + địa chỉ gộp; 3 action icon (thêm con/sửa/xóa); mobile fetch flat + buildTree như desktop (ProList hiển thị phẳng, đủ thông tin qua card).
+- Fix phụ LocationListPage (đã chạm file): `u: any` / `toTreeSelect: any[]` → typed interface (hếtlint `no-explicit-any`).
+
+### ⚠️ Sự cố quy trình đã xử lý: mojibake UTF-8
+Dùng PowerShell 5.1 `Get-Content -Raw` + `Set-Content -Encoding utf8` để replace text hàng loạt đã làm **hỏng ký tự tiếng Việt** (đọc ANSI ghi utf8-no-BOM) trong 4 file. Phát hiện ngay qua grep `KhÃ´|Lá»—`, xử lý bằng cách **viết lại toàn bộ 4 file bằng write tool (UTF-8 chuẩn)** — không mất thay đổi nào. Bài học: KHÔNG dùng pipeline Get-Content/Set-Content cho file chứa tiếng Việt; sửa text bằng edit tool hoặc script .NET với encoding tường minh.
+
+### Verify (playwright-cli, admin, stack thật)
+| Trang | Desktop 1440 | Mobile 375×812 |
+|---|---|---|
+| Categories | ProTable, 20 rows ✅ | 20 Cards; modal "Sửa danh mục" mở từ card ✅; Popconfirm "Xóa danh mục này?" hiện ✅ |
+| Manufacturers | ProTable, 20 rows ✅ | 20 Cards (tên + ALLIE code + website + email) ✅ |
+| Suppliers | ProTable, empty "Trống" ✅ (DB 0 NCC) | Card list empty state đúng ✅ |
+| Locations | ProTable tree, 1 row ✅ | 1 Card + 3 action icons (plus/edit/delete) ✅ |
+
+- Console **0 errors / 0 warnings** trên mọi trang cả 2 breakpoint. Request `/categories` thật 200 từ UI.
+- `tsc --noEmit` exit 0 · eslint 4 file exit 0 (đã hết lỗi `no-explicit-any` cũ).
+- Ảnh: `resp2-categories-375.png`, `resp2-manufacturers-375.png`, `resp2-suppliers-375.png`, `resp2-locations-375.png`, `resp2-categories-desktop-1440.png`.
+
+### ⚠️ Lưu ý cho batch 2
+- Batch 2 đề xuất: **AssetModelListPage, CompanyListPage, DepartmentListPage** (+ cân nhắc DepreciationListPage vừa refactor — thêm mobile card đơn giản vì chỉ 2 cột). SystemInfoListPage có bảng lồng expandedRowRender — phức tạp, nên tách riêng nếu làm.
+- Ghi nhớ pattern: `.ant-pro-table` class cũng nằm trên root của ProList (pro-components kế thừa) — khi verify phải đếm `.ant-pro-table .ant-table` (table thật) chứ không đếm class trơn, tránh kết quả giả.
+
+### BATCH 2/2 — AssetModel + Company + Department (+ Depreciation) — ĐÃ XONG (2026-08-22)
+- `AssetModelListPage`: card tên + Tag "Yêu cầu cấp phát" + grid Số Model/Hãng SX/Danh mục/Khấu hao/EOL; giữ nguyên logic auto-requestable theo category.requireAcceptance trong modal dùng chung. Dọn `any` → typed (`CategoryLite`, `OptionItem`).
+- `CompanyListPage`: mobile **flatten cây thành card phẳng** (`flattenCompanies`), công ty con có Tag "Công ty con"; giữ BUSINESS RULE chỉ root được thêm con (`parentId == null` mới hiện nút plus) + TreeSelect disable child làm cha + validate NOCO nguyên vẹn trong modal dùng chung.
+- `DepartmentListPage`: card tên + Tag công ty + grid Người quản lý/Điện thoại (tel:).
+- `DepreciationListPage` (vừa refactor ở T-CLEAN1): thêm mobile Card chỉ xem (tên + số tháng + ghi chú "Chỉ xem") — không có action vì endpoint read-only.
+- Verify thật (playwright-cli, admin):
+  - **Mobile 375**: Companies card "Công ty Quản lý bay miền Trung" + code MIRA + icons plus/edit/delete ✅; Departments empty "Trống" (DB 0 phòng ban) ✅; AssetModels 6+ cards đủ thông tin + Sửa/Xóa ✅; Depreciations empty view ✅.
+  - **Desktop 1440**: cả 4 trang đều ProTable thật (`.ant-pro-table .ant-table` = 1): asset-models 9 rows, companies 1 row (tree expandable), departments/depreciations empty ✅.
+  - Console desktop sạch; console asset-models mobile/desktop có **2 errors 404 `/custom-fieldsets` PRE-EXISTING** (code HEAD đã gọi với `.catch()` bảo vệ, backend chưa implement fieldsets) — KHÔNG do T-RESP2, ghi nhận backlog.
+- `tsc --noEmit` exit 0 · eslint 4 file exit 0.
+- Ảnh: `resp2-companies-375.png`, `resp2-departments-375.png`, `resp2-assetmodels-375.png`, `resp2-depreciations-375.png`.
+
+### Kết luận T-RESP2
+8/8 trang admin master-data giờ responsive: desktop ProTable (bảng đầy đủ tính năng) ↔ mobile ProList Card (đọc thoải mái, action touch-friendly), chung 1 fetch + 1 renderActions + 1 formModal per page. SystemInfoListPage chưa làm mobile card (có nested table phức tạp) — vẫn scroll-x ổn định từ T-RESP1; xem là backlog nếu cần.
+
+## 66. T-RESP3 — USERS + GROUPS MOBILE CARD (2026-08-22)
+
+### Đặc thù riêng của 2 trang này (khác 8 trang admin)
+- **UserListPage** là trang DUY NHẤT dùng **ProTable search form** (`search={{...}}` — 5 field: Tìm kiếm/Email/Công ty/Trạng thái/Vai trò) — chính là phần "bẹp" ở 375px theo audit. Mobile KHÔNG chỉ đổi bảng mà phải **thay search form bằng filter bar riêng**: `Input.Search` full-width (flex 1 1 100%) + 2 Select (Trạng thái/Vai trò) xếp hàng riêng — không chèn nhau ở 375px.
+- Filter mobile map thẳng sang query backend: `search` / `isActive` / `isSuperUser` (cùng param names ProTable desktop gửi).
+- **GroupListPage**: cột "Quyền" desktop cắt 4 tags + "+n"; mobile card hiện **ĐỦ permission tags (wrap)** — thông tin quan trọng của trang phân quyền không bị ẩn trên mobile.
+
+### Áp dụng ST7b như T-RESP2
+- 1 `fetchUsers(query)` dùng chung (desktop truyền params ProTable, mobile truyền từ filter bar) · 1 `renderActions` (Chi tiết/Sửa/Vô hiệu hóa — Popconfirm giữ okText tiếng Việt) · form modal (`UserFormModal`/`GroupFormModal`) dùng chung ngoài branch.
+- Group: tách `renderPermissionTags` dùng chung desktop (cột Quyền) + mobile (block "Quyền đã cấp").
+- Fix nhỏ: `render: renderPermissionTags` thiếu signature `(_, record)` → TS2322, sửa thành arrow wrapper.
+
+### Verify (playwright-cli, admin, stack thật)
+- **Users desktop 1440**: ProTable + search form 5 fields + 1 row (System Admin) ✅. Ảnh `resp3-users-desktop-1440.png`.
+- **Users mobile 375**: search form ProTable BIẾN MẤT (`searchFormVisible=false`); filter bar: Input.Search placeholder "Tên, tài khoản, email..." + 2 Select ✅; 1 card đủ Badge/Họ tên/Tag vai trò/Tài khoản/Email(mailto:)/Công ty/Chức danh/Trạng thái + 3 actions (eye/edit/delete) ✅.
+  - **Filter hoạt động THẬT**: gõ "admin" Enter → `GET /users?search=admin` 200; chọn "Hoạt động" → `GET /users?search=admin&isActive=true` 200 ✅.
+- **Groups mobile 375**: 2 cards (Admin + Nhóm thường); card Admin có Tag "Hệ thống" + "0 thành viên" + mô tả + **ĐỦ permission tags wrap** (accessories.checkout… assets.check…) + actions edit/delete (delete disabled cho nhóm hệ thống) ✅. Ảnh `resp3-groups-375.png`.
+- **Groups desktop 1440**: ProTable 2 rows, cột Quyền render tags ✅. Ảnh `resp3-groups-desktop-1440.png`.
+- Console 0 errors / 0 warnings mọi bước. `tsc` exit 0 · eslint 2 file exit 0.
+
+### ⚠️ AGENTS.md đã bổ sung quy tắc cứng (lần mojibake thứ 3)
+Mục mới "⛔ CẤM sửa file chứa tiếng Việt qua PowerShell" — liệt kê RÕ lệnh/API bị cấm (Get-Content/Set-Content mọi biến thể, -replace, [regex]::Replace, ReadAllText không tường minh Encoding), chỉ cho phép edit/write tool hoặc .NET API với `Encoding.UTF8` tường minh + bắt buộc grep mojibake-pattern sau mọi thao tác hàng loạt.
+
+### ⚠️ Lưu ý cho người sau
+- ProList root mang class `.ant-pro-table` (pro-components kế thừa) — verify phải đếm `.ant-pro-table .ant-table` (table thật).
+- Khi thêm trang list mới có search: mobile phải có filter bar tương đương (không được để mất chức năng tìm kiếm khi ẩn search form ProTable).
+- Cột "Quyền" GroupListPage desktop đổi `ellipsis: true` → `false` (tags wrap trong cell, đọc được đầy đủ hơn mà không phá layout vì đã scroll-x).
+
+## 67. T-RESP4 — ACTIONLOGTABLE + LICENSEUSAGETABLE RESPONSIVE TẠI COMPONENT DÙNG CHUNG (2026-08-22)
+
+### Nguyên tắc (user chỉ thị rõ)
+useIsMobile áp dụng **ĐÚNG 1 CHỖ trong shared component** — KHÔNG sửa lặp lại từng Detail page:
+- `shared/components/ActionLogTable.tsx`: thêm branch `isMobile` → **ProList Card** (Tag hành động + thời gian vi-VN + itemName + grid Người thực hiện/target + Chi tiết gộp từ formatLogDetail). Desktop giữ nguyên ProTable (tableLayout fixed + numeric scroll-x như cũ). `request`/`params`/`pagination`/`emptyText` truyền thẳng từ caller → mọi trang nhúng cùng hưởng.
+- `shared/components/LicenseUsageTable.tsx`: mobile Card (license + seat# + Ngày cấp/Hết hạn tag màu/Ghi chú); desktop Table nguyên vẹn. Dùng bởi AssetDetail/UserDetail/SystemDetail.
+
+### 2 trang Detail có ProTable lịch sử RIÊNG (trùng logic ActionLogTable) → chuyển sang dùng chung
+- `ConsumableDetailPage` tab "Lịch sử hoạt động": ProTable local (`actionLogColumns`) + request `/action-logs?itemType=2&itemId=` → thay bằng `<ActionLogTable targetColumnTitle="Nội dung">`. Xóa actionLogColumns + interface ActionLogItem + import dư.
+- `AccessoryDetailPage` tab "Lịch sử hoạt động": tương tự (có block parse logMeta riêng ~30 dòng) → thay bằng `<ActionLogTable>`; format logMeta giờ dùng `formatLogDetail` shared (hỗ trợ cả changes lẫn legacy top-level).
+- ⚠️ Hành vi desktop: cột "Chi tiết" của ActionLogTable tổng hợp Vị trí/Hệ thống/logMeta/note — giàu hơn bản local cũ (chỉ note+logMeta); chấp nhận vì đây là chuẩn hiển thị chung của Asset/System history từ trước.
+- Fix nhỏ khi chuyển: lần đầu đặt `targetColumnTitle="Người thực hiện"` gây header trùng cột → đổi thành "Nội dung" đúng tên cột cũ.
+
+### Verify (playwright-cli, admin, stack thật)
+- **Consumable "Ke góc chữ L 6 lỗ" (3 logs)**: mobile 375 tab "Lịch sử hoạt động" → **3 Cards** (Cập nhật/Xác nhận/Tạo mới + thời gian vi-VN + Người thực hiện), 0 realTable ✅. Desktop 1440 → ProTable trở lại: headers [Thời gian, Hành động, Người thực hiện, Nội dung, Chi tiết], 3 rows ✅.
+- **Consumable thứ 2 (Epson LQ-300, 2 logs)**: desktop ProTable 2 rows ✅ → resize 375 reload → 2 Cards ✅ (cùng 1 component shared, KHÔNG đụng thêm code trang).
+- Asset detail (asset chưa có log): section "Lịch sử" empty state render OK.
+- SystemHistoryPage: chọn hệ thống RDP-2026-001 → `/action-logs/by-system` 200; filter Hành động=Cấp phát gửi đúng `actionType=4` (0 kết quả do dữ liệu thật của hệ thống này thuộc loại khác — không phải bug UI).
+- Console 0 errors/0 warnings. `tsc` exit 0 · eslint exit 0 (2 warning react-refresh PRE-EXISTING từ HEAD — file export constants + default component cùng lúc).
+- Ảnh: `resp4-consumable-logs-375.png`, `resp4-consumable-logs-desktop-1440.png`, `resp4-consumable2-logs-375.png`.
+
+### ⚠️ Lưu ý cho người sau
+- Detail page mới cần bảng lịch sử audit → NHÉT vào `ActionLogTable` (props: request/targetColumnTitle/pagination/emptyText) — KHÔNG viết ProTable riêng nữa; mobile được miễn phí.
+- Bảng phụ khác trong Detail (checkout history Consumable/Accessory, units Component, positions SystemInfo, bảng Bảo trì section) vẫn là Table thường scroll-x — nếu card hóa tiếp thì theo pattern LicenseUsageTable; ngoài phạm vi task này.
+
+## 68. FIX BUG TIÊU ĐỀ RENDER DỌC TRÊN MOBILE (375px) — 4 TRANG DETAIL (2026-08-22)
+
+### Bước 0 — Điều tra (đo DOM thật, không đoán)
+Triệu chứng: "Chi tiết vật tư" (ConsumableDetail) hiển thị mỗi ký tự 1 dòng, cao ~308px, đẩy nút Quay lại/Cấp phát/Sửa méo.
+
+**Kết luận 1 — KHÔNG phải bug mới từ T-RESP4:** git diff HEAD..working của ConsumableDetailPage chỉ đụng tab "Lịch sử hoạt động" + imports — header giữ NGUYÊN từ HEAD (pre-existing). Bằng chứng phụ: AccessoryDetailPage (header cũng không bị T-RESP4 sửa) lỗi y hệt; Component/System/User (cấu trúc header khác) thì không.
+
+**Kết luận 2 — 2 root cause CSS độc lập:**
+
+| Root cause | Cơ chế | Trang bị |
+|---|---|---|
+| **A — header flex `nowrap`** | `<div style="display:flex;alignItems:center;gap:16">` (không flexWrap) chứa Quay lại + Title + Tag + spacer `flex:1` + Space(2 nút). Tổng > 375px → flex-shrink ép item; Title antd có `word-break: break-word` (đo: `titleW=15.5px, titleH=308px, headerH=1649px`) → min-content = 1 glyph → render dọc | ConsumableDetailPage, AccessoryDetailPage |
+| **B — Descriptions column cứng** | `column={2}`/`column={4}` số nguyên trên mobile 335px → cell content dài bị nén (`Component cell "Tủ #1 - Phòng T&E" 44×303px dọc`; `Asset Model "Firewall FortiGate 40F" 12×370px dọc`) | AssetDetailPage (column=2), ComponentDetailPage (column=4) |
+
+Không bị: SystemDetailPage (`column={{xs:1,sm:2,md:3}}` ✓), UserDetailPage (đo 0 squashed cell dù column={3} — nội dung ngắn), Consumable/Accessory Descriptions (đã `{xs:1,sm:2}` ✓).
+
+### Sửa (4 file)
+- `ConsumableDetailPage` + `AccessoryDetailPage` header: thêm `flexWrap: 'wrap'` (+ comment root cause).
+- `ComponentDetailPage` L261: `column={4}` → `column={{ xs: 1, sm: 2, md: 4 }}`.
+- `AssetDetailPage` L125: `column={2}` → `column={{ xs: 1, sm: 2 }}` + Ghi chú `span={2}` → `span={{ xs: 1, sm: 2 }}`.
+- Bonus (cùng file, console thật phát hiện): `Steps items.description` deprecated → `content` (AssetDetailPage Vòng đời) — 0 lỗi console.
+
+### Verify (playwright-cli, admin, 375px — đo lại sau sửa)
+| Trang | TRƯỚC | SAU |
+|---|---|---|
+| Consumable | title 15×308, headerH 1649px | title **130×28 ngang**, headerH **80px**, 3 nút nguyên vẹn (108/116/80×32) ✅ |
+| Accessory | title 15×364 | title **155×28 ngang**, headerH 80px ✅ |
+| Component | cell "Tủ #1 - Phòng T&E" 44×303 dọc | **0 squashed cell** ✅ |
+| Asset | Model 12×370 dọc | **0 squashed cell** ✅ |
+
+- Desktop 1440 (no-regression): Descriptions Asset vẫn 2 cột (390/275px) ✅; console asset 0 errors/0 warnings (Steps fix).
+- Ảnh before/after: `titlebug-{consumable,accessory,component,asset}-{before,after}-375.png` (8 ảnh).
+- `tsc` exit 0 · eslint 4 file exit 0.
+
+### ⚠️ Lưu ý cho người sau (anti-pattern)
+- Header detail page: LUÔN có `flexWrap: 'wrap'` khi là flex ngang chứa title + nút (title Typography có word-break → bị bóp 1 glyph nếu nowrap).
+- Descriptions ở trang (không phải modal cố định rộng): dùng `column={{ xs: 1, sm: 2, md: n }}` — KHÔNG bao giờ `column={n}` cứng; item span kèm responsive `span={{ xs: 1, sm: 2 }}`.
+- Backlog: LicenseDetailModal `column={3}` + MaintenanceTable modal `column={2}` — modal antd mobile ~343px cũng có thể dọc cell nếu text dài; chưa verify (data license đang rỗng).
+
+## 69. T-TOKEN1 — EXPORT PALETTE DÙNG CHUNG TỪ designTokens.ts (2026-08-22)
+
+### Audit trước (27 hex literal UI rải rác / 14 file)
+4 nhóm màu lặp lại: `#8c8c8c` (icon label gray — 13 chỗ code), `#fa8c16` (warning — 5 chỗ), `#f6ffed/#b7eb8f` (stock card — 2 chỗ), 3 biến thể `linear-gradient` badge card (Component/License/Maintenance: `#f0f5ff→#adc6ff`; Consumable: `#e6f4ff→#bae0ff`; Accessory: `#f0e6ff→#d4baff`).
+
+### Thay đổi
+- **`designTokens.ts`**: mở rộng `palette` (labelGray/warningAmber/stockSuccessBg/stockSuccessBorder) + 2 export semantic mới:
+  - `uiColors = { labelGray, warningAmber, stockSuccessBg, stockSuccessBorder }` — giá trị NGUYÊN BẢN (không đổi tông; đổi màu cho AA là quyết định thiết kế riêng).
+  - `cardBadgeGradients = { blue, lightBlue, purple }` — gradient badge card (1 nguồn duy nhất, hết lệch tông).
+- **14 file** thay hex literal → token (ActionLogTable, AccessoryDetail/List/CheckinModal, ComponentList, ConsumableList/Detail, LicenseList, MaintenanceTable, AssetRecallModal, AssetArchiveModal, AssetEditModal, DashboardPage). Gradient động `hexToRgba(...)` (License/Maintenance badge theo màu dữ liệu) giữ nguyên — không token hóa được.
+
+### Verify
+- `tsc` exit 0 · eslint 0 errors (9 warning react-refresh pre-existing — chỉ 2 file export constants+component từ HEAD).
+- **UI thật (playwright, admin)**: Dashboard statistic "Sắp hết" = `rgb(250,140,22)` (#fa8c16) ✅; Component card badge = `linear-gradient(135deg, rgb(240,245,255), rgb(173,198,255))` ✅; Accessory = `rgb(240,230,255)→rgb(212,186,255)` ✅; label icon gray = `rgb(140,140,140)` ✅. Console 0 errors/0 warnings. → **Màu render y hệt trước khi token hóa (0 lệch tông).**
+- Mojibake scan 14 file: 0.
+
+### ⚠️ Lưu ý
+- AssetListPage L129 nền icon badge ĐỘNG theo status (#e6f4ff/#f6ffed/#f5f5f5) — khác ngữ nghĩa card gradient, để nguyên.
+- MaintenanceTable L76 comment `// #8c8c8c` (chú thích giá trị statusColors.closed) — giữ.
+- Mọi màu UI mới → thêm vào `uiColors`/`cardBadgeGradients`/`palette`, KHÔNG khai báo hex literal trong page.
+
+## 70. T-UX1 — CLICK-TO-DETAIL MAINTENANCETABLE CARD + STOPPROPAGATION (2026-08-22) — KẾT THÚC CHUỖI UI/UX
+
+### Thay đổi (`MaintenanceTable.tsx`, pattern ComponentListPage đã verify)
+- **Card toàn phần**: `onClick={() => void handleDetail(record)}` + `cursor: 'pointer'` → click bất kỳ đâu trên card mở modal "Chi tiết bảo trì" (maintenance không có route detail riêng — modal là detail chuẩn của bản ghi).
+- **Mọi nút trong `renderActions`** thêm `e.stopPropagation()`: Chi tiết, Mở tài sản, Hoàn thành, Đánh dấu đã kiểm tra, Xác nhận đóng (Popconfirm trigger + bản disabled), Mở lại, Xóa (Popconfirm trigger).
+- **Link asset trong header card** thêm `onClick={(e) => e.stopPropagation()}` — click tên asset navigate sang asset, KHÔNG mở nhầm detail modal.
+
+### Verify (playwright-cli, admin — tạo bản ghi QA thật qua API, xóa sau)
+| Thao tác | Kết quả |
+|---|---|
+| Click toàn card (375px + 1440px) | Modal "Chi tiết bảo trì" + Descriptions mở ✅ |
+| Nút "Hoàn thành" | Chỉ mở modal "Hoàn thành bảo trì", KHÔNG detail, path giữ /maintenances ✅ |
+| Nút "Mở tài sản" | Navigate `/assets/{id}`, 0 modal ✅ |
+| Nút "Xóa" (Popconfirm) | Mở confirm "Xóa bản ghi bảo trì này?", KHÔNG detail, không xóa nhầm ✅ |
+| Link tên asset trong card | Navigate asset, 0 modal ✅ |
+| cursor | `pointer` trên card ✅ |
+
+- Console ổn định 0 errors/0 warnings (1 error thoáng qua giữa chuỗi click nhanh — không tái hiện khi reload).
+- `tsc` exit 0 · eslint 0 errors (7 warning react-refresh pre-existing) · mojibake scan 0.
+- Ảnh: `ux1-maintenance-detail-modal-1440.png`, `ux1-maintenance-card-375.png`.
+- **Dọn QA**: DELETE bảo trì 200 + xóa 2 action_logs QA-UX1 (Tạo/Xóa) — DB về 0 bảo trì, 0 log QA.
+
+### Kết thúc chuỗi UI/UX
+Toàn bộ 7 task (T-RESP1→4, T-A11Y1, T-CLEAN1, T-TOKEN1, T-UX1) + fix bug title dọc (4 trang detail) đã xong, verify thật từng phần. Sẵn sàng commit GỘP DUY NHẤT theo quy trình an toàn (git status → secret grep → .gitignore → push → verify SHA).
+
+
+
+
 
 
 

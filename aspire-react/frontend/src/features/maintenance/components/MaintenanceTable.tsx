@@ -15,7 +15,7 @@ import { assetService, type AssetMaintenanceDto } from '../../asset/services/ass
 import { isSuperUser } from '../../../services/keycloak';
 import { usePermission } from '../../../hooks/usePermission';
 import MaintenanceCompleteModal from './MaintenanceCompleteModal';
-import { statusColors } from '../../../theme/designTokens';
+import { statusColors, uiColors, cardBadgeGradients } from '../../../theme/designTokens';
 import { formatDate, formatDateTime, formatMoney } from '../../../utils/format';
 
 const { Text, Title } = Typography;
@@ -88,7 +88,7 @@ const iconBadgeStyle: React.CSSProperties = {
   width: 48,
   height: 48,
   borderRadius: 12,
-  background: 'linear-gradient(135deg, #f0f5ff 0%, #adc6ff 100%)',
+  background: cardBadgeGradients.blue,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -112,7 +112,7 @@ const dataRowStyle: React.CSSProperties = {
 };
 
 const labelIconStyle: React.CSSProperties = {
-  color: '#8c8c8c',
+  color: uiColors.labelGray,
   fontSize: 13,
 };
 
@@ -265,11 +265,13 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
 
   // ST7b — action buttons shared by the desktop "Thao tác" column and the mobile Card list
   // (keeps permission-gating and handlers in ONE place — no duplication between views).
+  // T-UX1: Card toàn phần mở detail modal → mọi nút phải stopPropagation để không
+  // kích hoạt nhầm điều hướng card (pattern ComponentListPage đã verify).
   const renderActions = (record: AssetMaintenanceDto): ReactNode[] => [
-    <Button key="detail" size="small" icon={<EyeOutlined />} onClick={() => void handleDetail(record)}>
+    <Button key="detail" size="small" icon={<EyeOutlined />} onClick={(e) => { e.stopPropagation(); void handleDetail(record); }}>
       Chi tiết
     </Button>,
-    <Button key="asset" size="small" icon={<EditOutlined />} onClick={() => record.asset && navigate(`/assets/${record.asset.id}`)}>
+    <Button key="asset" size="small" icon={<EditOutlined />} onClick={(e) => { e.stopPropagation(); if (record.asset) navigate(`/assets/${record.asset.id}`); }}>
       Mở tài sản
     </Button>,
     // Task H — đường tắt "Hoàn thành bảo trì" ngay tại Card cho bản ghi ĐANG THỰC HIỆN
@@ -281,7 +283,7 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
             key="complete"
             size="small"
             icon={<CheckCircleOutlined />}
-            onClick={() => setCompleteTarget(record)}
+            onClick={(e) => { e.stopPropagation(); setCompleteTarget(record); }}
           >
             Hoàn thành
           </Button>,
@@ -295,7 +297,7 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
             )
             : (
               canEditMaintenance && (
-                <Button key="inspect" size="small" icon={<CheckOutlined />} onClick={() => void handleInspect(record)}>
+                <Button key="inspect" size="small" icon={<CheckOutlined />} onClick={(e) => { e.stopPropagation(); void handleInspect(record); }}>
                   Đánh dấu đã kiểm tra
                 </Button>
               )
@@ -312,19 +314,19 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
                 description="Sau khi đóng, bản ghi sẽ bị khóa và không thể chỉnh sửa (khóa audit)."
                 onConfirm={() => void handleClose(record)}
               >
-                <Button size="small" icon={<LockOutlined />}>Xác nhận đóng</Button>
+                <Button size="small" icon={<LockOutlined />} onClick={(e) => e.stopPropagation()}>Xác nhận đóng</Button>
               </Popconfirm>
             )
             : (
               <Tooltip key="close" title={record.completionDate ? 'Cần kiểm tra trước khi đóng bảo trì' : 'Cần nhập Ngày hoàn thành trước khi đóng bảo trì'}>
-                <Button size="small" disabled icon={<LockOutlined />}>Xác nhận đóng</Button>
+                <Button size="small" disabled icon={<LockOutlined />} onClick={(e) => e.stopPropagation()}>Xác nhận đóng</Button>
               </Tooltip>
             ),
         ]
       : []),
     ...(superUser && record.isClosed
       ? [
-          <Button key="reopen" size="small" icon={<UnlockOutlined />} onClick={() => void handleReopen(record)}>
+          <Button key="reopen" size="small" icon={<UnlockOutlined />} onClick={(e) => { e.stopPropagation(); void handleReopen(record); }}>
             Mở lại
           </Button>,
         ]
@@ -332,7 +334,7 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
     ...(canDeleteMaintenance
       ? [(
           <Popconfirm key="del" title="Xóa bản ghi bảo trì này?" onConfirm={() => void handleDelete(record)}>
-            <Button size="small" danger icon={<DeleteOutlined />}>Xóa</Button>
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()}>Xóa</Button>
           </Popconfirm>
         )]
       : []),
@@ -389,9 +391,11 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
           return (
             <Card
               hoverable
+              onClick={() => void handleDetail(record)}
               style={{
                 borderRadius: 12,
                 marginBottom: 16,
+                cursor: 'pointer',
                 transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
               }}
               styles={{ body: { padding: '20px 20px 16px' } }}
@@ -413,7 +417,8 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
                   <div style={{ marginTop: 4 }}>
                     {asset ? (
                       <Text type="secondary" style={{ fontSize: 13 }}>
-                        <Link to={`/assets/${asset.id}`}>
+                        {/* T-UX1: Link trong card phải stopPropagation để không mở nhầm detail modal */}
+                        <Link to={`/assets/${asset.id}`} onClick={(e) => e.stopPropagation()}>
                           {asset.name} ({asset.assetTag})
                         </Link>
                       </Text>

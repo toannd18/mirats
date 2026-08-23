@@ -258,7 +258,7 @@ export default function ComponentDetailPage() {
           {component.trackingType === 'Serial' ? <Tag color="blue">Serial</Tag> : <Tag>Bulk</Tag>}
           {component.isLowStock && <Tag color="red">Sắp hết</Tag>}
         </Space>
-        <Descriptions size="small" column={4} bordered>
+        <Descriptions size="small" column={{ xs: 1, sm: 2, md: 4 }} bordered>
           <Descriptions.Item label="Tổng (Qty)">{component.qty}</Descriptions.Item>
           <Descriptions.Item label="Còn lại">{component.remaining}</Descriptions.Item>
           {component.trackingType === 'Serial' && (

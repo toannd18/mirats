@@ -5,7 +5,7 @@ import {
   WarningOutlined, InboxOutlined,
 } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
-import { assetStatusColors, statusColors } from '../../../theme/designTokens';
+import { assetStatusColors, statusColors, textColors, uiColors } from '../../../theme/designTokens';
 import { ASSET_STATUS_LABELS } from '../../asset/types/asset';
 import { ACTION_TYPE_TAGS } from '../../../shared/components/ActionLogTable';
 import { formatMoney, formatDateTime } from '../../../utils/format';
@@ -123,7 +123,7 @@ export default function DashboardPage() {
           <Card><Statistic title="Sẵn sàng" value={summary?.rtdAssets ?? 0} prefix={<InboxOutlined />} /></Card>
         </Col>
         <Col xs={12} sm={8} md={4}>
-          <Card><Statistic title="Sắp hết" value={summary?.lowStockCount ?? 0} styles={{ content: { color: '#fa8c16' } }} prefix={<WarningOutlined />} /></Card>
+          <Card><Statistic title="Sắp hết" value={summary?.lowStockCount ?? 0} styles={{ content: { color: uiColors.warningAmber } }} prefix={<WarningOutlined />} /></Card>
         </Col>
         <Col xs={12} sm={8} md={4}>
           <Card><Statistic title="Tổng giá trị" value={formatMoney(summary?.totalAssetValue)} /></Card>
@@ -137,12 +137,13 @@ export default function DashboardPage() {
               const tag = actionTag(a.actionType);
               const obj = a.itemName ? `${ITEM_TYPE_LABELS[a.itemType] ?? a.itemType}: ${a.itemName}` : (a.itemName ?? '');
               return {
-                children: (
+                // antd 6: Timeline items.children đã deprecated → dùng content (runtime warning xác nhận 2026-08-22).
+                content: (
                   <div>
                     <Tag color={tag.color}>{tag.label}</Tag>
                     {obj && <span style={{ fontSize: 12, marginInlineStart: 4 }}>{obj}</span>}
-                    <span style={{ fontSize: 12, color: '#888', marginInlineStart: 8 }}>{formatDateTime(a.actionDate)}</span>
-                    <div style={{ fontSize: 11, color: '#888' }}>
+                    <span style={{ fontSize: 12, color: textColors.secondary, marginInlineStart: 8 }}>{formatDateTime(a.actionDate)}</span>
+                    <div style={{ fontSize: 11, color: textColors.secondary }}>
                       bởi {[a.creator.firstName, a.creator.lastName].filter(Boolean).join(' ') || a.creator.username}
                     </div>
                   </div>

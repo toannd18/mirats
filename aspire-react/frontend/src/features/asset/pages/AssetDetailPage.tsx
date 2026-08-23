@@ -110,7 +110,8 @@ const AssetDetailPage: React.FC = () => {
       <Card title="Vòng đời" style={{ marginBottom: 16 }}>
         <Steps size="small" current={stepIndex} items={LIFECYCLE_STEPS.map((step, i) => ({
           title: step.title,
-          description: step.description,
+          // antd 6: Steps items.description deprecated → content (runtime warning xác nhận 2026-08-22)
+          content: step.description,
           status: i < stepIndex ? 'finish' : i === stepIndex ? 'process' : 'wait',
         }))} />
         <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -122,7 +123,8 @@ const AssetDetailPage: React.FC = () => {
 
       {/* Asset Information */}
       <Card title={`${asset.assetTag} — ${asset.name}`} style={{ marginBottom: 16 }}>
-        <Descriptions bordered size="small" column={2}>
+        {/* column responsive (bug: column={2} cứng trên mobile → cell content bị nén dọc) */}
+        <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
           <Descriptions.Item label="Mã tài sản">{asset.assetTag}</Descriptions.Item>
           <Descriptions.Item label="Serial">{asset.serial || '-'}</Descriptions.Item>
           <Descriptions.Item label="Model">{asset.model?.name || '-'}</Descriptions.Item>
@@ -135,7 +137,7 @@ const AssetDetailPage: React.FC = () => {
           <Descriptions.Item label="Ngày mua">{formatDate(asset.purchaseDate)}</Descriptions.Item>
           <Descriptions.Item label="Bảo hành">{asset.warrantyMonths ? `${asset.warrantyMonths} tháng` : '-'}</Descriptions.Item>
           <Descriptions.Item label="Số đơn hàng">{asset.orderNumber || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Ghi chú" span={2}>{asset.notes || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Ghi chú" span={{ xs: 1, sm: 2 }}>{asset.notes || '-'}</Descriptions.Item>
         </Descriptions>
       </Card>
 

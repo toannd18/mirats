@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert, App, Button, Col, DatePicker, Divider, Form, Grid, Input, InputNumber, Modal,
+  Alert, App, Button, Col, DatePicker, Divider, Form, Input, InputNumber, Modal,
   Row, Select, Space, Spin,
 } from 'antd';
 import { LockOutlined, SaveOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { consumablesApi } from '../services/consumables.service';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
@@ -37,9 +38,7 @@ interface OptionItem { label: string; value: string; }
  */
 export default function ConsumableFormModal({ open, consumableId, onClose, onSaved }: ConsumableFormModalProps) {
   const { message, modal } = App.useApp();
-  const { useBreakpoint } = Grid;
-  const screens = useBreakpoint();
-  const isMobile = !screens.md;
+  const isMobile = useIsMobile();
   const [form] = Form.useForm();
   const isEdit = !!consumableId;
 

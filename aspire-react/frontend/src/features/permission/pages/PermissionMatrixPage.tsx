@@ -191,7 +191,7 @@ export default function PermissionMatrixPage() {
         }}
         columns={columns}
         pagination={{ pageSize: 10, showSizeChanger: true }}
-        scroll={{ x: 800 }}
+        scroll={{ x: 'max-content' }}
       />
 
       <Modal

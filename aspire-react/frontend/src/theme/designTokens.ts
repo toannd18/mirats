@@ -14,6 +14,11 @@ const palette = {
   border: '#E2E8F0',
   destructive: '#DC2626',
   onDestructive: '#FFFFFF',
+  // T-TOKEN1 — màu UI lặp lại rải rác trong pages (trước đây hex literal khắp nơi):
+  labelGray: '#8c8c8c',        // icon/label meta (creator, environment...) — icon, không phải text chính
+  warningAmber: '#fa8c16',     // cảnh báo tồn kho / thu hồi / lưu trữ / statistic "Sắp hết"
+  stockSuccessBg: '#f6ffed',   // nền card tồn kho (stock summary)
+  stockSuccessBorder: '#b7eb8f', // viền card tồn kho
 };
 
 export const designTokens: ThemeConfig = {
@@ -77,6 +82,13 @@ export const designTokens: ThemeConfig = {
   },
 };
 
+/** Semantic text colors (WCAG-safe) — dùng thay hex literal rải rác trong pages. */
+export const textColors = {
+  primary: palette.foreground,
+  secondary: palette.mutedForeground,
+  tertiary: '#64748B',
+} as const;
+
 export const statusColors = {
   ready: '#1677ff',
   active: '#52c41a',
@@ -90,3 +102,31 @@ export const assetStatusColors: Record<string, string> = {
   Deployed: statusColors.active,
   Archived: statusColors.closed,
 };
+
+/**
+ * T-TOKEN1 — semantic UI colors dùng chung (thay hex literal rải rác trong pages).
+ * Giữ NGUYÊN giá trị màu (chỉ tập trung 1 nguồn) — việc đổi tông màu cho AA là
+ * quyết định thiết kế riêng, không làm chung trong task token hóa này.
+ */
+export const uiColors = {
+  /** Icon/label meta gray (creator, environment…) — icon 12-13px, không phải text chính. */
+  labelGray: palette.labelGray,
+  /** Cảnh báo tồn kho / thu hồi / lưu trữ / statistic "Sắp hết". */
+  warningAmber: palette.warningAmber,
+  /** Nền + viền card tồn kho (stock summary). */
+  stockSuccessBg: palette.stockSuccessBg,
+  stockSuccessBorder: palette.stockSuccessBorder,
+} as const;
+
+/**
+ * Badge gradient nền icon trên Card list (theme/designTokens là nguồn duy nhất).
+ * Trước đây từng ListPage tự khai báo linear-gradient riêng → lệch tông.
+ */
+export const cardBadgeGradients = {
+  /** Blue (Component / License / Maintenance). */
+  blue: 'linear-gradient(135deg, #f0f5ff 0%, #adc6ff 100%)',
+  /** Light blue (Consumable). */
+  lightBlue: 'linear-gradient(135deg, #e6f4ff 0%, #bae0ff 100%)',
+  /** Purple (Accessory). */
+  purple: 'linear-gradient(135deg, #f0e6ff 0%, #d4baff 100%)',
+} as const;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  App, Button, Col, DatePicker, Divider, Form, Grid, Input, InputNumber, Modal,
+  App, Button, Col, DatePicker, Divider, Form, Input, InputNumber, Modal,
   Row, Select, Space, Spin, Switch, Tooltip, Typography,
 } from 'antd';
 import { LockOutlined, SaveOutlined } from '@ant-design/icons';
@@ -9,7 +9,9 @@ import apiClient from '../../../services/api-client';
 import { assetService, type UpdateAssetPayload } from '../services/asset.service';
 import { ASSET_STATUS_LABELS, normalizeAssetStatus, type AssetDetailDto } from '../types/asset';
 import { usePermission } from '../../../hooks/usePermission';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import { uiColors } from '../../../theme/designTokens';
 
 const { Text } = Typography;
 
@@ -36,9 +38,7 @@ interface AssetEditModalProps {
  */
 export default function AssetEditModal({ open, assetId, onClose, onSaved }: AssetEditModalProps) {
   const { message, modal } = App.useApp();
-  const { useBreakpoint } = Grid;
-  const screens = useBreakpoint();
-  const isMobile = !screens.md;
+  const isMobile = useIsMobile();
   const [form] = Form.useForm();
   // ST6b — edit gated by backend policy assets.edit.
   const canEdit = usePermission('assets.edit');
@@ -148,7 +148,7 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
     ? (
       <Space size={4}>
         <Tooltip title="Field khóa sau khi xác nhận — chỉ Name và Notes được sửa">
-          <LockOutlined style={{ color: '#8c8c8c', fontSize: 12 }} />
+          <LockOutlined style={{ color: uiColors.labelGray, fontSize: 12 }} />
         </Tooltip>
         <span>{label}</span>
       </Space>

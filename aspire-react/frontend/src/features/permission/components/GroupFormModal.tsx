@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, App, Button, Checkbox, Collapse, Form, Input, Modal, Spin, Tag, Typography, Grid,
+  Alert, App, Button, Checkbox, Collapse, Form, Input, Modal, Spin, Tag, Typography,
 } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
 import { groupsApi } from '../services/groups.service';
 import type { GroupDto, PermissionResourceGroup } from '../types/groups';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 
 const { Text } = Typography;
 
@@ -27,9 +28,7 @@ interface GroupFormModalProps {
  */
 export default function GroupFormModal({ open, group, onClose, onSaved }: GroupFormModalProps) {
   const { message } = App.useApp();
-  const { useBreakpoint } = Grid;
-  const screens = useBreakpoint();
-  const isMobile = !screens.md;
+  const isMobile = useIsMobile();
   const [form] = Form.useForm();
   const isEdit = !!group;
 

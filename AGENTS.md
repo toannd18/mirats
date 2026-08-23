@@ -45,6 +45,14 @@ pwsh -File scripts/audit-sweeps.ps1
 - **After every file edit, re-read it from disk** to confirm it persisted — don't trust tool success output.
 - **UI changes need real verification** (clicks/console/network + screenshots at ~375/768/1440px for responsive). Passing `tsc --noEmit`/build is not sufficient evidence.
 
+## ⛔ CẤM sửa file chứa tiếng Việt qua PowerShell — BẮT BUỘC dùng edit/write tool
+Đã tái diễn **3 lần** mojibake (`Không thể` → `KhÃ´ng thá»ƒ`) — đây là quy tắc cứng, không ngoại lệ:
+- ❌ **Cấm**: `Get-Content` + `Set-Content` (mọi biến thể: `-Raw`, `-Encoding utf8`, pipeline replace) — PowerShell 5.1 đọc file UTF-8 **không BOM** bằng ANSI rồi ghi lại → toàn bộ dấu tiếng Việt hỏng.
+- ❌ **Cấm**: mọi script trung gian tự chế chạy replace text trên file `.tsx/.cs/.md` có chuỗi tiếng Việt (kể cả `-replace`, `[regex]::Replace`, `[IO.File]::ReadAllText` không truyền `Encoding.UTF8` tường minh).
+- ✅ **Chỉ dùng**: công cụ `edit` (replace literal) hoặc `write` (ghi lại toàn file) của agent — luôn UTF-8 chuẩn.
+- ✅ Nếu bắt buộc phải script (.NET): `[IO.File]::ReadAllText($p, [Text.Encoding]::UTF8)` + `WriteAllText($p, $new, [Text.Encoding]::UTF8)` — và vẫn phải grep kiểm tra mojibake pattern (`KhÃ´|Lá»—|á»|Ã¢`) ngay sau đó.
+- Sau MỌI thao tác hàng loạt trên file: chạy grep mojibake-pattern trước khi coi là xong.
+
 ## Frontend Verification & Testing Rules
 
 - ƯU TIÊN dùng playwright-cli (session-based) cho mọi verify cần đăng nhập, click chuỗi hành động, hoặc so sánh 2 user/session — đây là công cụ duy nhất trong dự án làm được việc này, KHÔNG bị cấm sử dụng.
