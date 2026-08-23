@@ -2784,6 +2784,32 @@ Toàn bộ 7 task (T-RESP1→4, T-A11Y1, T-CLEAN1, T-TOKEN1, T-UX1) + fix bug ti
 - Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn QA: 2 maintenance + 2 user (DB + Keycloak) đã xóa — users về 1 (admin), companies/assets nguyên vẹn.
 - ⚠️ **Phát hiện phụ:** còn 1 maintenance `QA-UX1 click-to-detail test` (Cty MIRA) trong DB — dữ liệu test cũ từ task T-UX1 (§62 ghi "DB về 0 bảo trì" nhưng thực tế còn sót). Không tự ý xóa (không thuộc task này) — ghi backlog dọn.
 
+## 67. SEC-FIX S2/S4-S6: Actor-scope cho allocation services (Consumable/Component/Accessory) (2026-08-23)
+
+### Lỗ hổng (cùng lớp lỗi — sweep 1 lần)
+Các action endpoint checkout/checkin/allocate chỉ validate **target↔record** company, KHÔNG validate **actor↔record**: user công ty A thao tác được vật tư/linh kiện/phụ kiện công ty B nếu biết id (đã tái hiện thực nghiệm từng domain).
+
+### Thay đổi (copy pattern có sẵn trong từng domain)
+- **Component** (`ComponentAllocationService`): pattern mẫu ĐÃ CÓ sẵn ở `SetUnitStatusAsync`/`DeleteUnitAsync` cùng service (`_companyScope.GetCurrentUserCompanyIdAsync()` + khác company → `NOT_FOUND`) → áp cho `AllocateAsync`/`ReturnAsync`/`StockInAsync` (3 hàm thiếu).
+- **Accessory** (`CheckoutAccessoryCommand`/`CheckinAccessoryCommand`): pattern mẫu ĐÃ CÓ ở `DeleteAccessoryCommand` cùng domain → inject `ICompanyScopeService` + check actor↔accessory (checkin dùng `co.Accessory?.CompanyId`).
+- **Consumable** (`ConsumableAllocationService.CheckoutAsync`): chưa có mẫu trong domain → dùng helper chung `ICompanyScopeService` (inject mới) + check actor↔consumable.
+- **Test constructors** cập nhật arg scope mới: ConsumableTests (9), AccessoryTests (14), TaskK/TaskL2/TaskM1 (ConsumableAllocationService).
+
+### Verify thực nghiệm (API thật, user QA qa-s2-a MIRA / qa-s2-b QCR, dữ liệu QCR tạo mới)
+| Domain | Thao tác | Tấn công MIRA→QCR | Chủ QCR |
+|---|---|---|---|
+| Consumable | checkout | **400 NOT_FOUND** (trước: 200) ✅ | **200** ✅ |
+| Component | assign (allocate) | **400 NOT_FOUND** ✅ | **200** ✅ |
+| Component | stock-in serial | **400 NOT_FOUND** ✅ | **200** ✅ |
+| Component | checkout serial | (tấn công qua assign đã chặn) | **200** ✅ |
+| Component | checkin | **400 NOT_FOUND** ✅ | **200** ✅ |
+| Accessory | checkout | **400 NOT_FOUND** ✅ | **200** ✅ |
+| Accessory | checkin | (tấn công cần checkout trước — bị chặn ở checkout) | **200** ✅ |
+
+- ⚠️ **Lưu ý status code:** các service trả `NOT_FOUND` nhưng controller map thành **400** (RunTransactional/controller switch) thay vì 404 — hide-existence vẫn đúng (message/error_code giống hệt case không tồn tại) nhưng lệch convention 404. Đây là vấn đề riêng đã có trong backlog (Y2/Y3/CS-10/CS-11 — thống nhất 404-vs-400), KHÔNG thuộc phạm vi S2/S4-S6.
+- Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn QA sạch (consumable/accessory/component QCR mới + 2 user DB + Keycloak) — users về 1 (admin).
+
+
 
 
 

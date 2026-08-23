@@ -106,7 +106,7 @@ public class AccessoryTests
         var (companyId, _) = await SeedCompanyAndCategoryAsync(ctx);
         var accessoryId = await SeedAccessoryAsync(ctx, companyId, qty: 10);
         var targetId = await SeedUserAsync(ctx, companyId);
-        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
@@ -133,7 +133,7 @@ public class AccessoryTests
         var (companyId, _) = await SeedCompanyAndCategoryAsync(ctx);
         var accessoryId = await SeedAccessoryAsync(ctx, companyId);
         var targetId = await SeedDepartmentAsync(ctx, companyId);
-        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
@@ -154,7 +154,7 @@ public class AccessoryTests
         var (companyId, _) = await SeedCompanyAndCategoryAsync(ctx);
         var accessoryId = await SeedAccessoryAsync(ctx, companyId);
         var targetId = await SeedLocationAsync(ctx);
-        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
@@ -175,7 +175,7 @@ public class AccessoryTests
         var (companyId, _) = await SeedCompanyAndCategoryAsync(ctx);
         var accessoryId = await SeedAccessoryAsync(ctx, companyId);
         var targetId = await SeedSystemPositionAsync(ctx, companyId);
-        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
@@ -205,7 +205,7 @@ public class AccessoryTests
         var otherUser = new User { Username = "other", Email = "o@t.local", FirstName = "B", LastName = "B", CompanyId = otherCompany.Id };
         ctx.Users.Add(otherUser);
         await ctx.SaveChangesAsync();
-        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
@@ -225,7 +225,7 @@ public class AccessoryTests
         var (companyId, _) = await SeedCompanyAndCategoryAsync(ctx);
         var accessoryId = await SeedAccessoryAsync(ctx, companyId, qty: 5);
         var targetId = await SeedUserAsync(ctx, companyId);
-        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
@@ -243,7 +243,7 @@ public class AccessoryTests
         await using var ctx = TestHelpers.CreateContext(nameof(Checkout_UnknownTarget_Rejected));
         var (companyId, _) = await SeedCompanyAndCategoryAsync(ctx);
         var accessoryId = await SeedAccessoryAsync(ctx, companyId);
-        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var handler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
@@ -265,7 +265,7 @@ public class AccessoryTests
         var (companyId, _) = await SeedCompanyAndCategoryAsync(ctx);
         var accessoryId = await SeedAccessoryAsync(ctx, companyId, qty: 10);
         var targetId = await SeedUserAsync(ctx, companyId);
-        var checkoutHandler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var checkoutHandler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
         await checkoutHandler.Handle(new CheckoutAccessoryCommand
         {
             AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.User,
@@ -273,7 +273,7 @@ public class AccessoryTests
         }, CancellationToken.None);
         var checkout = await ctx.AccessoryCheckouts.SingleAsync(c => c.AccessoryId == accessoryId);
 
-        var checkinHandler = new CheckinAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var checkinHandler = new CheckinAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
         var result = await checkinHandler.Handle(new CheckinAccessoryCommand
         {
             CheckoutId = checkout.Id, ReturnQty = 1, Note = "trả 1", CurrentUserId = ActorId
@@ -299,7 +299,7 @@ public class AccessoryTests
         var (companyId, _) = await SeedCompanyAndCategoryAsync(ctx);
         var accessoryId = await SeedAccessoryAsync(ctx, companyId, qty: 10);
         var targetId = await SeedUserAsync(ctx, companyId);
-        var checkoutHandler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var checkoutHandler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
         await checkoutHandler.Handle(new CheckoutAccessoryCommand
         {
             AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.User,
@@ -307,7 +307,7 @@ public class AccessoryTests
         }, CancellationToken.None);
         var checkout = await ctx.AccessoryCheckouts.SingleAsync(c => c.AccessoryId == accessoryId);
 
-        var checkinHandler = new CheckinAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var checkinHandler = new CheckinAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
         var result = await checkinHandler.Handle(new CheckinAccessoryCommand
         {
             CheckoutId = checkout.Id, ReturnQty = 4, CurrentUserId = ActorId
@@ -327,7 +327,7 @@ public class AccessoryTests
         var (companyId, _) = await SeedCompanyAndCategoryAsync(ctx);
         var accessoryId = await SeedAccessoryAsync(ctx, companyId, qty: 10);
         var targetId = await SeedUserAsync(ctx, companyId);
-        var checkoutHandler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId));
+        var checkoutHandler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
         await checkoutHandler.Handle(new CheckoutAccessoryCommand
         {
             AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.User,

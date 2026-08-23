@@ -93,7 +93,7 @@ public class ConsumableTests
             }, "Test"))
         };
         var controller = new ConsumablesController(ctx, actionLogService,
-            new ConsumableAllocationService(ctx, actionLogService), new SuperUserScope())
+            new ConsumableAllocationService(ctx, actionLogService, new SuperUserScope()), new SuperUserScope())
         {
             ControllerContext = new ControllerContext { HttpContext = httpContext }
         };
@@ -109,7 +109,7 @@ public class ConsumableTests
         var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10, status: ConsumableStatus.Confirmed);
         var userId = await SeedUserAsync(ctx, companyId);
         var actorId = await SeedUserAsync(ctx, companyId, "admin");
-        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
+        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx), new SuperUserScope());
 
         var result = await service.CheckoutAsync(consumableId, userId, quantity: 3, note: "cáº¥p cho váº­n hÃ nh", actorId);
 
@@ -139,7 +139,7 @@ public class ConsumableTests
         var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10, status: ConsumableStatus.Pending);
         var userId = await SeedUserAsync(ctx, companyId);
         var actorId = await SeedUserAsync(ctx, companyId, "admin");
-        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
+        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx), new SuperUserScope());
 
         var result = await service.CheckoutAsync(consumableId, userId, quantity: 1, note: null, actorId);
 
@@ -159,7 +159,7 @@ public class ConsumableTests
         await ctx.SaveChangesAsync();
         var foreignUser = await SeedUserAsync(ctx, otherCompany.Id, "foreign");
         var actorId = await SeedUserAsync(ctx, companyId, "admin");
-        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
+        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx), new SuperUserScope());
 
         var result = await service.CheckoutAsync(consumableId, foreignUser, quantity: 1, note: null, actorId);
 
@@ -176,7 +176,7 @@ public class ConsumableTests
         var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 2, status: ConsumableStatus.Confirmed);
         var userId = await SeedUserAsync(ctx, companyId);
         var actorId = await SeedUserAsync(ctx, companyId, "admin");
-        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
+        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx), new SuperUserScope());
 
         var result = await service.CheckoutAsync(consumableId, userId, quantity: 5, note: null, actorId);
 
@@ -193,7 +193,7 @@ public class ConsumableTests
         var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10, status: ConsumableStatus.Confirmed);
         var userId = await SeedUserAsync(ctx, companyId);
         var actorId = await SeedUserAsync(ctx, companyId, "admin");
-        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
+        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx), new SuperUserScope());
 
         var result = await service.CheckoutAsync(consumableId, userId, quantity: 0, note: null, actorId);
 
@@ -207,7 +207,7 @@ public class ConsumableTests
         await using var ctx = CreateContext(nameof(Checkout_UserNotFound_Blocked));
         var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10, status: ConsumableStatus.Confirmed);
         var actorId = await SeedUserAsync(ctx, companyId, "admin");
-        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
+        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx), new SuperUserScope());
 
         var result = await service.CheckoutAsync(consumableId, Guid.NewGuid(), quantity: 1, note: null, actorId);
 
@@ -219,7 +219,7 @@ public class ConsumableTests
     public async Task Checkout_ConsumableNotFound_Blocked()
     {
         await using var ctx = CreateContext(nameof(Checkout_ConsumableNotFound_Blocked));
-        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx));
+        var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx), new SuperUserScope());
 
         var result = await service.CheckoutAsync(Guid.NewGuid(), Guid.NewGuid(), quantity: 1, note: null, Guid.NewGuid());
 

@@ -3,6 +3,7 @@ using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Persistence;
+using aspire_react.Server.Infrastructure.Services;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -23,11 +24,13 @@ public class CheckinAccessoryCommandHandler : IRequestHandler<CheckinAccessoryCo
 {
     private readonly AppDbContext _context;
     private readonly IActionLogService _actionLogService;
+    private readonly ICompanyScopeService _companyScope;
 
-    public CheckinAccessoryCommandHandler(AppDbContext context, IActionLogService actionLogService)
+    public CheckinAccessoryCommandHandler(AppDbContext context, IActionLogService actionLogService, ICompanyScopeService companyScope)
     {
         _context = context;
         _actionLogService = actionLogService;
+        _companyScope = companyScope;
     }
 
     public async Task<AccessoryResult> Handle(CheckinAccessoryCommand request, CancellationToken cancellationToken)
@@ -40,6 +43,15 @@ public class CheckinAccessoryCommandHandler : IRequestHandler<CheckinAccessoryCo
             var co = await _context.AccessoryCheckouts.Include(c => c.Accessory)
                 .FirstOrDefaultAsync(c => c.Id == request.CheckoutId, cancellationToken);
             if (co == null)
+                return new AccessoryResult(false, "Checkout record not found.", ErrorCode: "CHECKOUT_NOT_FOUND");
+
+            // [SEC-FIX S2/S4-S6, 2026-08-23] Actor-scope (same pattern as DeleteAccessoryCommand in
+            // this domain): a regular user may only check in accessories of their own company (or
+            // floater); Superuser bypasses. Previously CheckinAccessoryCommand had NO company check
+            // at all — a user from company A could return (check in) a company-B accessory's
+            // checkout record by id.
+            var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+            if (userCompanyId.HasValue && co.Accessory?.CompanyId.HasValue == true && co.Accessory.CompanyId.Value != userCompanyId.Value)
                 return new AccessoryResult(false, "Checkout record not found.", ErrorCode: "CHECKOUT_NOT_FOUND");
 
             var currentlyOut = co.AssignedQty - co.ReturnedQty;

@@ -3,6 +3,7 @@ using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Persistence;
+using aspire_react.Server.Infrastructure.Services;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,11 +26,13 @@ public class CheckoutAccessoryCommandHandler : IRequestHandler<CheckoutAccessory
 {
     private readonly AppDbContext _context;
     private readonly IActionLogService _actionLogService;
+    private readonly ICompanyScopeService _companyScope;
 
-    public CheckoutAccessoryCommandHandler(AppDbContext context, IActionLogService actionLogService)
+    public CheckoutAccessoryCommandHandler(AppDbContext context, IActionLogService actionLogService, ICompanyScopeService companyScope)
     {
         _context = context;
         _actionLogService = actionLogService;
+        _companyScope = companyScope;
     }
 
     public async Task<AccessoryResult> Handle(CheckoutAccessoryCommand request, CancellationToken cancellationToken)
@@ -50,6 +53,15 @@ public class CheckoutAccessoryCommandHandler : IRequestHandler<CheckoutAccessory
                     .FirstOrDefaultAsync(cancellationToken);
 
             if (accessory == null)
+                return new AccessoryResult(false, "Accessory not found.", ErrorCode: "NOT_FOUND");
+
+            // [SEC-FIX S2/S4-S6, 2026-08-23] Actor-scope (same pattern as DeleteAccessoryCommand in
+            // this domain): a regular user may only check out accessories of their own company (or
+            // floater); Superuser bypasses. Previously only the TARGET's company was validated
+            // against the accessory — a user from company A could check out a company-B accessory
+            // by id.
+            var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+            if (userCompanyId.HasValue && accessory.CompanyId.HasValue && accessory.CompanyId.Value != userCompanyId.Value)
                 return new AccessoryResult(false, "Accessory not found.", ErrorCode: "NOT_FOUND");
 
             var checkedOut = await _context.AccessoryCheckouts

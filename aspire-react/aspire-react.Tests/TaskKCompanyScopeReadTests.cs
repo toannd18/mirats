@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Authorization;
@@ -98,7 +98,7 @@ public class TaskKCompanyScopeReadTests
     {
         var actionLogService = TestHelpers.CreateActionLogService(db, actorId);
         var controller = new ConsumablesController(db, actionLogService,
-            new ConsumableAllocationService(db, actionLogService), scope);
+            new ConsumableAllocationService(db, actionLogService, new TestHelpers.SuperUserScope()), scope);
         AttachUser(controller, actorId);
         return controller;
     }

@@ -27,11 +27,13 @@ public class ConsumableAllocationService : IConsumableAllocationService
 {
     private readonly AppDbContext _context;
     private readonly IActionLogService _actionLogService;
+    private readonly ICompanyScopeService _companyScope;
 
-    public ConsumableAllocationService(AppDbContext context, IActionLogService actionLogService)
+    public ConsumableAllocationService(AppDbContext context, IActionLogService actionLogService, ICompanyScopeService companyScope)
     {
         _context = context;
         _actionLogService = actionLogService;
+        _companyScope = companyScope;
     }
 
     public async Task<ConsumableCheckoutResult> CheckoutAsync(Guid consumableId, Guid? userId, int quantity,
@@ -47,6 +49,14 @@ public class ConsumableAllocationService : IConsumableAllocationService
                 .FromSqlRaw("SELECT * FROM consumables WHERE \"Id\" = {0} FOR UPDATE", consumableId)
                 .FirstOrDefaultAsync(ct);
         if (consumable == null)
+            return new ConsumableCheckoutResult(false, "Consumable not found.", "NOT_FOUND");
+
+        // [SEC-FIX S2/S4-S6, 2026-08-23] Actor-scope: a regular user may only check out consumables
+        // of their own company (or floater); Superuser bypasses. Previously CheckoutAsync only
+        // validated consumable↔target-user company — a user from company A could consume a
+        // company-B consumable by id (assigning it to a company-B user).
+        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (userCompanyId.HasValue && consumable.CompanyId.HasValue && consumable.CompanyId.Value != userCompanyId.Value)
             return new ConsumableCheckoutResult(false, "Consumable not found.", "NOT_FOUND");
 
         // ─── Status gate: only Confirmed consumables can be allocated. A Pending (Chờ xác nhận)

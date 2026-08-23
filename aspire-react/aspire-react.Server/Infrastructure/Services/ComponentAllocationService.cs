@@ -88,6 +88,15 @@ public class ComponentAllocationService : IComponentAllocationService
         if (component == null)
             return new ComponentOperationResult(false, "Component not found.", "NOT_FOUND");
 
+        // [SEC-FIX S2/S4-S6, 2026-08-23] Actor-scope (same pattern as SetUnitStatusAsync/
+        // DeleteUnitAsync in this service): a regular user may only allocate components of their
+        // own company (floater components with CompanyId == null are manageable by everyone);
+        // Superuser bypasses. Previously AllocateAsync only checked component↔asset, so a user
+        // from company A could allocate a company-B component by id.
+        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (userCompanyId.HasValue && component.CompanyId.HasValue && component.CompanyId.Value != userCompanyId.Value)
+            return new ComponentOperationResult(false, "Component not found.", "NOT_FOUND");
+
         var asset = await _context.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == assetId, ct);
         if (asset == null)
             return new ComponentOperationResult(false, "Asset not found.", "ASSET_NOT_FOUND");
@@ -189,6 +198,13 @@ public class ComponentAllocationService : IComponentAllocationService
         if (component == null)
             return new ComponentOperationResult(false, "Component not found.", "NOT_FOUND");
 
+        // [SEC-FIX S2/S4-S6, 2026-08-23] Actor-scope (same pattern as SetUnitStatusAsync/
+        // DeleteUnitAsync): a regular user may only return components of their own company;
+        // Superuser bypasses. Previously ReturnAsync had no company check at all.
+        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (userCompanyId.HasValue && component.CompanyId.HasValue && component.CompanyId.Value != userCompanyId.Value)
+            return new ComponentOperationResult(false, "Component not found.", "NOT_FOUND");
+
         if (component.TrackingType == TrackingType.Serial)
         {
             ComponentUnit? unit;
@@ -282,6 +298,13 @@ public class ComponentAllocationService : IComponentAllocationService
             return new ComponentOperationResult(false, "Component not found.", "NOT_FOUND");
         if (component.TrackingType != TrackingType.Serial)
             return new ComponentOperationResult(false, "Chỉ linh kiện Serial mới nhập kho theo serial.", "NOT_SERIAL");
+
+        // [SEC-FIX S2/S4-S6, 2026-08-23] Actor-scope (same pattern as SetUnitStatusAsync/
+        // DeleteUnitAsync): a regular user may only stock in units for components of their own
+        // company; Superuser bypasses. Previously StockInAsync had no company check at all.
+        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (userCompanyId.HasValue && component.CompanyId.HasValue && component.CompanyId.Value != userCompanyId.Value)
+            return new ComponentOperationResult(false, "Component not found.", "NOT_FOUND");
 
         var serials = (serialNumbers ?? Array.Empty<string>())
             .Select(s => s?.Trim())

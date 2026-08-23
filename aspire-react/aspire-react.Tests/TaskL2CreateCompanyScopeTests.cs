@@ -50,7 +50,7 @@ public class TaskL2CreateCompanyScopeTests
     private static ConsumablesController BuildConsumables(AppDbContext db, Guid actorId, TestHelpers.FakeScope scope)
     {
         var actionLog = TestHelpers.CreateActionLogService(db, actorId);
-        var c = new ConsumablesController(db, actionLog, new ConsumableAllocationService(db, actionLog), scope);
+        var c = new ConsumablesController(db, actionLog, new ConsumableAllocationService(db, actionLog, new TestHelpers.SuperUserScope()), scope);
         AttachUser(c, actorId);
         return c;
     }
