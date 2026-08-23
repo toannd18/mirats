@@ -66,9 +66,10 @@ public sealed class CompanyScopeCachePolicy : IOutputCachePolicy
     }
 
     /// <summary>
-    /// Resolves the cache-scope key. Mirrors <see cref="CompaniesController.GetAll"/>: Superuser or a
-    /// regular user without a company sees the full tree (<c>"all"</c>); a regular user with a company
-    /// sees only that company's subtree (<c>"c:&lt;id&gt;"</c>). Kept in sync so cache key == payload.
+    /// Resolves the cache-scope key. Mirrors <see cref="CompaniesController.GetAll"/>: Superuser, a
+    /// regular user without a company (Guid.Empty sentinel from GetCurrentUserCompanyIdAsync —
+    /// decision 2026-08-23: they still VIEW the full company tree) → <c>"all"</c>; a regular user with
+    /// a company sees only that company's subtree (<c>"c:&lt;id&gt;"</c>). Kept in sync so cache key == payload.
     /// </summary>
     private static async Task<string> ResolveScopeKeyAsync(HttpContext httpContext)
     {
@@ -78,6 +79,6 @@ public sealed class CompanyScopeCachePolicy : IOutputCachePolicy
         if (scopeService.IsSuperUser()) return "all";
 
         var companyId = await scopeService.GetCurrentUserCompanyIdAsync();
-        return companyId.HasValue ? "c:" + companyId.Value : "all";
+        return companyId.HasValue && companyId.Value != Guid.Empty ? "c:" + companyId.Value : "all";
     }
 }

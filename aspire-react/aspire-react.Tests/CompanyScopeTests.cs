@@ -90,6 +90,28 @@ public class CompanyScopeTests
     }
 
     [Fact]
+    public async Task RegularUserWithoutCompany_ReturnsGuidEmpty()
+    {
+        // [SEC-FIX JIT-COMPANYLESS, 2026-08-23] A regular user whose local record has NO CompanyId
+        // (JIT-created on first login, admin has not assigned one yet) must resolve to Guid.Empty —
+        // NOT null — so the widespread "userCompanyId == null → see everything" pattern does NOT
+        // grant them cross-company access. They only see company-less records until assigned.
+        var ctx = TestHelpers.CreateContext(nameof(RegularUserWithoutCompany_ReturnsGuidEmpty));
+        var company = new Company { Name = "CT-B" };
+        ctx.Companies.Add(company);
+        var noCompanyUser = new User { Username = "nv.noco", Email = "noco@t.local", FirstName = "N", LastName = "C", CompanyId = null };
+        ctx.Users.Add(noCompanyUser);
+        await ctx.SaveChangesAsync();
+
+        var service = CreateService(BuildHttpContext(RegularUser(noCompanyUser.Id), ctx));
+
+        var result = await service.GetCurrentUserCompanyIdAsync();
+
+        Assert.NotNull(result);
+        Assert.Equal(Guid.Empty, result!.Value); // company-less regular user, NOT superuser
+    }
+
+    [Fact]
     public async Task Unauthenticated_ReturnsNull()
     {
         var seed = await SeedUserAsync(nameof(Unauthenticated_ReturnsNull));

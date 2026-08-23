@@ -43,12 +43,14 @@ public class CompaniesController : ControllerBase
     {
         // [Task V] Company-scoping (same class of fix as Departments.GetAll Task K / GetLocations Task U):
         // Superuser → full tree; regular user with a company → only that company's subtree; regular user
-        // without a company → full tree (no restriction, matching the Departments/GetLocations convention
-        // where a company-less regular user has no company filter). Never trust a client-supplied param.
+        // WITHOUT a company (JIT-created, Guid.Empty sentinel from GetCurrentUserCompanyIdAsync) → full tree
+        // (decision 2026-08-23: a company-less regular user may still VIEW the company tree so they can be
+        // assigned a company in the User UI — only access to company-scoped DATA is restricted).
+        // Never trust a client-supplied param.
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
 
         List<Company> all;
-        if (userCompanyId.HasValue && !_companyScope.IsSuperUser())
+        if (userCompanyId.HasValue && userCompanyId.Value != Guid.Empty && !_companyScope.IsSuperUser())
         {
             all = await GetSubtreeAsync(userCompanyId.Value);
         }

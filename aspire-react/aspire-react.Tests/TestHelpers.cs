@@ -26,16 +26,22 @@ public static class TestHelpers
         public Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId) => Task.FromResult(true);
     }
 
-    /// <summary>Configurable company scope: a regular user resolves to <see cref="CompanyId"/>; Superuser to null.</summary>
+    /// <summary>
+    /// Configurable company scope mirroring <see cref="CompanyScopeService"/> (SEC-FIX
+    /// JIT-COMPANYLESS 2026-08-23): Superuser → null (see everything); regular user with
+    /// <see cref="CompanyId"/> → that company; regular user WITHOUT a company → Guid.Empty
+    /// sentinel (only company-less records visible, NOT cross-company data).
+    /// </summary>
     public sealed class FakeScope : ICompanyScopeService
     {
         public bool Super { get; set; }
         public Guid? CompanyId { get; set; }
         public bool IsSuperUser() => Super;
         public Task<List<Guid>> GetUserCompanyIdsAsync() => Task.FromResult(new List<Guid>());
-        public Task<Guid?> GetCurrentUserCompanyIdAsync() => Task.FromResult(Super ? (Guid?)null : CompanyId);
+        public Task<Guid?> GetCurrentUserCompanyIdAsync()
+            => Task.FromResult(Super ? (Guid?)null : (CompanyId ?? Guid.Empty));
         public Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId)
-            => Task.FromResult(Super || CompanyId == null || CompanyId == companyId);
+            => Task.FromResult(Super || (CompanyId != null && CompanyId == companyId));
     }
 
     public sealed class FakeCurrentUser : ICurrentUserService

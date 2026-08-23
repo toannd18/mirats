@@ -18,8 +18,14 @@ public interface ICompanyScopeService
     Task<List<Guid>> GetUserCompanyIdsAsync();
     bool IsSuperUser();
     /// <summary>
-    /// Returns the current user's local CompanyId (null for Superuser or when not resolvable).
-    /// Used to scope records by company for regular users (e.g. Asset Maintenance visibility).
+    /// Returns the current user's scope as a company id, with THREE distinct states
+    /// [SEC-FIX JIT-COMPANYLESS, 2026-08-23]:
+    ///   - Superuser / unresolved principal  → <c>null</c> (callers treat null as "see everything").
+    ///   - Regular user WITH a company      → their <see cref="User.CompanyId"/>.
+    ///   - Regular user WITHOUT a company (JIT-created, admin has not assigned one yet)
+    ///     → <c>Guid.Empty</c> sentinel, so callers' existing "null = sees all" guards do NOT
+    ///     grant them cross-company access — they only see company-less (floater) records until
+    ///     an admin assigns a company via the User management UI.
     /// </summary>
     Task<Guid?> GetCurrentUserCompanyIdAsync();
     /// <summary>
@@ -68,10 +74,18 @@ public class CompanyScopeService : ICompanyScopeService
         var db = httpContext.RequestServices?.GetService(typeof(AppDbContext)) as AppDbContext;
         if (db == null) return null;
 
-        return await db.Users.AsNoTracking()
+        // [SEC-FIX JIT-COMPANYLESS, 2026-08-23] A regular user whose local record has NO CompanyId
+        // (JIT-created on first login, admin has not assigned a company yet) is a distinct state
+        // from a Superuser. Return Guid.Empty instead of null so the widespread
+        // "userCompanyId == null → see everything" pattern does NOT treat them as unrestricted:
+        // with Guid.Empty, filters like `x.CompanyId == null || x.CompanyId == userCompanyId.Value`
+        // collapse to "company-less records only". Superuser still gets null → sees all.
+        var companyId = await db.Users.AsNoTracking()
             .Where(u => u.Id == localUserId)
             .Select(u => u.CompanyId)
             .FirstOrDefaultAsync();
+
+        return companyId ?? Guid.Empty;
     }
 
     public async Task<bool> IsCompanyIdInUserScopeAsync(Guid companyId)
@@ -99,9 +113,12 @@ public class CompanyScopeService : ICompanyScopeService
             .Select(u => u.CompanyId)
             .FirstOrDefaultAsync();
 
-        // Company-less regular user: no company restriction (Task V GetAll convention — a
-        // company-less user sees/selects the full tree).
-        if (userCompanyId == null) return true;
+        // [SEC-FIX JIT-COMPANYLESS, 2026-08-23] A regular user WITHOUT a company (JIT-created,
+        // not yet assigned) may NOT target any specific company — imports require a concrete
+        // companyId (COMPANY_REQUIRED) and floater-to-floater does not apply here. They must be
+        // assigned a company first (via the User management UI). Superuser was already handled
+        // above (IsSuperUser → true), so reaching here with a null company always denies.
+        if (userCompanyId == null) return false;
 
         if (userCompanyId.Value == companyId) return true;
 

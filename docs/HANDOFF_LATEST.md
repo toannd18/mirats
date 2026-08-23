@@ -2705,6 +2705,43 @@ Toàn bộ 7 task (T-RESP1→4, T-A11Y1, T-CLEAN1, T-TOKEN1, T-UX1) + fix bug ti
 - `DELETE /system-infos/{id}` trả **500** khi xóa system còn ActionLog tham chiếu qua `TargetSystemInfoId` (đã dọn bằng SQL trực tiếp). Cần điều tra FK/handler delete-guard cho ActionLog references.
 - Xác minh thêm (phiên trước): JIT provisioning không gán CompanyId cho user mới (floater) + secret Keycloak dev là literal placeholder `${KEYCLOAK_BACKEND_CLIENT_SECRET}` (AppHost/compose không truyền env vào container Keycloak) + 14 vị trí fallback claim (PermissionHandler có fallback fail-closed 🟡) — đã liệt kê trong báo cáo hợp nhất 2026-08-23, chờ backlog riêng.
 
+## 64. SEC-FIX JIT-COMPANYLESS: Siết quyền user company-less (Hướng B) (2026-08-23)
+
+### Vấn đề (đã xác minh thực nghiệm 2026-08-23)
+- JIT provisioning (`JitUserProvisioningService.cs:69-78`) tạo user mới KHÔNG gán CompanyId → user đăng nhập lần đầu là **company-less**.
+- Token Keycloak **KHÔNG có nguồn thông tin company nào** (decode thật: chỉ profile + realm_access.roles; realm JSON 0 protocolMappers, 0 groups) → JIT **không thể** tự gán company (Hướng A bất khả thi).
+- Lỗ hổng thật: `GetCurrentUserCompanyIdAsync()` trả `null` cho CẢ superuser lẫn user company-less → pattern `userCompanyId == null || ...` (42 chỗ) biến company-less thành "thấy mọi dữ liệu mọi công ty". **Đã chứng minh bằng API thật**: user company-less + Admin quyền → `GET /assets` trả 19/19 assets mọi công ty + `GET /companies` trả cả 2 công ty.
+- `IsCompanyIdInUserScopeAsync` (`CompanyScopeService.cs:104`) cũng cho company-less → true với mọi công ty (import vào bất kỳ đâu).
+
+### Quyết định (user duyệt 2026-08-23)
+1. **Hướng B**: giữ JIT floater (không đoán company — an toàn), siết quyền company-less.
+2. **GET /companies**: user company-less **VẪN xem được cây công ty** (để UI chọn khi được gán company) — chỉ siết dữ liệu công ty cụ thể.
+3. **Phạm vi HẸP**: sửa ở service layer, không sửa 42 pattern.
+
+### Thay đổi
+- **`CompanyScopeService.GetCurrentUserCompanyIdAsync`**: giờ trả **3 trạng thái phân biệt** — superuser → `null` (sees all); user có company → company id; **user thường company-less → `Guid.Empty`** (sentinel). Nhờ đó **42 pattern `userCompanyId == null || ...` tự động chuyển thành floater-only cho company-less** mà không cần sửa từng chỗ (floater-to-floater giữ nguyên).
+- **`CompanyScopeService.IsCompanyIdInUserScopeAsync`**: company-less (không superuser) → **false** (không import vào công ty cụ thể nào cho tới khi được gán company).
+- **`CompaniesController.GetAll`** + **`CompanyScopeCachePolicy.ResolveScopeKeyAsync`**: đồng bộ — company-less (Guid.Empty) → vẫn full tree + cache key `"all"` (giữ duyệt #2).
+- **`TestHelpers.FakeScope`** (test): phản ánh service mới (company-less → Guid.Empty; IsCompanyIdInUserScopeAsync company-less → false).
+- **Test mới (+2)**: `CompanyScopeTests.RegularUserWithoutCompany_ReturnsGuidEmpty`, `ImportCompanyScopeTests.CompanyLessUser_TargetingAnyCompany_OutOfScope`.
+
+### Verify thực nghiệm (API thật, stack Aspire sau restart, user QA riêng)
+| Kịch bản | Trước fix | Sau fix |
+|---|---|---|
+| User company-less + Admin quyền `GET /assets` | **19/19** assets (mọi công ty) | **0** asset công ty cụ thể (HTTP 200, totalItems 0) ✅ |
+| User company-less `GET /companies` | 2 công ty | **2 công ty** ✅ (duyệt #2 giữ cây) |
+| Superuser `GET /assets` | 19 | **19** ✅ (bypass đúng — phân biệt realm role trước CompanyId, không khóa admin) |
+| User CÓ company (MIRA) + Admin quyền `GET /assets` | 14 | **14/14 assets MIRA** (AST-MIRA + TE-AST đều MIRA), **chặn 5/5 QCR** ✅ (floater-to-floater giữ nguyên) |
+| `IsCompanyIdInUserScopeAsync` company-less → import | true (mọi công ty) | **false** ✅ (test xUnit) |
+
+- Build Release + Debug 0 lỗi · fast suite **335/335 PASS** (333 + 2 test mới).
+- Dữ liệu QA (qa-jitb, qa-hasco + groups + logs) đã dọn sạch DB + Keycloak (verify: users=1 admin, companies=2, assets=19 nguyên vẹn).
+
+### Ghi chú backlog
+- **Refactor 42 pattern sang scope-state rõ ràng** (bỏ hẳn "null = sees all" khỏi codebase) — task riêng, không làm trong fix này (fix đã đạt hiệu quả qua sentinel Guid.Empty).
+- `GetUserCompanyIdsAsync` placeholder vẫn giữ (AppDbContext global filter + SystemsController tham chiếu) — đã có cảnh báo do-not-use.
+
+
 
 
 

@@ -165,6 +165,26 @@ public class ImportCompanyScopeTests
     }
 
     [Fact]
+    public async Task CompanyLessUser_TargetingAnyCompany_OutOfScope()
+    {
+        // [SEC-FIX JIT-COMPANYLESS, 2026-08-23] A regular user WITHOUT a company (JIT-created on
+        // first login, admin has not assigned one yet) may NOT import into ANY specific company —
+        // previously IsCompanyIdInUserScopeAsync returned true for every company when the user had
+        // no CompanyId (task-verified: a company-less user with Admin permissions could read/import
+        // every company's data). Superuser (realm role) still passes; this test pins the deny.
+        var s = await SeedCompaniesAsync(nameof(CompanyLessUser_TargetingAnyCompany_OutOfScope));
+        await using var ctx = s.ctx;
+        var companyLessUser = new User { Username = "noco", Email = "noco@t.local", FirstName = "N", LastName = "C", CompanyId = null };
+        ctx.Users.Add(companyLessUser);
+        await ctx.SaveChangesAsync();
+        var svc = CreateService(BuildHttpContext(RegularUser(companyLessUser.Id), ctx));
+
+        Assert.False(await svc.IsCompanyIdInUserScopeAsync(s.parent));
+        Assert.False(await svc.IsCompanyIdInUserScopeAsync(s.child));
+        Assert.False(await svc.IsCompanyIdInUserScopeAsync(s.other));
+    }
+
+    [Fact]
     public async Task Unauthenticated_TargetingAnyCompany_OutOfScope()
     {
         var s = await SeedCompaniesAsync(nameof(Unauthenticated_TargetingAnyCompany_OutOfScope));
