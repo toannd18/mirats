@@ -2764,6 +2764,27 @@ Toàn bộ 7 task (T-RESP1→4, T-A11Y1, T-CLEAN1, T-TOKEN1, T-UX1) + fix bug ti
   - **User JIT MỚI login lần đầu** (tạo qua Keycloak trực tiếp, không qua API) → `/users/me` 200 (local user vừa tạo) + `/permissions/check` 200 rỗng ✅ — chứng minh việc bỏ fallback không đổi hành vi thật (JIT stamp claim trước khi resolve).
 - **Dọn dẹp:** user QA (qa-cl-*) + service-account-backend-service (JIT tạo nhân test service-account) đã xóa DB + Keycloak — users về 1 (admin).
 
+## 66. SEC-FIX S1: Scope Maintenance Update (2026-08-23)
+
+### Lỗ hổng (đã xác nhận ở review kiến trúc gốc + tái hiện thực nghiệm)
+- `AssetMaintenancesController.Update` (:343) **không có company-scope check nào** — trong khi Create/Detail/Close/Inspect cùng controller đều có. User công ty A có `assets.edit` sửa được record của công ty B theo id (kể cả thay assignee).
+- ⚠️ **Đối chiếu pattern thật:** Close/Inspect dùng `Forbid()` (403) chứ KHÔNG phải 404 như báo cáo review gốc ghi ("404 y hệt Close/Inspect"). Quyết định: copy **đúng điều kiện scope** (`userCompanyId.HasValue && m.CompanyId != userCompanyId.Value && m.CompanyId != Guid.Empty`) + trả **404** theo đúng yêu cầu verify (hide existence, nhất quán phần còn lại dự án). Ghi nhận bất nhất nội bộ module (Update 404 vs Close/Inspect 403) → backlog thống nhất CS-9.
+
+### Thay đổi
+- `AssetMaintenancesController.Update` — thêm block scope ngay sau khi load `m` (trước `IsClosed` check): user thường chỉ sửa record công ty mình hoặc floater (`CompanyId == Guid.Empty`); out-of-scope → `404 "Maintenance not found."` (hide existence — không phân biệt với not-found). Superuser bypass.
+
+### Verify thực nghiệm (API thật, user QA qa-s1-a/b)
+| Kịch bản | Trước fix | Sau fix |
+|---|---|---|
+| qa-s1-a (Cty MIRA) PUT maintenance Cty QCR — *tấn công gốc* | sửa được | **404** (y hệt case maintenance không tồn tại) ✅ |
+| qa-s1-b (chủ Cty QCR) PUT maintenance QCR | 200 | **200** ✅ |
+| qa-s1-b PUT maintenance MIRA (khác công ty) | sửa được | **404** ✅ |
+| Superuser PUT bất kỳ | 200 | **200** ✅ |
+
+- Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn QA: 2 maintenance + 2 user (DB + Keycloak) đã xóa — users về 1 (admin), companies/assets nguyên vẹn.
+- ⚠️ **Phát hiện phụ:** còn 1 maintenance `QA-UX1 click-to-detail test` (Cty MIRA) trong DB — dữ liệu test cũ từ task T-UX1 (§62 ghi "DB về 0 bảo trì" nhưng thực tế còn sót). Không tự ý xóa (không thuộc task này) — ghi backlog dọn.
+
+
 
 
 

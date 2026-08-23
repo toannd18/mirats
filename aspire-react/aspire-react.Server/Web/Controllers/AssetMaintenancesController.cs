@@ -1,4 +1,4 @@
-﻿using System.Text.Encodings.Web;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -344,6 +344,15 @@ public class AssetMaintenancesController : ControllerBase
     {
         var m = await _context.AssetMaintenances.FirstOrDefaultAsync(x => x.Id == id && x.DeletedAt == null);
         if (m == null) return NotFound(new { status = "error", message = "Maintenance not found." });
+
+        // [SEC-FIX S1, 2026-08-23] Company scoping — same rule as Close/Inspect/Create/Detail in this
+        // controller: a regular user may only edit records of their own company (floater records with
+        // CompanyId == Guid.Empty are manageable by everyone); Superuser bypasses. Previously Update
+        // had NO scope check at all (verified empirically: a user from company A could edit a record
+        // of company B by id, including replacing its assignees). Out-of-scope → 404 (hide existence).
+        var userCompanyId = await GetUserCompanyIdAsync();
+        if (userCompanyId.HasValue && m.CompanyId != userCompanyId.Value && m.CompanyId != Guid.Empty)
+            return NotFound(new { status = "error", message = "Maintenance not found." });
 
         // Absolute lock: a closed record is immutable (audit-trail protection) — reject ALL fields.
         if (m.IsClosed)
