@@ -145,44 +145,23 @@ public class UsersController : ControllerBase
     [Authorize]
     public async Task<IActionResult> GetCurrentUser()
     {
-        // Prefer local_user_id claim (stamped by JIT provisioning) — robust against username renames.
-        User? user = null;
-        if (Guid.TryParse(User.FindFirstValue("local_user_id"), out var localUserId) && localUserId != Guid.Empty)
-        {
-            user = await _context.Users
-                .Include(u => u.Company)
-                .Include(u => u.Department)
-                .Include(u => u.Location)
-                .Include(u => u.UserGroups).ThenInclude(ug => ug.Group)
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Id == localUserId);
-        }
-
-        var username = User.FindFirstValue("preferred_username")
-            ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-        if (string.IsNullOrEmpty(username))
+        // [SEC-FIX CLAIM-CLEANUP, 2026-08-23] ONLY "local_user_id" (stamped by JIT provisioning)
+        // is a user identity source — Keycloak sub/preferred_username are never used (bug-class 1;
+        // a username lookup would break on renames/casing, and `sub` is the wrong id). Absent
+        // claim or unknown local id → Unauthorized (fail closed), no legacy fallback.
+        if (!Guid.TryParse(User.FindFirstValue("local_user_id"), out var localUserId) || localUserId == Guid.Empty)
             return Unauthorized(new { status = "error", message = "User not authenticated." });
 
-        if (user == null)
-        {
-            user = await _context.Users
-                .Include(u => u.Company)
-                .Include(u => u.Department)
-                .Include(u => u.Location)
-                .Include(u => u.UserGroups).ThenInclude(ug => ug.Group)
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Username == username);
-        }
+        var user = await _context.Users
+            .Include(u => u.Company)
+            .Include(u => u.Department)
+            .Include(u => u.Location)
+            .Include(u => u.UserGroups).ThenInclude(ug => ug.Group)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == localUserId);
 
         if (user == null)
-        {
-            // No auto-create here: JIT provisioning (Program.cs → OnTokenValidated) already creates the
-            // local user during token validation, before authorization and this endpoint run. Writing to
-            // the DB here would be a duplicate side-effect (same class of bug removed from
-            // PermissionHandler in Subtask A) — fail closed instead.
-            return Unauthorized(new { status = "error", message = "User not found. Please re-authenticate." });
-        }
+            return Unauthorized(new { status = "error", message = "User not authenticated." });
 
         return Ok(new
         {

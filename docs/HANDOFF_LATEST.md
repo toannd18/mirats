@@ -2741,6 +2741,30 @@ Toàn bộ 7 task (T-RESP1→4, T-A11Y1, T-CLEAN1, T-TOKEN1, T-UX1) + fix bug ti
 - **Refactor 42 pattern sang scope-state rõ ràng** (bỏ hẳn "null = sees all" khỏi codebase) — task riêng, không làm trong fix này (fix đã đạt hiệu quả qua sentinel Guid.Empty).
 - `GetUserCompanyIdsAsync` placeholder vẫn giữ (AppDbContext global filter + SystemsController tham chiếu) — đã có cảnh báo do-not-use.
 
+## 65. SEC-FIX CLAIM-CLEANUP: Dọn 14 vị trí fallback claim (2026-08-23)
+
+### Vấn đề
+14 vị trí đọc identity user với fallback sang Keycloak `sub`/`preferred_username` (bug-class 1 — `sub` là Keycloak UUID ≠ local id, parse thành công → id SAI; lookup username → mất quyền khi rename/case). Đã xác minh là **latent** (JIT luôn stamp `local_user_id` trước khi PermissionHandler/controller chạy → fallback không bao giờ kích hoạt), nhưng là code nguy hiểm nếu sau này thêm luồng auth khác.
+
+### Danh sách 14 vị trí đã sửa
+- **Nhóm A (9, parse sub→Guid — nguy hiểm):** CompaniesController, AdminController, ComponentsController, DepartmentsController, SystemInfoController, SystemConfigController, ComponentUnitsController, CustomFieldsController, ImportExportController — private `GetCurrentUserId()` giờ **chỉ đọc `local_user_id`, trả `Guid.Empty` khi vắng** (mẫu CompanyScopeService).
+- **Nhóm B (5, lookup username — an toàn hơn):**
+  - `PermissionHandler.cs` — bỏ nhánh fallback username/sub; claim vắng → `context.Fail()` (fail-closed).
+  - `PermissionsController.cs` (GET /permissions/check) — claim vắng → `Unauthorized()`.
+  - `UsersController.cs` (GET /users/me) — claim vắng / user không tồn tại → `Unauthorized()`; bỏ luôn khối null-check trùng lặp.
+  - `ConsumablesController.cs` (GetCurrentUserIdAsync) — bỏ lookup username → Guid.Empty.
+  - `ActionLogService.cs` (LogAction resolve + GetCurrentUserIdAsync) — bỏ lookup username → Guid.Empty (log skip thay vì ghi sai người).
+
+### Verify
+- **Sweep:** grep `ClaimTypes.NameIdentifier|"sub"` toàn Server = **0 match**; `preferred_username` còn 17 match nhưng **đều là comment** + 1 hợp lệ (JIT — nguồn identity chính thức để tìm/tạo user local).
+- **Fast suite: 335/335 PASS** (không regression — không test nào cover nhánh fallback, xác nhận code chết).
+- **API thật (stack sau restart):**
+  - Login admin thường → `/users/me` 200 đầy đủ + `/permissions/check` 200 đủ quyền ✅
+  - Service-account token → `/permissions/check` 200 fail-closed ✅
+  - **User JIT MỚI login lần đầu** (tạo qua Keycloak trực tiếp, không qua API) → `/users/me` 200 (local user vừa tạo) + `/permissions/check` 200 rỗng ✅ — chứng minh việc bỏ fallback không đổi hành vi thật (JIT stamp claim trước khi resolve).
+- **Dọn dẹp:** user QA (qa-cl-*) + service-account-backend-service (JIT tạo nhân test service-account) đã xóa DB + Keycloak — users về 1 (admin).
+
+
 
 
 

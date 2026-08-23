@@ -39,34 +39,21 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
         }
 
         // 2. Resolve the local user.
-        //    Prefer the `local_user_id` claim stamped by JIT provisioning (Program.cs
-        //    OnTokenValidated). This is robust against Keycloak username renames/casing —
-        //    matching by preferred_username would silently lose permissions if the username
-        //    changes or has different casing. Fall back to username only for legacy/non-JIT flows.
-        User? user = null;
-        if (Guid.TryParse(context.User.FindFirstValue("local_user_id"), out var localUserId)
-            && localUserId != Guid.Empty)
+        //    ONLY the `local_user_id` claim stamped by JIT provisioning is used — Keycloak
+        //    `sub`/`preferred_username` are NEVER a user identity source (bug-class 1). Matching by
+        //    username would silently lose permissions on renames/casing; parsing `sub` returns the
+        //    wrong id. When the claim is absent, fail closed (context.Fail) — no legacy fallback.
+        //    [SEC-FIX CLAIM-CLEANUP, 2026-08-23]
+        if (!Guid.TryParse(context.User.FindFirstValue("local_user_id"), out var localUserId)
+            || localUserId == Guid.Empty)
         {
-            user = await _context.Users
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Id == localUserId);
+            context.Fail();
+            return;
         }
-        else
-        {
-            var subClaim = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
-                ?? context.User.FindFirstValue("sub");
-            var username = context.User.FindFirstValue("preferred_username") ?? subClaim;
 
-            if (string.IsNullOrEmpty(username))
-            {
-                context.Fail();
-                return;
-            }
-
-            user = await _context.Users
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Username == username);
-        }
+        var user = await _context.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == localUserId);
 
         if (user == null)
         {

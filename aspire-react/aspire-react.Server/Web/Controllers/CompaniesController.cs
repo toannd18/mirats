@@ -30,10 +30,12 @@ public class CompaniesController : ControllerBase
 
     private Guid GetCurrentUserId()
     {
-        // JIT provisioning stamps the local DB user id as "local_user_id" (Keycloak sub ≠ local id).
+        // [SEC-FIX CLAIM-CLEANUP, 2026-08-23] ONLY the local DB user id stamped by JIT
+        // provisioning ("local_user_id") is used — Keycloak sub/preferred_username are never a
+        // user identity source (bug-class 1; parsing `sub` returns the WRONG id). Absent claim →
+        // Guid.Empty (fail closed), matching the CompanyScopeService pattern.
         if (Guid.TryParse(User.FindFirstValue("local_user_id"), out var local)) return local;
-        var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
-        return Guid.TryParse(sub, out var id) ? id : Guid.Empty;
+        return Guid.Empty;
     }
 
     // GET — returns flat list grouped into a tree, company-scoped per user (Task V).

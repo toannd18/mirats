@@ -39,27 +39,13 @@ public class ActionLogService : Domain.Interfaces.IActionLogService
         }
         else
         {
-            // Prefer the local DB user id stamped by JIT provisioning (Keycloak sub ≠ local id).
+            // [SEC-FIX CLAIM-CLEANUP, 2026-08-23] ONLY "local_user_id" (JIT-stamped) is a user
+            // identity source — Keycloak sub/preferred_username are never used (bug-class 1).
+            // Absent claim → Guid.Empty (fail closed; the caller's explicit loggedByUserId still
+            // wins above, and a Guid.Empty createdBy skips logging rather than misattributing).
             if (Guid.TryParse(GetClaimValue("local_user_id"), out var localId) && localId != Guid.Empty)
             {
                 createdBy = localId;
-            }
-            else
-            {
-                var username = GetClaimValue("preferred_username")
-                    ?? GetClaimValue(ClaimTypes.NameIdentifier);
-
-                if (!string.IsNullOrEmpty(username))
-                {
-                    var user = _context.Users
-                        .AsNoTracking()
-                        .FirstOrDefault(u => u.Username == username);
-
-                    if (user != null)
-                    {
-                        createdBy = user.Id;
-                    }
-                }
             }
         }
 
@@ -127,23 +113,13 @@ public class ActionLogService : Domain.Interfaces.IActionLogService
         _context.ActionLogs.Add(entry.Build());
     }
 
-    public async Task<Guid> GetCurrentUserIdAsync()
+    public Task<Guid> GetCurrentUserIdAsync()
     {
-        // Prefer the local DB user id stamped by JIT provisioning (Keycloak sub ≠ local id).
+        // [SEC-FIX CLAIM-CLEANUP, 2026-08-23] ONLY "local_user_id" (JIT-stamped) is a user identity
+        // source — Keycloak sub/preferred_username are never used (bug-class 1). Absent → Guid.Empty.
         if (Guid.TryParse(GetClaimValue("local_user_id"), out var localId) && localId != Guid.Empty)
-            return localId;
-
-        var username = GetClaimValue("preferred_username")
-            ?? GetClaimValue(ClaimTypes.NameIdentifier);
-
-        if (string.IsNullOrEmpty(username))
-            return Guid.Empty;
-
-        var user = await _context.Users
-            .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Username == username);
-
-        return user?.Id ?? Guid.Empty;
+            return Task.FromResult(localId);
+        return Task.FromResult(Guid.Empty);
     }
 
     private string? GetClaimValue(string claimType)

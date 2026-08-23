@@ -49,36 +49,19 @@ public class PermissionsController : ControllerBase
     [Authorize]
     public async Task<IActionResult> CheckPermissions()
     {
-        // Resolve the local user robustly — mirror PermissionHandler:
-        // 1) `local_user_id` claim (stamped by JIT provisioning) — robust against username renames.
-        // 2) fallback `preferred_username` / `sub`.
-        // Do NOT use ClaimTypes.NameIdentifier (= Keycloak `sub`) as a Username — that never matches.
-        User? user = null;
+        // Resolve the local user — mirror PermissionHandler: ONLY the `local_user_id` claim
+        // stamped by JIT provisioning is used (Keycloak `sub`/`preferred_username` are never a
+        // user identity source — bug-class 1). No legacy username/sub fallback; absent claim →
+        // Unauthorized (fail closed). [SEC-FIX CLAIM-CLEANUP, 2026-08-23]
+        if (!Guid.TryParse(User.FindFirstValue("local_user_id"), out var localUserId)
+            || localUserId == Guid.Empty)
+            return Unauthorized();
 
-        if (Guid.TryParse(User.FindFirstValue("local_user_id"), out var localUserId)
-            && localUserId != Guid.Empty)
-        {
-            user = await _context.Users
-                .Include(u => u.UserPermissions)
-                .Include(u => u.UserGroups).ThenInclude(ug => ug.Group).ThenInclude(g => g.GroupPermissions)
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Id == localUserId);
-        }
-        else
-        {
-            var username = User.FindFirstValue("preferred_username")
-                ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
-                ?? User.FindFirstValue("sub");
-
-            if (string.IsNullOrEmpty(username))
-                return Unauthorized();
-
-            user = await _context.Users
-                .Include(u => u.UserPermissions)
-                .Include(u => u.UserGroups).ThenInclude(ug => ug.Group).ThenInclude(g => g.GroupPermissions)
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Username == username);
-        }
+        var user = await _context.Users
+            .Include(u => u.UserPermissions)
+            .Include(u => u.UserGroups).ThenInclude(ug => ug.Group).ThenInclude(g => g.GroupPermissions)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == localUserId);
 
         if (user == null)
         {

@@ -358,22 +358,12 @@ public class ConsumablesController : ControllerBase
         return Ok(new { status = "success", data = items });
     }
 
-    private async Task<Guid> GetCurrentUserIdAsync()
+    private Task<Guid> GetCurrentUserIdAsync()
     {
-        // JIT provisioning stamps the local DB user id as "local_user_id" (Keycloak sub ≠ local id).
-        if (Guid.TryParse(User.FindFirstValue("local_user_id"), out var local)) return local;
-
-        var username = User.FindFirstValue("preferred_username")
-            ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-        if (string.IsNullOrEmpty(username))
-            return Guid.Empty;
-
-        var user = await _context.Users
-            .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Username == username);
-
-        return user?.Id ?? Guid.Empty;
+        // [SEC-FIX CLAIM-CLEANUP, 2026-08-23] ONLY "local_user_id" (JIT-stamped) is a user identity
+        // source — Keycloak sub/preferred_username are never used (bug-class 1). Absent → Guid.Empty.
+        if (Guid.TryParse(User.FindFirstValue("local_user_id"), out var local)) return Task.FromResult(local);
+        return Task.FromResult(Guid.Empty);
     }
 }
 

@@ -28,9 +28,10 @@ public class SystemInfoController : ControllerBase
 
     private Guid GetCurrentUserId()
     {
+        // [SEC-FIX CLAIM-CLEANUP, 2026-08-23] ONLY "local_user_id" (JIT-stamped). Keycloak
+        // sub/preferred_username are never a user identity source (bug-class 1). Absent → Guid.Empty.
         if (Guid.TryParse(User.FindFirstValue("local_user_id"), out var local)) return local;
-        var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
-        return Guid.TryParse(sub, out var id) ? id : Guid.Empty;
+        return Guid.Empty;
     }
 
     // Code format: XXX(X)-YYYY-ZZZ — 3-4 uppercase letters prefix (SYS/POS/SYST...), 4-digit year,
