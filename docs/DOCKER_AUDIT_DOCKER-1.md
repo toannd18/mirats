@@ -546,3 +546,47 @@ Một người mới đọc docs/DEPLOYMENT.md có thể đi từ `.env.example`
   Verify: rebuild image → `docker image inspect` Healthcheck.Test = `["CMD-SHELL","bash -c 'exec 3<>/dev/tcp/127.0.0.1/5000' || exit 1"]` ✓.
 - **Docs:** DEPLOYMENT.md §8.2 + §10 ghi rõ CẢ compose LẪN Dockerfile dùng TCP /dev/tcp.
 - Dọn: temp .env + test container hc-test + aspireproject-pgadmin-1 đã xóa.
+
+---
+
+## 🔁 DOCKER RE-VERIFY E2E (sau Import/AssetTag/SystemInfo + chuỗi security) (2026-08-24)
+
+Mô phỏng đúng người dùng mới (clone + `.env` + `docker compose up -d --build` + seed) trên máy sạch.
+Kết quả: cold-start build **182s** (dotnet restore ~68s + publish ~13s; frontend npm ci cached) →
+5 services healthy → login Dashboard OK (console 0 lỗi). **Phát hiện & fix 2 bug chặn luồng mới + 1 xác nhận quan trọng:**
+
+### 1) Secret placeholder `${KEYCLOAK_BACKEND_CLIENT_SECRET}` — KHÔNG phải bug trong Docker
+- Thực nghiệm: secret thật của client `backend-service` trong Keycloak chạy qua compose = **đúng giá trị `.env`**
+  (không phải literal placeholder). Keycloak 26.6 `--import-realm` **tự substitute `${VAR}` từ env container**
+  (nạp qua `env_file: [.env]`). `client_credentials` với secret thật → 200; secret sai → 401.
+- Kết luận: ghi chú "placeholder ảnh hưởng cả Docker" (báo cáo hợp nhất trước) **sai với môi trường compose**
+  — nó chỉ đúng với Aspire dev (AppHost không nạp biến vào container Keycloak).
+- Vẫn thêm bước **sync secret vào seed script** (`seed-initial-admin.ps1`/`.sh`) như phòng thủ cho case
+  "đổi `KEYCLOAK_BACKEND_CLIENT_SECRET` SAU khi realm đã import" (IGNORE_EXISTING không tự cập nhật). Đã verify
+  cả 2 nhánh: no-op khi khớp + sync khi lệch (break secret → re-seed → 200 trở lại).
+
+### 2) Bug blocker #1 — `Keycloak__ServerUrl` hardcode `https://localhost:8080` (fix compose)
+- Triệu chứng: tạo user qua app → **500 `Connection refused (localhost:8080)`** tại `KeycloakService.GetAdminTokenAsync`
+  (trong container, localhost = chính server). Login vẫn OK vì JWT dùng `Keycloak__Authority` (đúng).
+- Fix: `docker-compose.yml` thêm `Keycloak__ServerUrl: ${KEYCLOAK_INTERNAL_URL}` (= `http://keycloak:8080`).
+  Verify: env trong container đúng → tạo user hết 500.
+
+### 3) Bug blocker #2 — `backend-service` thiếu realm-management roles (fix realm json)
+- Triệu chứng (sau fix #2): tạo user → **502 `403 Forbidden`** từ Keycloak Admin API.
+- Nguyên nhân: realm skeleton bật `serviceAccountsEnabled` nhưng **không gán `realm-management` roles** cho
+  service account → không quyền quản lý user/group.
+- Fix: `aspire-react-realm.json` thêm user `service-account-backend-service` với
+  `clientRoles.realm-management = [manage-users, view-users, query-users, query-groups, manage-realm, view-realm]`
+  (tên role đúng của KC 26.6 — KHÔNG có `manage-groups`/`view-groups`). Verify: fresh import → SA có đủ role →
+  `POST /api/v1/users` **201** + user tồn tại ở Keycloak + DELETE deactivate **200**.
+
+### 4) 3 tính năng mới verify qua Docker (API thật, không qua Aspire)
+| Tính năng | Kết quả |
+|---|---|
+| Import Excel (reference + asset-models) | reference created=2 (category+mfr); asset-models created=1 (model đúng FK) ✅ |
+| Asset Tag tự sinh | asset không truyền tag → sinh **`AST-QADO-2026-001`** (migration + AssetTagGenerator OK trên DB mới) ✅ |
+| SystemInfo/SystemPosition | tạo system `QAS-2026-001` + position `POS-2026-001` kèm inheritance công ty ✅ |
+
+### 5) Dọn dẹp
+- Toàn bộ dữ liệu test (company/category/mfr/model/asset/system/position/user + action_logs) dọn qua
+  `docker compose down -v` (volume `mirats-*` đã xóa). `.env` test giữ local (gitignored).

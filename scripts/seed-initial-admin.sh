@@ -57,6 +57,38 @@ done
 
 auth_header="Authorization: Bearer $TOKEN"
 
+# Sync the confidential client 'backend-service' secret with KEYCLOAK_BACKEND_CLIENT_SECRET.
+# Keycloak realm import does NOT substitute env placeholders inside realm JSON - a fresh
+# import leaves the client secret as the literal string "${KEYCLOAK_BACKEND_CLIENT_SECRET}".
+# The backend authenticates with the REAL secret from .env (client_credentials grant in
+# KeycloakService.GetAdminTokenAsync) - without this sync every app-side user operation
+# (create/update/disable) fails with 401 invalid_client. Placed BEFORE the idempotent
+# existing-user exit below so re-running the seed always re-syncs.
+if [ -z "${KEYCLOAK_BACKEND_CLIENT_SECRET:-}" ]; then
+  echo "ERROR: KEYCLOAK_BACKEND_CLIENT_SECRET is required — set it in .env." >&2
+  exit 1
+fi
+CLIENT_ID=$(curl $CURL_INSECURE -fsS -H "$auth_header" \
+  "$KEYCLOAK_URL/admin/realms/$REALM/clients?clientId=backend-service&first=0&max=1" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if isinstance(d,list) and d else '')" 2>/dev/null || true)
+if [ -z "$CLIENT_ID" ]; then
+  echo "  Warning: client 'backend-service' not found in realm '$REALM' — cannot sync its secret."
+else
+  CURRENT_SECRET=$(curl $CURL_INSECURE -fsS -H "$auth_header" "$KEYCLOAK_URL/admin/realms/$REALM/clients/$CLIENT_ID" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('secret') or '')" 2>/dev/null || true)
+  if [ "$CURRENT_SECRET" = "$KEYCLOAK_BACKEND_CLIENT_SECRET" ]; then
+    echo "  Client 'backend-service' secret already matches .env — no change."
+  else
+    TMP_CLIENT_JSON=$(mktemp)
+    curl $CURL_INSECURE -fsS -H "$auth_header" "$KEYCLOAK_URL/admin/realms/$REALM/clients/$CLIENT_ID" \
+      | SECRET="$KEYCLOAK_BACKEND_CLIENT_SECRET" python3 -c "import sys,json,os; d=json.load(sys.stdin); d['secret']=os.environ['SECRET']; print(json.dumps(d))" > "$TMP_CLIENT_JSON"
+    curl $CURL_INSECURE -fsS -X PUT "$KEYCLOAK_URL/admin/realms/$REALM/clients/$CLIENT_ID" \
+      -H "$auth_header" -H "Content-Type: application/json" --data-binary "@$TMP_CLIENT_JSON" >/dev/null
+    rm -f "$TMP_CLIENT_JSON"
+    echo "  Client 'backend-service' secret synced from KEYCLOAK_BACKEND_CLIENT_SECRET (import left a literal placeholder/stale value)."
+  fi
+fi
+
 # Check if user already exists
 ENCODED_USER=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$INITIAL_ADMIN_USERNAME'))")
 EXISTING=$(curl $CURL_INSECURE -fsS -H "$auth_header" "$KEYCLOAK_URL/admin/realms/$REALM/users?username=$ENCODED_USER&exact=true" 2>&1 || true)

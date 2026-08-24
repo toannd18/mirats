@@ -133,6 +133,12 @@ KEYCLOAK_PUBLIC_URL=https://localhost:<port> bash scripts/seed-initial-admin.sh
 Script **idempotent** (chạy lại an toàn): tạo user → set password → gán realm role `admin`
 → user đăng nhập lần đầu sẽ được JIT-provisioning tạo bản ghi local `User` với `IsSuperUser=true`.
 
+> **Script cũng đồng bộ secret client `backend-service`** với `KEYCLOAK_BACKEND_CLIENT_SECRET`
+> (bước chạy TRƯỚC khi tạo user, idempotent). Bình thường Keycloak đã thay `${KEYCLOAK_BACKEND_CLIENT_SECRET}`
+> trong realm import bằng giá trị `.env` (nhờ `env_file: [.env]` nạp biến vào container), nên bước này là
+> **no-op**. Nó chỉ thực sự sửa khi bạn **đổi `KEYCLOAK_BACKEND_CLIENT_SECRET` trong `.env` SAU khi realm đã
+> import** (Keycloak dùng chiến lược `IGNORE_EXISTING`, không tự cập nhật secret cũ) — re-run seed sẽ đồng bộ lại.
+
 Kết quả mong đợi (dòng cuối):
 ```
 Done. User '<username>' is ready - log in at the app to trigger JIT local provisioning.
@@ -181,6 +187,13 @@ Vì vậy compose tách 2 biến:
 KEYCLOAK_INTERNAL_URL=http://keycloak:8080     → Keycloak__Authority (server)
 KEYCLOAK_PUBLIC_URL=http://localhost:8080      → VITE_KEYCLOAK_URL (frontend/browser)
 ```
+
+> ⚠️ **Thêm `Keycloak__ServerUrl` (fix DOCKER re-verify 2026-08-24):** ngoài `Keycloak__Authority`
+> (dùng cho xác thực JWT khi đăng nhập), backend còn có `KeycloakService` (Admin API để tạo/sửa/khóa user)
+> đọc **`Keycloak__ServerUrl`**. `appsettings.json` hardcode `https://localhost:8080` — sai trong container
+> (localhost = chính server, connection refused → mọi thao tác quản lý user trả 500). Compose nay set
+> `Keycloak__ServerUrl = ${KEYCLOAK_INTERNAL_URL}` (cùng `http://keycloak:8080`) — **không** dùng
+> `https://` hay `localhost` ở đây (giống lý do Authority).
 
 **Bài học thực tế (DOCKER-5):** trước khi tách, stack dính Authority mismatch rất khó debug (backend nhận token nhưng `Fetching JWKS` thất bại → 401 lan truyền toàn app). **Đừng gộp 2 biến này về 1** chỉ để "cho gọn". Khi đổi host, chỉ sửa `KEYCLOAK_PUBLIC_URL`; không đụng `KEYCLOAK_INTERNAL_URL` trừ khi đổi tên service.
 
@@ -347,6 +360,18 @@ Dưới đây là 3 lỗi **đã thực sự xảy ra** trong quá trình build 
 - **Nguyên nhân:** `${VAR:?required}` — đúng thiết kế, bảo vệ khỏi dựng stack thiếu secret.
 - **Khắc phục:** điền đủ `.env` (§3 Bước 2). Nếu chỉ muốn **reset dữ liệu**, script `docker-reset.*` tự xử lý trường hợp này (fallback dọn container + volume không cần compose parse) — xem §6.
 
+### 8.8 Tạo/sửa user từ app trả 500 "Connection refused (localhost:8080)" (đã fix DOCKER re-verify 2026-08-24)
+
+- **Triệu chứng:** đăng nhập/dashboard OK, nhưng `POST /api/v1/users` (tạo user) trả **500**; server log: `HttpRequestException: Connection refused (localhost:8080)` tại `KeycloakService.GetAdminTokenAsync`.
+- **Nguyên nhân:** `Keycloak__ServerUrl` không được set trong compose → fallback `appsettings.json` = `https://localhost:8080`. Trong container server, `localhost:8080` = chính nó, không phải Keycloak.
+- **Khắc phục:** đã fix trong `docker-compose.yml` — thêm `Keycloak__ServerUrl: ${KEYCLOAK_INTERNAL_URL}` (xem §4.2). Nếu gặp ở bản cũ, set biến này rồi `docker compose up -d server`.
+
+### 8.9 Tạo user trả 502 "403 Forbidden" từ Keycloak Admin API (đã fix DOCKER re-verify 2026-08-24)
+
+- **Triệu chứng:** `POST /api/v1/users` trả **502** với message `Failed to create user ... in Keycloak. Status: Forbidden`.
+- **Nguyên nhân:** client `backend-service` (service account) **thiếu `realm-management` roles**. Realm import skeleton trước đây chỉ bật `serviceAccountsEnabled` mà không gán role → service account bị 403 khi gọi Admin API.
+- **Khắc phục:** `aspire-react-realm.json` đã thêm user `service-account-backend-service` với `clientRoles.realm-management = [manage-users, view-users, query-users, query-groups, manage-realm, view-realm]`. Áp dụng cho realm mới import (xóa volume keycloak rồi re-import); realm đã import thì gán role qua Admin Console/API.
+
 ---
 
 ## 9. Biến môi trường tham chiếu đầy đủ
@@ -368,6 +393,8 @@ Dưới đây là 3 lỗi **đã thực sự xảy ra** trong quá trình build 
 | pgAdmin (debug) | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_PASSWORD`, `PGADMIN_PORT` | `pgadmin@example.com`, `pgadmin`, `5050` |
 
 > Ghi chú security: `CORS_ALLOWED_ORIGINS` được backend đọc khi khởi động (Program.cs) — đổi xong nhớ `docker compose restart server`. `VITE_*` là build-time — đổi xong phải rebuild frontend (§4.4).
+>
+> **Derived (compose tự suy ra, không cần điền tay):** `Keycloak__Authority` = `${KEYCLOAK_INTERNAL_URL}/realms/${KEYCLOAK_REALM}`, `Keycloak__ServerUrl` = `${KEYCLOAK_INTERNAL_URL}`, `Keycloak__Realm/ClientId/ClientSecret/SuperUserGroupName`, `ConnectionStrings__aspire-react-db`, `ConnectionStrings__cache`. `Keycloak__ServerUrl` (Admin API, khác Authority) được bổ sung ở DOCKER re-verify 2026-08-24 — xem §4.2.
 
 ---
 

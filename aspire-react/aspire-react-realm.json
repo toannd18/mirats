@@ -52,5 +52,22 @@
       "authorizationServicesEnabled": false,
       "clientAuthenticatorType": "client-secret"
     }
+  ],
+  "users": [
+    {
+      "username": "service-account-backend-service",
+      "enabled": true,
+      "serviceAccountClientId": "backend-service",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "query-groups",
+          "manage-realm",
+          "view-realm"
+        ]
+      }
+    }
   ]
 }

@@ -244,6 +244,47 @@ for ($i = 1; $i -le $maxAttempts; $i++) {
 }
 Write-Host "  Admin token obtained." -ForegroundColor Green
 
+# 2b. Sync the confidential client 'backend-service' secret with KEYCLOAK_BACKEND_CLIENT_SECRET.
+# Keycloak realm import does NOT substitute env placeholders inside the realm JSON - a fresh
+# import leaves the client secret as the literal string "${KEYCLOAK_BACKEND_CLIENT_SECRET}".
+# The backend authenticates to Keycloak with the REAL secret from .env (client_credentials
+# grant in KeycloakService.GetAdminTokenAsync) - without this sync every app-side user
+# operation (create/update/disable) fails with 401 invalid_client. Placed BEFORE the
+# idempotent existing-user exit below so re-running the seed always re-syncs.
+$backendSecret = $env:KEYCLOAK_BACKEND_CLIENT_SECRET
+if (-not $backendSecret) { Fail "KEYCLOAK_BACKEND_CLIENT_SECRET is required - set it in .env." }
+$clientsSearch = @()
+try { $clientsSearch = @(Invoke-ApiGet "$KeycloakUrl/admin/realms/$Realm/clients?clientId=backend-service&first=0&max=1" $token | ForEach-Object { $_ }) } catch {}
+$backendClient = $null
+foreach ($item in $clientsSearch) {
+  if ($item -and $item.id) { $backendClient = $item; break }
+  if ($item -is [System.Array] -and $item.Count -gt 0 -and $item[0].id) { $backendClient = $item[0]; break }
+}
+if (-not $backendClient) {
+  Write-Host "  Warning: client 'backend-service' not found in realm '$Realm' - cannot sync its secret." -ForegroundColor Yellow
+} else {
+  # Full client representation (GET by id includes the secret field; search results do not).
+  $clientRep = Invoke-ApiGet "$KeycloakUrl/admin/realms/$Realm/clients/$($backendClient.id)" $token
+  $currentSecret = $clientRep.secret
+  if ($currentSecret -eq $backendSecret) {
+    Write-Host "  Client 'backend-service' secret already matches .env - no change." -ForegroundColor Green
+  } else {
+    if ($null -eq $currentSecret -or -not $clientRep.PSObject.Properties['secret']) {
+      $clientRep | Add-Member -NotePropertyName secret -NotePropertyValue $backendSecret -Force
+    } else {
+      $clientRep.secret = $backendSecret
+    }
+    $secretBodyFile = Join-Path $tmpDir "client-secret.json"
+    [System.IO.File]::WriteAllText($secretBodyFile, ($clientRep | ConvertTo-Json -Depth 12 -Compress), [System.Text.UTF8Encoding]::new($false))
+    $syncCode = Invoke-CurlJson "PUT" "$KeycloakUrl/admin/realms/$Realm/clients/$($backendClient.id)" $secretBodyFile $token
+    if ($syncCode -eq 0) {
+      Write-Host "  Client 'backend-service' secret synced from KEYCLOAK_BACKEND_CLIENT_SECRET (import left a literal placeholder/stale value)." -ForegroundColor Green
+    } else {
+      Fail "Failed to sync 'backend-service' client secret (curl exit $syncCode). App-side user management would fail until fixed."
+    }
+  }
+}
+
 # 3. Check if user already exists
 $encUsername = [Uri]::EscapeDataString($username)
 $searchUrl = "$KeycloakUrl/admin/realms/$Realm/users?username=$encUsername&exact=true"

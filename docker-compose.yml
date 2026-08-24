@@ -93,6 +93,11 @@ services:
       ConnectionStrings__aspire-react-db: Host=postgres;Database=${POSTGRES_DB:-aspire-react-db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       ConnectionStrings__cache: redis:6379,password=${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       Keycloak__Authority: ${KEYCLOAK_INTERNAL_URL:?KEYCLOAK_INTERNAL_URL is required — e.g. http://keycloak:8080}/realms/${KEYCLOAK_REALM:-aspire-react}
+      # KeycloakService (Admin API client_credentials) needs the SAME internal base URL as the
+      # Authority — appsettings.json hardcodes https://localhost:8080 which is unreachable from
+      # inside the server container (localhost = the server itself). Fixed in DOCKER re-verify:
+      # set ServerUrl to the internal service URL, mirroring Keycloak__Authority's origin.
+      Keycloak__ServerUrl: ${KEYCLOAK_INTERNAL_URL:?KEYCLOAK_INTERNAL_URL is required — e.g. http://keycloak:8080}
       Keycloak__Realm: ${KEYCLOAK_REALM:-aspire-react}
       Keycloak__ClientId: ${KEYCLOAK_BACKEND_CLIENT_ID:-backend-service}
       Keycloak__ClientSecret: ${KEYCLOAK_BACKEND_CLIENT_SECRET:?KEYCLOAK_BACKEND_CLIENT_SECRET is required — set it in .env}
