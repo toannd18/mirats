@@ -57,8 +57,13 @@ public class UserActionLogTests
 
         var result = await handler.Handle(new CreateUserCommand
         {
-            Username = "nv.a", Email = "NVA@Test.local", FirstName = "Nguyen", LastName = "Van A",
-            IsActive = true, IsSuperUser = false, CompanyId = companyId
+            Username = "nv.a",
+            Email = "NVA@Test.local",
+            FirstName = "Nguyen",
+            LastName = "Van A",
+            IsActive = true,
+            IsSuperUser = false,
+            CompanyId = companyId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -85,7 +90,11 @@ public class UserActionLogTests
 
         var result = await handler.Handle(new CreateUserCommand
         {
-            Username = "nv.b", Email = "b@t.local", FirstName = "B", LastName = "B", CompanyId = companyId
+            Username = "nv.b",
+            Email = "b@t.local",
+            FirstName = "B",
+            LastName = "B",
+            CompanyId = companyId
         }, CancellationToken.None);
 
         Assert.False(result.Success);
@@ -105,8 +114,13 @@ public class UserActionLogTests
 
         var result = await handler.Handle(new CreateUserCommand
         {
-            Username = "sup", Email = "sup@t.local", FirstName = "S", LastName = "S",
-            IsSuperUser = true, IsActive = true, CompanyId = companyId
+            Username = "sup",
+            Email = "sup@t.local",
+            FirstName = "S",
+            LastName = "S",
+            IsSuperUser = true,
+            IsActive = true,
+            CompanyId = companyId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -132,9 +146,15 @@ public class UserActionLogTests
 
         var result = await handler.Handle(new UpdateUserCommand
         {
-            Id = user.Id, FirstName = "New", LastName = "C", Email = "new@t.local",
-            IsSuperUser = false, IsActive = false, CompanyId = otherCompany.Id,
-            DepartmentId = null, LocationId = null
+            Id = user.Id,
+            FirstName = "New",
+            LastName = "C",
+            Email = "new@t.local",
+            IsSuperUser = false,
+            IsActive = false,
+            CompanyId = otherCompany.Id,
+            DepartmentId = null,
+            LocationId = null
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -154,8 +174,8 @@ public class UserActionLogTests
         Assert.Equal("new@t.local", changes.GetProperty("email").GetProperty("new").GetString());
         Assert.Equal(companyId.ToString(), changes.GetProperty("companyId").GetProperty("old").GetString());
         Assert.Equal(otherCompany.Id.ToString(), changes.GetProperty("companyId").GetProperty("new").GetString());
-        Assert.Equal(true, changes.GetProperty("isActive").GetProperty("old").GetBoolean());
-        Assert.Equal(false, changes.GetProperty("isActive").GetProperty("new").GetBoolean());
+        Assert.True(changes.GetProperty("isActive").GetProperty("old").GetBoolean());
+        Assert.False(changes.GetProperty("isActive").GetProperty("new").GetBoolean());
     }
 
     [Fact]
@@ -169,8 +189,12 @@ public class UserActionLogTests
 
         var result = await handler.Handle(new UpdateUserCommand
         {
-            Id = Guid.NewGuid(), FirstName = "X", LastName = "Y", Email = "x@t.local",
-            IsSuperUser = false, IsActive = true
+            Id = Guid.NewGuid(),
+            FirstName = "X",
+            LastName = "Y",
+            Email = "x@t.local",
+            IsSuperUser = false,
+            IsActive = true
         }, CancellationToken.None);
 
         Assert.False(result.Success);

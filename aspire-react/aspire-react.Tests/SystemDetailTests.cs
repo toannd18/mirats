@@ -116,7 +116,7 @@ public class SystemDetailTests
     // ==================== SYSTEM INFO (GET by id - regression for the JSON cycle bug) ====================
 
     [Fact]
-    public async Task GetSystemInfo_ReturnsProjection_NotRawEntity() 
+    public async Task GetSystemInfo_ReturnsProjection_NotRawEntity()
     {
         await using var ctx = CreateContext(nameof(GetSystemInfo_ReturnsProjection_NotRawEntity));
         var (sys, _, _) = await SeedSystemAsync(ctx);
@@ -353,17 +353,23 @@ public class SystemDetailTests
 
         ctx.AssetMaintenances.Add(new AssetMaintenance
         {
-            AssetId = assetA, Title = "Bảo trì hệ thống A",
-            Type = AssetMaintenanceType.Maintenance, StartDate = DateTime.UtcNow,
+            AssetId = assetA,
+            Title = "Bảo trì hệ thống A",
+            Type = AssetMaintenanceType.Maintenance,
+            StartDate = DateTime.UtcNow,
             CompanyId = Guid.Empty,
-            SnapshotSystemInfoId = sysA.Id, SnapshotSystemInfoName = sysA.Name
+            SnapshotSystemInfoId = sysA.Id,
+            SnapshotSystemInfoName = sysA.Name
         });
         ctx.AssetMaintenances.Add(new AssetMaintenance
         {
-            AssetId = assetB, Title = "Bảo trì hệ thống B",
-            Type = AssetMaintenanceType.Repair, StartDate = DateTime.UtcNow,
+            AssetId = assetB,
+            Title = "Bảo trì hệ thống B",
+            Type = AssetMaintenanceType.Repair,
+            StartDate = DateTime.UtcNow,
             CompanyId = Guid.Empty,
-            SnapshotSystemInfoId = sysB.Id, SnapshotSystemInfoName = sysB.Name
+            SnapshotSystemInfoId = sysB.Id,
+            SnapshotSystemInfoName = sysB.Name
         });
         await ctx.SaveChangesAsync();
 
@@ -391,10 +397,13 @@ public class SystemDetailTests
 
         ctx.AssetMaintenances.Add(new AssetMaintenance
         {
-            AssetId = assetB, Title = "Bảo trì công ty B",
-            Type = AssetMaintenanceType.Repair, StartDate = DateTime.UtcNow,
+            AssetId = assetB,
+            Title = "Bảo trì công ty B",
+            Type = AssetMaintenanceType.Repair,
+            StartDate = DateTime.UtcNow,
             CompanyId = companyB, // NOT Guid.Empty — the record belongs to another company.
-            SnapshotSystemInfoId = sysB.Id, SnapshotSystemInfoName = sysB.Name
+            SnapshotSystemInfoId = sysB.Id,
+            SnapshotSystemInfoName = sysB.Name
         });
         await ctx.SaveChangesAsync();
 

@@ -27,7 +27,7 @@ public class ActionLog
     /// <summary>Soft delete timestamp — ActionLog is never hard-deleted</summary>
     public DateTime? DeletedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    
+
     // === Write-time snapshots for immutable audit trail ===
     /// <summary>Resolved location name at the time this action was logged.</summary>
     public string? LocationName { get; set; }

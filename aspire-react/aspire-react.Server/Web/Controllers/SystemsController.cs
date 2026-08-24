@@ -80,7 +80,10 @@ public class SystemsController : ControllerBase
         var assets = await query.OrderBy(a => a.AssetTag).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(a => new
             {
-                a.Id, a.AssetTag, a.Name, a.Serial,
+                a.Id,
+                a.AssetTag,
+                a.Name,
+                a.Serial,
                 Status = a.Status.ToString(),
                 SystemPosition = a.SystemPosition == null
                     ? null
@@ -148,7 +151,14 @@ public class SystemsController : ControllerBase
             }
             return new
             {
-                a.Id, a.AssetTag, a.Name, a.Serial, a.Status, a.SystemPosition, a.Location, a.Company,
+                a.Id,
+                a.AssetTag,
+                a.Name,
+                a.Serial,
+                a.Status,
+                a.SystemPosition,
+                a.Location,
+                a.Company,
                 AssignedTo = a.AssignedTo == null ? null : new { a.AssignedTo.type, a.AssignedTo.targetId, name = an },
                 Department = assignedDeptId.HasValue && deptNameDict.TryGetValue(assignedDeptId.Value, out var dn)
                     ? new { id = assignedDeptId.Value, name = dn }
@@ -162,7 +172,9 @@ public class SystemsController : ControllerBase
             data = enriched,
             pagination = new
             {
-                page, pageSize, totalItems = total,
+                page,
+                pageSize,
+                totalItems = total,
                 totalPages = (int)Math.Ceiling((double)total / pageSize),
                 hasNextPage = page * pageSize < total,
                 hasPreviousPage = page > 1

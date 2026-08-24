@@ -408,4 +408,126 @@ public class ImportExcelServiceTests
         Assert.Contains("ngoài phạm vi", result.Errors[0].Message);
         Assert.Empty(await ctx.SystemPositions.ToListAsync());
     }
+
+    // ─────────────────────────── AssetModel import (IMPORT-AM) ───────────────────────────
+
+    /// <summary>Builds only the 3_Model sheet (Ten model | So model | Ten danh muc | Ten nha san xuat | Ghi chu).</summary>
+    private static MemoryStream ModelsWorkbook(params (string Name, string? ModelNumber, string? Category, string? Mfr, string? Notes)[] rows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.AddWorksheet("3_Model");
+        string[] h = ["Ten model", "So model", "Ten danh muc", "Ten nha san xuat", "Ghi chu"];
+        for (int c = 0; c < h.Length; c++) ws.Cell(1, c + 1).Value = h[c];
+        for (int i = 0; i < rows.Length; i++)
+        {
+            ws.Cell(i + 2, 1).Value = rows[i].Name;
+            if (!string.IsNullOrEmpty(rows[i].ModelNumber)) ws.Cell(i + 2, 2).Value = rows[i].ModelNumber;
+            if (!string.IsNullOrEmpty(rows[i].Category)) ws.Cell(i + 2, 3).Value = rows[i].Category;
+            if (!string.IsNullOrEmpty(rows[i].Mfr)) ws.Cell(i + 2, 4).Value = rows[i].Mfr;
+            if (!string.IsNullOrEmpty(rows[i].Notes)) ws.Cell(i + 2, 5).Value = rows[i].Notes;
+        }
+        var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        ms.Position = 0;
+        return ms;
+    }
+
+    /// <summary>Seed an Asset-type Category + a Manufacturer for AssetModel reference resolution.</summary>
+    private static async Task<(AppDbContext ctx, Guid companyId, Guid actingUserId)> SeedModelsAsync(
+        string dbName, bool withCategory = true, bool withManufacturer = true)
+    {
+        var ctx = TestHelpers.CreateContext(dbName);
+        var company = new Company { Name = "CO-MODEL" };
+        ctx.Companies.Add(company);
+        var user = new User { Username = "imp-m", Email = "impm@t.local", FirstName = "I", LastName = "M", CompanyId = company.Id };
+        ctx.Users.Add(user);
+        if (withCategory)
+            ctx.Categories.Add(new Category { Name = "Laptop", CategoryType = CategoryType.Asset });
+        if (withManufacturer)
+            ctx.Manufacturers.Add(new Manufacturer { Name = "Dell" });
+        await ctx.SaveChangesAsync();
+        return (ctx, company.Id, user.Id);
+    }
+
+    [Fact]
+    public async Task AssetModelsImport_CreatesModel_WithCategoryAndManufacturer()
+    {
+        var s = await SeedModelsAsync(nameof(AssetModelsImport_CreatesModel_WithCategoryAndManufacturer));
+        await using var ctx = s.ctx;
+        var svc = BuildService(ctx);
+
+        using var ms = ModelsWorkbook(("Latitude 5540", "5540", "Laptop", "Dell", "Len 2026"));
+        var result = await svc.ImportAssetModelsAsync(ms, s.actingUserId, s.companyId);
+
+        Assert.Equal(1, result.Created);
+        Assert.Equal(0, result.Failed);
+        var m = await ctx.Models.SingleAsync();
+        Assert.Equal("Latitude 5540", m.Name);
+        Assert.Equal("5540", m.ModelNumber);
+        Assert.NotNull(m.CategoryId);
+        Assert.Equal("Laptop", (await ctx.Categories.FindAsync(m.CategoryId)).Name);
+        Assert.NotNull(m.ManufacturerId);
+        Assert.Equal("Dell", (await ctx.Manufacturers.FindAsync(m.ManufacturerId)).Name);
+        Assert.Equal("Len 2026", m.Notes);
+        // One import ActionLog stamped with the chosen company (model is global; log is per-company audit).
+        var log = await ctx.ActionLogs.SingleAsync(l => l.ItemType == ItemType.Model);
+        Assert.Equal(ActionType.Import, log.ActionType);
+        Assert.Equal(s.companyId, log.CompanyId);
+    }
+
+    [Fact]
+    public async Task AssetModelsImport_SkipsDuplicateByName()
+    {
+        var s = await SeedModelsAsync(nameof(AssetModelsImport_SkipsDuplicateByName), withCategory: false, withManufacturer: false);
+        await using var ctx = s.ctx;
+        var svc = BuildService(ctx);
+
+        using var ms = ModelsWorkbook(("Model X", null, null, null, null), ("Model X", null, null, null, null));
+        var result = await svc.ImportAssetModelsAsync(ms, s.actingUserId, s.companyId);
+
+        // Both rows process as OK (one created, one skipped) — the DB holds ONE model (no dup insert).
+        Assert.Equal(2, result.Created);
+        Assert.Equal(0, result.Failed);
+        Assert.Single(await ctx.Models.ToListAsync());
+        Assert.Contains("đã tồn tại", result.Rows[1].Message);
+    }
+
+    [Fact]
+    public async Task AssetModelsImport_MissingReferences_ErrorsRow_NoAutoCreate()
+    {
+        var s = await SeedModelsAsync(nameof(AssetModelsImport_MissingReferences_ErrorsRow_NoAutoCreate), withCategory: true, withManufacturer: true);
+        await using var ctx = s.ctx;
+        var svc = BuildService(ctx);
+
+        using var ms = ModelsWorkbook(
+            ("Model BadCat", null, "KHONG-TON-TAI", "Dell", null),
+            ("Model BadMfr", null, "Laptop", "KHONG-TON-TAI", null),
+            ("Model OK", null, "Laptop", "Dell", null));
+        var result = await svc.ImportAssetModelsAsync(ms, s.actingUserId, s.companyId);
+
+        Assert.Equal(1, result.Created);
+        Assert.Equal(2, result.Failed);
+        Assert.Single(await ctx.Models.ToListAsync());
+        Assert.Equal("Model OK", (await ctx.Models.SingleAsync()).Name);
+        Assert.Contains("chưa tồn tại", result.Errors[0].Message);
+        Assert.Contains("chưa tồn tại", result.Errors[1].Message);
+    }
+
+    [Fact]
+    public async Task AssetsImport_ResolvesExistingModelByName_SetsModelId()
+    {
+        var s = await SeedAsync(nameof(AssetsImport_ResolvesExistingModelByName_SetsModelId), assetCategory: "PC");
+        await using var ctx = s.ctx;
+        ctx.Models.Add(new AssetModel { Name = "ThinkPad T14" });
+        await ctx.SaveChangesAsync();
+        var svc = BuildService(ctx);
+
+        using var ms = AssetsWorkbook(("AST-M", "May model", "ThinkPad T14", "PC"));
+        var result = await svc.ImportAssetsAsync(ms, s.actingUserId, s.companyId);
+
+        Assert.Equal(1, result.Created);
+        var asset = await ctx.Assets.SingleAsync(a => a.AssetTag == "AST-M");
+        Assert.NotNull(asset.ModelId);
+        Assert.Equal("ThinkPad T14", (await ctx.Models.FindAsync(asset.ModelId)).Name);
+    }
 }

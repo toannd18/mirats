@@ -2908,6 +2908,40 @@ Kiểm tra code tại thời điểm S5: guard `inUse` của DELETE chỉ check 
 
 - Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn QA: xóa position/system/company qua API + logs theo ItemId — DB về baseline (0 row QA còn sót).
 
+## 72. AR-2 (delete-guard Company đầy đủ) + CI-2 (bỏ `|| true`) + dọn QA-UX1 leftover (2026-08-24)
+
+### 72.1 — AR-2: CompaniesController.Delete guard đầy đủ mọi bảng tham chiếu
+
+**Audit bước 0** (AppDbContext.cs + `information_schema` trên DB thật):
+| Bảng | FK rule | Guard cũ |
+|---|---|---|
+| assets, consumables, accessories, licenses | SET NULL | ✅ có |
+| components | **RESTRICT** | ✅ có |
+| asset_maintenances | không FK (cột + index) | ✅ có |
+| companies.ParentId (self) | RESTRICT | ✅ qua check hasChildren |
+| **departments** | **SET NULL** | ❌ THIẾU |
+| **system_infos** | **SET NULL** | ❌ THIẾU |
+| **users** | **SET NULL** | ❌ bị âm thầm reset qua `ExecuteUpdate` |
+| locations.CompanyId | **KHÔNG CÓ FK** (cột trần, entity không có nav Company) | ❌ bỏ sót — row mồ côi im lặng |
+| asset_tag_counters.CompanyId | KHÔNG CÓ FK | vô hại (counter sổ sách theo Guid company đã chết, không thể tái dùng) — để nguyên |
+
+**Thay đổi** (`CompaniesController.Delete`, tag `[SEC-FIX AR-2]`): guard mới check **10 nhóm** (users, locations, departments, system_infos + 6 bảng inventory cũ); chặn với **400 `COMPANY_IN_USE`** kèm danh sách loại dữ liệu đang cản trở (tiếng Việt). **Bỏ hẳn ExecuteUpdate reset CompanyId của users** — quyết định (đã xác nhận với user): company còn user gán thì CHẶN xóa, không âm thầm floater hóa. Locations được đưa vào guard dù không có FK (cùng lớp rủi ro mồ côi).
+
+**Verify thực nghiệm** (API thật; QA company AR2C + 1 location/1 department/1 system_info chèn SQL + 1 user qa-ar2-u):
+| Kịch bản | Kết quả |
+|---|---|
+| T1: DELETE company có đủ 4 loại reference | **400 COMPANY_IN_USE**: "Công ty đang được sử dụng bởi: tài khoản người dùng, địa điểm, phòng ban, hệ thống — không thể xóa." ✅ |
+| T2: sau delete bị chặn, CompanyId của user | **không đổi** (không còn reset ngầm) ✅ |
+| T3: gỡ hết references rồi DELETE | **200 Deleted**, 0 row mồ côi ở mọi bảng ✅ |
+
+### 72.2 — CI-2: hai gate format/lint hoạt động thật
+- `dotnet format aspire-react.sln` chạy fix toàn solution (26 file chuẩn hóa whitespace/using-order/rewrap theo .editorconfig) → `--verify-no-changes` **pass sạch (exit 0)**; build Release + fast suite 335/335 vẫn xanh sau format.
+- Frontend lint: chỉ còn **9 lỗi, toàn bộ `no-explicit-any`** ở 4 file. Đã xác nhận hướng với user → **sửa đúng kiểu hết** (không eslint-disable): `catch (err: any)` → convention `catch (err: unknown)` + cast `{ errorFields?; response?.data?.message }` (SystemConfigPage 1, SystemInfoListPage 4×catch + 1×render `_: unknown`), ReportsPage `useState<any>` → interface `DepreciationReportRow` / `AuditReportData`, api-client `(import.meta as any)` → cast `{ env?: Record<string,string|undefined> }`. `npm run lint` → **0 errors** (11 warnings react-refresh/exhaustive-deps không fail CI), `npm run build` pass.
+- `.github/workflows/ci.yml`: bỏ `|| true` ở step "Format check" (:43 cũ) và "Lint" (:65 cũ) — cả hai giờ là gate thật.
+
+### 72.3 — Dọn QA-UX1 leftover
+Xác nhận dòng `348ecc54-d431-4522-89d4-5d0a6d2c063b` ("QA-UX1 click-to-detail test", MIRA/AST-MIRA-2026-001) còn đúng 1 dòng như báo cáo §62; 0 assignees, 0 action_logs trỏ tới → xóa cứng, verify **0** còn sót (theo Id và theo pattern Title `QA-%`).
+
 
 
 

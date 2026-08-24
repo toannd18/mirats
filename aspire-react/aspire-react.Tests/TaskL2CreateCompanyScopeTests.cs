@@ -86,7 +86,10 @@ public class TaskL2CreateCompanyScopeTests
             new TestHelpers.FakeScope { Super = false, CompanyId = ctA }, new AssetTagGenerator(ctx));
         var result = await handler.Handle(new CreateAssetCommand
         {
-            AssetTag = "AST-CROSS", Name = "Cross", CompanyId = ctB, CurrentUserId = actor.Id
+            AssetTag = "AST-CROSS",
+            Name = "Cross",
+            CompanyId = ctB,
+            CurrentUserId = actor.Id
         }, CancellationToken.None);
 
         Assert.False(result.Success);
@@ -107,7 +110,10 @@ public class TaskL2CreateCompanyScopeTests
             new TestHelpers.FakeScope { Super = false, CompanyId = ctA }, new AssetTagGenerator(ctx));
         var result = await handler.Handle(new CreateAssetCommand
         {
-            AssetTag = "AST-OK", Name = "OK", CompanyId = ctA, CurrentUserId = actor.Id
+            AssetTag = "AST-OK",
+            Name = "OK",
+            CompanyId = ctA,
+            CurrentUserId = actor.Id
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -127,7 +133,10 @@ public class TaskL2CreateCompanyScopeTests
             new TestHelpers.FakeScope { Super = true }, new AssetTagGenerator(ctx));
         var result = await handler.Handle(new CreateAssetCommand
         {
-            AssetTag = "AST-SU", Name = "SU", CompanyId = ctB, CurrentUserId = actor.Id
+            AssetTag = "AST-SU",
+            Name = "SU",
+            CompanyId = ctB,
+            CurrentUserId = actor.Id
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -150,7 +159,11 @@ public class TaskL2CreateCompanyScopeTests
             new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         var result = await handler.Handle(new CreateAccessoryCommand
         {
-            Name = "ACC-CROSS", Qty = 1, MinAmt = 0, CompanyId = ctB, CurrentUserId = actor.Id
+            Name = "ACC-CROSS",
+            Qty = 1,
+            MinAmt = 0,
+            CompanyId = ctB,
+            CurrentUserId = actor.Id
         }, CancellationToken.None);
 
         Assert.False(result.Success);
@@ -171,7 +184,11 @@ public class TaskL2CreateCompanyScopeTests
             new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         var result = await handler.Handle(new CreateAccessoryCommand
         {
-            Name = "ACC-OK", Qty = 1, MinAmt = 0, CompanyId = ctA, CurrentUserId = actor.Id
+            Name = "ACC-OK",
+            Qty = 1,
+            MinAmt = 0,
+            CompanyId = ctA,
+            CurrentUserId = actor.Id
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -191,7 +208,11 @@ public class TaskL2CreateCompanyScopeTests
             new TestHelpers.FakeScope { Super = true });
         var result = await handler.Handle(new CreateAccessoryCommand
         {
-            Name = "ACC-SU", Qty = 1, MinAmt = 0, CompanyId = ctB, CurrentUserId = actor.Id
+            Name = "ACC-SU",
+            Qty = 1,
+            MinAmt = 0,
+            CompanyId = ctB,
+            CurrentUserId = actor.Id
         }, CancellationToken.None);
 
         Assert.True(result.Success);

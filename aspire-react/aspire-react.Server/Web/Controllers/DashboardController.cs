@@ -50,10 +50,16 @@ public class DashboardController : ControllerBase
         var lowAccessories = await accessories.CountAsync(a => (a.Qty - a.Checkouts.Sum(ch => (int?)(ch.AssignedQty - ch.ReturnedQty) ?? 0)) <= a.MinAmt);
         var lowComponents = await components.CountAsync(c => (c.Qty - c.Assignments.Sum(a => (int?)a.AssignedQty ?? 0)) <= c.MinAmt);
 
-        return Ok(new {
+        return Ok(new
+        {
             status = "success",
-            data = new {
-                totalAssets, deployedAssets = deployed, rtdAssets = rtd, overdueAudits, archivedAssets = archived,
+            data = new
+            {
+                totalAssets,
+                deployedAssets = deployed,
+                rtdAssets = rtd,
+                overdueAudits,
+                archivedAssets = archived,
                 lowStockCount = lowConsumables + lowAccessories + lowComponents,
                 totalAssetValue = totalValue
             }
@@ -101,8 +107,15 @@ public class DashboardController : ControllerBase
         };
 
         var logs = visible
-            .Select(l => new {
-                l.Id, l.ItemType, l.ItemId, l.ActionType, l.Note, l.LogMeta, l.ActionDate,
+            .Select(l => new
+            {
+                l.Id,
+                l.ItemType,
+                l.ItemId,
+                l.ActionType,
+                l.Note,
+                l.LogMeta,
+                l.ActionDate,
                 ItemName = ResolveItemName(l),
                 Creator = new { l.Creator.Id, l.Creator.Username, l.Creator.FirstName, l.Creator.LastName }
             })
@@ -186,7 +199,8 @@ public class DashboardController : ControllerBase
             .Where(l => l.ItemType == ItemType.Asset && l.ActionDate >= twelveMonthsAgo && l.DeletedAt == null
                         && (visibleAssetIds == null || visibleAssetIds.Contains(l.ItemId)))
             .GroupBy(l => new { l.ActionDate.Year, l.ActionDate.Month })
-            .Select(g => new {
+            .Select(g => new
+            {
                 month = $"{g.Key.Year}-{g.Key.Month:D2}",
                 checkoutCount = g.Count(l => l.ActionType == ActionType.Checkout),
                 checkinCount = g.Count(l => l.ActionType == ActionType.Checkin)

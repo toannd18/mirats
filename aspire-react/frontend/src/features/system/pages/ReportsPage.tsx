@@ -3,10 +3,27 @@ import { Button, message, Table, Tabs } from 'antd';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 
+// Typed report rows (SEC-FIX CI-2: replaces `any` placeholders with explicit shapes).
+interface DepreciationReportRow {
+  id: string;
+  assetTag: string;
+  name: string;
+  purchaseCost?: number | null;
+  monthsUsed?: number;
+  monthsRemaining?: number | null;
+  currentBookValue?: number | null;
+}
+
+interface AuditReportData {
+  totalAudited: number;
+  notAudited: number;
+  overdueAudit: number;
+}
+
 export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
-  const [depData, setDepData] = useState<any[]>([]);
-  const [auditData, setAuditData] = useState<any>(null);
+  const [depData, setDepData] = useState<DepreciationReportRow[]>([]);
+  const [auditData, setAuditData] = useState<AuditReportData | null>(null);
   const canExport = usePermission('export');
 
   const loadDep = async () => {

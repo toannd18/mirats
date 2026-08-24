@@ -54,7 +54,10 @@ public class DepartmentsController : ControllerBase
             .OrderBy(d => d.Name)
             .Select(d => new
             {
-                d.Id, d.Name, d.Phone, d.Fax,
+                d.Id,
+                d.Name,
+                d.Phone,
+                d.Fax,
                 d.CompanyId,
                 Company = d.Company == null ? null : new { d.Company.Id, d.Company.Name },
                 Manager = d.Manager == null ? null : new { d.Manager.Id, d.Manager.Username, d.Manager.FirstName, d.Manager.LastName }
@@ -114,8 +117,16 @@ public class DepartmentsController : ControllerBase
         d.Name = updated.Name; d.CompanyId = updated.CompanyId;
         d.ManagerId = updated.ManagerId; d.Phone = updated.Phone; d.Fax = updated.Fax;
         await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Department, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = d.CompanyId,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = d.Name }, companyId = new { old = before.CompanyId, @new = d.CompanyId }, managerId = new { old = before.ManagerId, @new = d.ManagerId }, phone = new { old = before.Phone, @new = d.Phone }, fax = new { old = before.Fax, @new = d.Fax } } }), Note = $"Cập nhật phòng ban \"{d.Name}\"" });
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.Department,
+            ItemId = id,
+            ActionType = ActionType.Update,
+            CreatedBy = GetCurrentUserId(),
+            CompanyId = d.CompanyId,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = d.Name }, companyId = new { old = before.CompanyId, @new = d.CompanyId }, managerId = new { old = before.ManagerId, @new = d.ManagerId }, phone = new { old = before.Phone, @new = d.Phone }, fax = new { old = before.Fax, @new = d.Fax } } }),
+            Note = $"Cập nhật phòng ban \"{d.Name}\""
+        });
         await _context.SaveChangesAsync();
         return Ok(new { status = "success", message = "Updated." });
     }

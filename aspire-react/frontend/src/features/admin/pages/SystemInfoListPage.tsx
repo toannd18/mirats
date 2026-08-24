@@ -52,7 +52,7 @@ export default function SystemInfoListPage() {
 
   const handleDeleteSys = async (record: SystemInfoDto) => {
     try { await apiClient.delete(`/system-infos/${record.id}`); message.success('Đã xóa'); actionRef.current?.reload(); }
-    catch (err: any) { message.error(err?.response?.data?.message || 'Không thể xóa'); }
+    catch (err: unknown) { const e = err as { response?: { data?: { message?: string } } }; message.error(e?.response?.data?.message || 'Không thể xóa'); }
   };
 
   const saveSys = async () => {
@@ -63,9 +63,10 @@ export default function SystemInfoListPage() {
       if (editingId) { await apiClient.put(`/system-infos/${editingId}`, values); message.success('Đã cập nhật'); }
       else { await apiClient.post('/system-infos', values); message.success('Đã tạo hệ thống'); }
       handleCloseSys(); actionRef.current?.reload();
-    } catch (err: any) {
-      if (err?.errorFields) return;
-      message.error(err?.response?.data?.message || 'Lỗi lưu');
+    } catch (err: unknown) {
+      const e = err as { errorFields?: unknown; response?: { data?: { message?: string } } };
+      if (e?.errorFields) return;
+      message.error(e?.response?.data?.message || 'Lỗi lưu');
     }
   };
 
@@ -91,7 +92,7 @@ export default function SystemInfoListPage() {
 
   const handleDeletePos = async (pos: SystemPositionDto) => {
     try { await apiClient.delete(`/system-infos/${pos.systemInfoId}/positions/${pos.id}`); message.success('Đã xóa'); actionRef.current?.reload(); }
-    catch (err: any) { message.error(err?.response?.data?.message || 'Không thể xóa'); }
+    catch (err: unknown) { const e = err as { response?: { data?: { message?: string } } }; message.error(e?.response?.data?.message || 'Không thể xóa'); }
   };
 
   const savePos = async () => {
@@ -106,9 +107,10 @@ export default function SystemInfoListPage() {
         message.success('Đã thêm vị trí');
       }
       handleClosePos(); actionRef.current?.reload();
-    } catch (err: any) {
-      if (err?.errorFields) return;
-      message.error(err?.response?.data?.message || 'Lỗi lưu vị trí');
+    } catch (err: unknown) {
+      const e = err as { errorFields?: unknown; response?: { data?: { message?: string } } };
+      if (e?.errorFields) return;
+      message.error(e?.response?.data?.message || 'Lỗi lưu vị trí');
     }
   };
 
@@ -155,7 +157,7 @@ export default function SystemInfoListPage() {
       { title: 'Mô tả', dataIndex: 'description', key: 'description', render: (v: string) => v || '-' },
       {
         title: 'Hành động', key: 'actions', width: 150,
-        render: (_: any, pos: SystemPositionDto) => (
+        render: (_: unknown, pos: SystemPositionDto) => (
           <Space size="small">
             {canEdit && 
             <Tooltip title="Sửa">

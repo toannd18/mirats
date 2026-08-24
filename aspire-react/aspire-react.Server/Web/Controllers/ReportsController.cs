@@ -42,8 +42,14 @@ public class ReportsController : ControllerBase
         if (locationId.HasValue) query = query.Where(a => a.LocationId == locationId);
         if (status.HasValue) query = query.Where(a => a.Status == status.Value);
 
-        var assets = await query.OrderBy(a => a.AssetTag).Take(500).Select(a => new {
-            a.Id, a.AssetTag, a.Name, a.Serial, a.PurchaseCost, a.PurchaseDate,
+        var assets = await query.OrderBy(a => a.AssetTag).Take(500).Select(a => new
+        {
+            a.Id,
+            a.AssetTag,
+            a.Name,
+            a.Serial,
+            a.PurchaseCost,
+            a.PurchaseDate,
             a.Status,
             Model = a.Model == null ? null : new { a.Model.Id, a.Model.Name },
             Category = a.Model != null && a.Model.Category != null ? new { a.Model.Category.Id, a.Model.Category.Name } : null,
@@ -69,13 +75,19 @@ public class ReportsController : ControllerBase
             .Take(200)
             .ToListAsync();
 
-        var data = assets.Select(a => {
+        var data = assets.Select(a =>
+        {
             var months = a.Model!.Depreciation!.Months;
             var monthsUsed = (int)((now - a.PurchaseDate!.Value).TotalDays / 30.44);
             var monthlyDep = a.PurchaseCost!.Value / months;
             var bookValue = Math.Max(0, a.PurchaseCost.Value - (monthlyDep * Math.Min(monthsUsed, months)));
-            return new {
-                a.Id, a.AssetTag, a.Name, a.PurchaseCost, a.PurchaseDate,
+            return new
+            {
+                a.Id,
+                a.AssetTag,
+                a.Name,
+                a.PurchaseCost,
+                a.PurchaseDate,
                 Model = a.Model.Name,
                 Depreciation = a.Model.Depreciation.Name,
                 MonthsTotal = months,
@@ -100,12 +112,13 @@ public class ReportsController : ControllerBase
         var notAudited = await _context.Assets.AsNoTracking()
             .Where(a => (userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value) && a.LastAuditDate == null)
             .CountAsync();
-    var overdue = await _context.Assets.AsNoTracking()
-            .Where(a => (userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value)
-                        && a.NextAuditDate != null && a.NextAuditDate < now && a.Status != AssetStatus.Archived)
-            .CountAsync();
+        var overdue = await _context.Assets.AsNoTracking()
+                .Where(a => (userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value)
+                            && a.NextAuditDate != null && a.NextAuditDate < now && a.Status != AssetStatus.Archived)
+                .CountAsync();
 
-        return Ok(new {
+        return Ok(new
+        {
             status = "success",
             data = new { totalAudited = audited, notAudited, overdueAudit = overdue }
         });
@@ -133,8 +146,14 @@ public class ReportsController : ControllerBase
             : await _actionLogVisibility.FilterVisibleLogsAsync(candidates, userCompanyId.Value);
 
         var logs = visible
-            .Select(l => new {
-                l.Id, l.ItemType, l.ItemId, l.ActionType, l.Note, l.ActionDate,
+            .Select(l => new
+            {
+                l.Id,
+                l.ItemType,
+                l.ItemId,
+                l.ActionType,
+                l.Note,
+                l.ActionDate,
                 Creator = new { l.Creator.Id, l.Creator.Username, l.Creator.FirstName, l.Creator.LastName }
             }).ToList();
 

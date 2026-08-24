@@ -57,9 +57,14 @@ public class CustomFieldsController : ControllerBase
 
         var field = new CustomField
         {
-            Name = r.Name, Slug = r.Slug, Format = r.Format, Element = r.Element,
-            FieldValues = r.FieldValues, FieldEncrypted = r.FieldEncrypted,
-            HelpText = r.HelpText, IsUnique = r.IsUnique
+            Name = r.Name,
+            Slug = r.Slug,
+            Format = r.Format,
+            Element = r.Element,
+            FieldValues = r.FieldValues,
+            FieldEncrypted = r.FieldEncrypted,
+            HelpText = r.HelpText,
+            IsUnique = r.IsUnique
         };
         _context.CustomFields.Add(field);
         await _context.SaveChangesAsync();
@@ -79,8 +84,16 @@ public class CustomFieldsController : ControllerBase
         field.FieldValues = r.FieldValues; field.FieldEncrypted = r.FieldEncrypted;
         field.HelpText = r.HelpText; field.IsUnique = r.IsUnique;
         await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.CustomField, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = null,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = field.Name }, slug = new { old = before.Slug, @new = field.Slug }, format = new { old = before.Format, @new = field.Format }, element = new { old = before.Element, @new = field.Element }, fieldValues = new { old = before.FieldValues, @new = field.FieldValues }, fieldEncrypted = new { old = before.FieldEncrypted, @new = field.FieldEncrypted }, helpText = new { old = before.HelpText, @new = field.HelpText }, isUnique = new { old = before.IsUnique, @new = field.IsUnique } } }), Note = $"Cập nhật trường tùy chỉnh \"{field.Name}\"" });
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.CustomField,
+            ItemId = id,
+            ActionType = ActionType.Update,
+            CreatedBy = GetCurrentUserId(),
+            CompanyId = null,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = field.Name }, slug = new { old = before.Slug, @new = field.Slug }, format = new { old = before.Format, @new = field.Format }, element = new { old = before.Element, @new = field.Element }, fieldValues = new { old = before.FieldValues, @new = field.FieldValues }, fieldEncrypted = new { old = before.FieldEncrypted, @new = field.FieldEncrypted }, helpText = new { old = before.HelpText, @new = field.HelpText }, isUnique = new { old = before.IsUnique, @new = field.IsUnique } } }),
+            Note = $"Cập nhật trường tùy chỉnh \"{field.Name}\""
+        });
         await _context.SaveChangesAsync();
         return Ok(new { status = "success", message = "Custom field updated." });
     }

@@ -76,15 +76,23 @@ public class ComponentUnitsController : ControllerBase
 
         var total = await query.CountAsync();
         var logs = await query.Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(l => new {
-                l.Id, ItemType = l.ItemType.ToString(), l.ItemId,
-                ActionType = l.ActionType.ToString(), ActionTypeValue = (int)l.ActionType,
+            .Select(l => new
+            {
+                l.Id,
+                ItemType = l.ItemType.ToString(),
+                l.ItemId,
+                ActionType = l.ActionType.ToString(),
+                ActionTypeValue = (int)l.ActionType,
                 TargetType = l.TargetType.HasValue ? l.TargetType.Value.ToString() : null,
                 l.TargetId,
                 CreatorName = l.Creator != null
                     ? (l.Creator.FirstName + " " + l.Creator.LastName).Trim() != "" ? (l.Creator.FirstName + " " + l.Creator.LastName).Trim() : l.Creator.Username
                     : null,
-                l.Note, l.LogMeta, l.ActionDate, l.LocationName, l.TargetSystemInfoName
+                l.Note,
+                l.LogMeta,
+                l.ActionDate,
+                l.LocationName,
+                l.TargetSystemInfoName
             }).ToListAsync();
 
         var targetIds = logs.Where(x => x.TargetId.HasValue).Select(x => x.TargetId!.Value).Distinct().ToList();
@@ -94,10 +102,22 @@ public class ComponentUnitsController : ControllerBase
                 .ToDictionaryAsync(a => a.Id, a => a.Name)
             : new Dictionary<Guid, string>();
 
-        var enriched = logs.Select(log => new {
-            log.Id, log.ItemType, log.ItemId, log.ActionType, log.ActionTypeValue, log.TargetType, log.TargetId,
+        var enriched = logs.Select(log => new
+        {
+            log.Id,
+            log.ItemType,
+            log.ItemId,
+            log.ActionType,
+            log.ActionTypeValue,
+            log.TargetType,
+            log.TargetId,
             TargetName = log.TargetId.HasValue ? assetNames.GetValueOrDefault(log.TargetId.Value) : null,
-            log.CreatorName, log.Note, log.LogMeta, log.ActionDate, log.LocationName, log.TargetSystemInfoName
+            log.CreatorName,
+            log.Note,
+            log.LogMeta,
+            log.ActionDate,
+            log.LocationName,
+            log.TargetSystemInfoName
         }).ToList();
 
         return Ok(new { status = "success", data = enriched, total });

@@ -62,8 +62,18 @@ public class ComponentsController : ControllerBase
 
         var total = await query.CountAsync();
         var items = await query.OrderBy(c => c.Name).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(c => new {
-                c.Id, c.Name, c.Serial, c.Qty, c.MinAmt, c.ModelNumber, c.OrderNumber, c.PurchaseCost, c.PurchaseDate, c.Notes,
+            .Select(c => new
+            {
+                c.Id,
+                c.Name,
+                c.Serial,
+                c.Qty,
+                c.MinAmt,
+                c.ModelNumber,
+                c.OrderNumber,
+                c.PurchaseCost,
+                c.PurchaseDate,
+                c.Notes,
                 TrackingType = c.TrackingType.ToString(),
                 Remaining = c.TrackingType == TrackingType.Serial
                     ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
@@ -102,10 +112,25 @@ public class ComponentsController : ControllerBase
 
         var result = items.Select(c => new
         {
-            c.Id, c.Name, c.Serial, c.Qty, c.MinAmt, c.ModelNumber, c.OrderNumber, c.PurchaseCost, c.PurchaseDate, c.Notes,
-            c.TrackingType, c.Remaining, c.IsLowStock,
+            c.Id,
+            c.Name,
+            c.Serial,
+            c.Qty,
+            c.MinAmt,
+            c.ModelNumber,
+            c.OrderNumber,
+            c.PurchaseCost,
+            c.PurchaseDate,
+            c.Notes,
+            c.TrackingType,
+            c.Remaining,
+            c.IsLowStock,
             canDelete = !hasHistory.Contains(c.Id),
-            c.Category, c.Company, c.Location, c.Supplier, c.Manufacturer
+            c.Category,
+            c.Company,
+            c.Location,
+            c.Supplier,
+            c.Manufacturer
         }).ToList();
 
         return Ok(new { status = "success", data = result, pagination = new { page, pageSize, totalItems = total, totalPages = (int)Math.Ceiling((double)total / pageSize), hasNextPage = page * pageSize < total, hasPreviousPage = page > 1 } });
@@ -141,23 +166,47 @@ public class ComponentsController : ControllerBase
                 ((l.ItemType == ItemType.Component && l.ItemId == id) ||
                  (l.ItemType == ItemType.ComponentUnit && unitIds.Contains(l.ItemId))));
 
-        return Ok(new { status = "success", data = new {
-            c.Id, c.Name, c.Serial, c.ItemNo, c.Qty, c.MinAmt, c.ModelNumber, c.OrderNumber, c.PurchaseCost, c.PurchaseDate, c.Notes, c.UpdatedAt,
-            TrackingType = c.TrackingType.ToString(),
-            Remaining = inStock, IsLowStock = inStock <= c.MinAmt,
-            UnitsSummary = new { inStock, allocated, damaged, disposed },
-            canDelete = !hasCheckout,
-            Category = c.Category == null ? null : new { c.Category.Id, c.Category.Name },
-            Company = c.Company == null ? null : new { c.Company.Id, c.Company.Name },
-            Location = c.Location == null ? null : new { c.Location.Id, c.Location.Name },
-            Supplier = c.Supplier == null ? null : new { c.Supplier.Id, c.Supplier.Name },
-            Manufacturer = c.Manufacturer == null ? null : new { c.Manufacturer.Id, c.Manufacturer.Name },
-            Assignments = c.Assignments.Select(a => new { a.Id, a.AssignedQty, a.Note, Asset = new { a.Asset.Id, a.Asset.AssetTag, a.Asset.Name } }),
-            Units = c.Units.Select(u => new {
-                u.Id, u.SerialNo, Status = u.Status.ToString(), u.CurrentAssetId, u.Notes, u.CreatedAt, u.UpdatedAt,
-                CurrentAsset = u.CurrentAsset == null ? null : new { u.CurrentAsset.Id, u.CurrentAsset.AssetTag, u.CurrentAsset.Name }
-            })
-        }});
+        return Ok(new
+        {
+            status = "success",
+            data = new
+            {
+                c.Id,
+                c.Name,
+                c.Serial,
+                c.ItemNo,
+                c.Qty,
+                c.MinAmt,
+                c.ModelNumber,
+                c.OrderNumber,
+                c.PurchaseCost,
+                c.PurchaseDate,
+                c.Notes,
+                c.UpdatedAt,
+                TrackingType = c.TrackingType.ToString(),
+                Remaining = inStock,
+                IsLowStock = inStock <= c.MinAmt,
+                UnitsSummary = new { inStock, allocated, damaged, disposed },
+                canDelete = !hasCheckout,
+                Category = c.Category == null ? null : new { c.Category.Id, c.Category.Name },
+                Company = c.Company == null ? null : new { c.Company.Id, c.Company.Name },
+                Location = c.Location == null ? null : new { c.Location.Id, c.Location.Name },
+                Supplier = c.Supplier == null ? null : new { c.Supplier.Id, c.Supplier.Name },
+                Manufacturer = c.Manufacturer == null ? null : new { c.Manufacturer.Id, c.Manufacturer.Name },
+                Assignments = c.Assignments.Select(a => new { a.Id, a.AssignedQty, a.Note, Asset = new { a.Asset.Id, a.Asset.AssetTag, a.Asset.Name } }),
+                Units = c.Units.Select(u => new
+                {
+                    u.Id,
+                    u.SerialNo,
+                    Status = u.Status.ToString(),
+                    u.CurrentAssetId,
+                    u.Notes,
+                    u.CreatedAt,
+                    u.UpdatedAt,
+                    CurrentAsset = u.CurrentAsset == null ? null : new { u.CurrentAsset.Id, u.CurrentAsset.AssetTag, u.CurrentAsset.Name }
+                })
+            }
+        });
     }
 
     [HttpPost]
@@ -194,16 +243,31 @@ public class ComponentsController : ControllerBase
 
             var component = new Component
             {
-                Name = r.Name, Serial = r.Serial, Qty = 0, MinAmt = r.MinAmt, TrackingType = r.TrackingType,
-                CategoryId = r.CategoryId, LocationId = r.LocationId, CompanyId = r.CompanyId,
-                SupplierId = r.SupplierId, ManufacturerId = r.ManufacturerId, ModelNumber = r.ModelNumber,
-                OrderNumber = r.OrderNumber, PurchaseDate = r.PurchaseDate, PurchaseCost = r.PurchaseCost, Notes = r.Notes
+                Name = r.Name,
+                Serial = r.Serial,
+                Qty = 0,
+                MinAmt = r.MinAmt,
+                TrackingType = r.TrackingType,
+                CategoryId = r.CategoryId,
+                LocationId = r.LocationId,
+                CompanyId = r.CompanyId,
+                SupplierId = r.SupplierId,
+                ManufacturerId = r.ManufacturerId,
+                ModelNumber = r.ModelNumber,
+                OrderNumber = r.OrderNumber,
+                PurchaseDate = r.PurchaseDate,
+                PurchaseCost = r.PurchaseCost,
+                Notes = r.Notes
             };
             _context.Components.Add(component);
             _actionLogService.Log(new ActionLogEntry
             {
-                ItemType = ItemType.Component, ItemId = component.Id, ActionType = ActionType.Create,
-                CreatedBy = userId, CompanyId = component.CompanyId, Note = $"Tạo linh kiện (TrackingType: {r.TrackingType})"
+                ItemType = ItemType.Component,
+                ItemId = component.Id,
+                ActionType = ActionType.Create,
+                CreatedBy = userId,
+                CompanyId = component.CompanyId,
+                Note = $"Tạo linh kiện (TrackingType: {r.TrackingType})"
             });
 
             if (r.TrackingType == TrackingType.Bulk)
@@ -326,10 +390,17 @@ public class ComponentsController : ControllerBase
             return BadRequest(new { status = "error", message = "Linh kiện Serial không dùng assignment quantity — dùng /checkin." });
         _context.ComponentAssignments.Remove(a);
 
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Component, ItemId = id, TargetType = AssignmentTargetType.Asset,
-            TargetId = a.AssetId, ActionType = ActionType.Checkin, CreatedBy = GetCurrentUserId(),
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.Component,
+            ItemId = id,
+            TargetType = AssignmentTargetType.Asset,
+            TargetId = a.AssetId,
+            ActionType = ActionType.Checkin,
+            CreatedBy = GetCurrentUserId(),
             CompanyId = a.Component.CompanyId,
-            LogMeta = JsonSerializer.Serialize(new { quantity = a.AssignedQty }) });
+            LogMeta = JsonSerializer.Serialize(new { quantity = a.AssignedQty })
+        });
 
         await _context.SaveChangesAsync();
         return Ok(new { status = "success", message = "Component assignment removed." });
@@ -355,8 +426,15 @@ public class ComponentsController : ControllerBase
 
         var total = await query.CountAsync();
         var units = await query.OrderBy(u => u.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(u => new {
-                u.Id, u.SerialNo, Status = u.Status.ToString(), u.CurrentAssetId, u.Notes, u.CreatedAt, u.UpdatedAt,
+            .Select(u => new
+            {
+                u.Id,
+                u.SerialNo,
+                Status = u.Status.ToString(),
+                u.CurrentAssetId,
+                u.Notes,
+                u.CreatedAt,
+                u.UpdatedAt,
                 CurrentAsset = u.CurrentAsset == null ? null : new { u.CurrentAsset.Id, u.CurrentAsset.AssetTag, u.CurrentAsset.Name }
             }).ToListAsync();
 
@@ -409,15 +487,23 @@ public class ComponentsController : ControllerBase
 
         var total = await query.CountAsync();
         var logs = await query.Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(l => new {
-                l.Id, ItemType = l.ItemType.ToString(), l.ItemId,
-                ActionType = l.ActionType.ToString(), ActionTypeValue = (int)l.ActionType,
+            .Select(l => new
+            {
+                l.Id,
+                ItemType = l.ItemType.ToString(),
+                l.ItemId,
+                ActionType = l.ActionType.ToString(),
+                ActionTypeValue = (int)l.ActionType,
                 TargetType = l.TargetType.HasValue ? l.TargetType.Value.ToString() : null,
                 l.TargetId,
                 CreatorName = l.Creator != null
                     ? (l.Creator.FirstName + " " + l.Creator.LastName).Trim() != "" ? (l.Creator.FirstName + " " + l.Creator.LastName).Trim() : l.Creator.Username
                     : null,
-                l.Note, l.LogMeta, l.ActionDate, l.LocationName, l.TargetSystemInfoName
+                l.Note,
+                l.LogMeta,
+                l.ActionDate,
+                l.LocationName,
+                l.TargetSystemInfoName
             }).ToListAsync();
 
         // Batch-resolve target names (assets) — same mechanism as /action-logs.
@@ -428,10 +514,22 @@ public class ComponentsController : ControllerBase
                 .ToDictionaryAsync(a => a.Id, a => a.Name)
             : new Dictionary<Guid, string>();
 
-        var enriched = logs.Select(log => new {
-            log.Id, log.ItemType, log.ItemId, log.ActionType, log.ActionTypeValue, log.TargetType, log.TargetId,
+        var enriched = logs.Select(log => new
+        {
+            log.Id,
+            log.ItemType,
+            log.ItemId,
+            log.ActionType,
+            log.ActionTypeValue,
+            log.TargetType,
+            log.TargetId,
             TargetName = log.TargetId.HasValue ? assetNames.GetValueOrDefault(log.TargetId.Value) : null,
-            log.CreatorName, log.Note, log.LogMeta, log.ActionDate, log.LocationName, log.TargetSystemInfoName
+            log.CreatorName,
+            log.Note,
+            log.LogMeta,
+            log.ActionDate,
+            log.LocationName,
+            log.TargetSystemInfoName
         }).ToList();
 
         return Ok(new { status = "success", data = enriched, total });

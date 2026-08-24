@@ -7,7 +7,7 @@ import keycloak from './keycloak';
 // Semantics: it is the SERVER base (origin or path). The `/api/v1` prefix is appended
 // here — UNLESS the base already ends with it (e.g. prod `VITE_API_BASE_URL=/api/v1`
 // via compose build arg must NOT become `/api/v1/api/v1`).
-const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? 'http://localhost:5428';
+const API_BASE = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL ?? 'http://localhost:5428';
 const API_PREFIX = '/api/v1';
 const baseURL = API_BASE.endsWith(API_PREFIX) ? API_BASE : `${API_BASE}${API_PREFIX}`;
 

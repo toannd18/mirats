@@ -40,9 +40,10 @@ export default function SystemConfigPage() {
       setSaving(true);
       await apiClient.put('/system/config/asset-tag-format', { format: String(values.format).trim() });
       message.success('Đã lưu cấu hình');
-    } catch (err: any) {
-      if (err?.errorFields) return;
-      message.error(err?.response?.data?.message || 'Lỗi lưu cấu hình');
+    } catch (err: unknown) {
+      const e = err as { errorFields?: unknown; response?: { data?: { message?: string } } };
+      if (e?.errorFields) return;
+      message.error(e?.response?.data?.message || 'Lỗi lưu cấu hình');
     } finally {
       setSaving(false);
     }

@@ -51,8 +51,15 @@ public class ConsumablesController : ControllerBase
 
         var total = await query.CountAsync();
         var items = await query.OrderBy(c => c.Name).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(c => new {
-                c.Id, c.Name, c.ItemNo, c.Notes, c.Qty, c.MinAmt, c.Status,
+            .Select(c => new
+            {
+                c.Id,
+                c.Name,
+                c.ItemNo,
+                c.Notes,
+                c.Qty,
+                c.MinAmt,
+                c.Status,
                 c.CompanyId,
                 CompanyName = c.Company != null ? c.Company.Name : null,
                 Remaining = c.Qty - c.Checkouts.Sum(ch => ch.Quantity),
@@ -78,18 +85,37 @@ public class ConsumablesController : ControllerBase
             return NotFound(new { status = "error", message = "Consumable not found." });
 
         var remaining = c.Qty - c.Checkouts.Sum(ch => ch.Quantity);
-        return Ok(new { status = "success", data = new {
-            c.Id, c.Name, c.ItemNo, c.Qty, c.MinAmt, Status = c.Status.ToString(),
-            c.ModelNumber, c.OrderNumber, c.PurchaseDate, c.PurchaseCost, c.Notes,
-            c.CategoryId, c.ManufacturerId, c.SupplierId, c.LocationId, c.CompanyId,
-            Remaining = remaining, PercentRemaining = c.Qty > 0 ? Math.Round((double)remaining / c.Qty * 100, 2) : 0,
-            IsLowStock = remaining <= c.MinAmt,
-            Category = c.Category == null ? null : new { c.Category.Id, c.Category.Name },
-            Manufacturer = c.Manufacturer == null ? null : new { c.Manufacturer.Id, c.Manufacturer.Name },
-            Supplier = c.Supplier == null ? null : new { c.Supplier.Id, c.Supplier.Name },
-            Location = c.Location == null ? null : new { c.Location.Id, c.Location.Name },
-            Company = c.Company == null ? null : new { c.Company.Id, c.Company.Name }
-        }});
+        return Ok(new
+        {
+            status = "success",
+            data = new
+            {
+                c.Id,
+                c.Name,
+                c.ItemNo,
+                c.Qty,
+                c.MinAmt,
+                Status = c.Status.ToString(),
+                c.ModelNumber,
+                c.OrderNumber,
+                c.PurchaseDate,
+                c.PurchaseCost,
+                c.Notes,
+                c.CategoryId,
+                c.ManufacturerId,
+                c.SupplierId,
+                c.LocationId,
+                c.CompanyId,
+                Remaining = remaining,
+                PercentRemaining = c.Qty > 0 ? Math.Round((double)remaining / c.Qty * 100, 2) : 0,
+                IsLowStock = remaining <= c.MinAmt,
+                Category = c.Category == null ? null : new { c.Category.Id, c.Category.Name },
+                Manufacturer = c.Manufacturer == null ? null : new { c.Manufacturer.Id, c.Manufacturer.Name },
+                Supplier = c.Supplier == null ? null : new { c.Supplier.Id, c.Supplier.Name },
+                Location = c.Location == null ? null : new { c.Location.Id, c.Location.Name },
+                Company = c.Company == null ? null : new { c.Company.Id, c.Company.Name }
+            }
+        });
     }
 
     [HttpPost]
@@ -102,13 +128,23 @@ public class ConsumablesController : ControllerBase
         if (userCompanyId.HasValue && r.CompanyId.HasValue && r.CompanyId.Value != userCompanyId.Value)
             return BadRequest(new { status = "error", message = "Bạn chỉ được tạo vật tư cho công ty của mình.", error_code = "COMPANY_MISMATCH" });
 
-        var c = new Consumable {
-            Name = r.Name, ItemNo = r.ItemNo, Qty = r.Qty, MinAmt = r.MinAmt,
-            CategoryId = r.CategoryId, ManufacturerId = r.ManufacturerId, SupplierId = r.SupplierId,
-            LocationId = r.LocationId, CompanyId = r.CompanyId,
-            ModelNumber = r.ModelNumber, OrderNumber = r.OrderNumber,
-            PurchaseCost = r.PurchaseCost, PurchaseDate = r.PurchaseDate,
-            Notes = r.Notes, Image = r.Image
+        var c = new Consumable
+        {
+            Name = r.Name,
+            ItemNo = r.ItemNo,
+            Qty = r.Qty,
+            MinAmt = r.MinAmt,
+            CategoryId = r.CategoryId,
+            ManufacturerId = r.ManufacturerId,
+            SupplierId = r.SupplierId,
+            LocationId = r.LocationId,
+            CompanyId = r.CompanyId,
+            ModelNumber = r.ModelNumber,
+            OrderNumber = r.OrderNumber,
+            PurchaseCost = r.PurchaseCost,
+            PurchaseDate = r.PurchaseDate,
+            Notes = r.Notes,
+            Image = r.Image
         };
         _context.Consumables.Add(c);
         var createUserId = await GetCurrentUserIdAsync();

@@ -39,6 +39,7 @@ public sealed record ImportSheetResult(int Created, int Failed, IReadOnlyList<Im
 public interface IExcelImportService
 {
     Task<ImportSheetResult> ImportReferenceAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
+    Task<ImportSheetResult> ImportAssetModelsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
     Task<ImportSheetResult> ImportAssetsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
     Task<ImportSheetResult> ImportComponentsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
     Task<ImportSheetResult> ImportAccessoriesAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
@@ -52,6 +53,7 @@ public class ExcelImportService : IExcelImportService
     private const string SheetCategories = "1_DanhMuc";
     private const string SheetLocations = "2_DiaDiem";
     private const string SheetManufacturers = "3_NhaSanXuat";
+    private const string SheetAssetModels = "3_Model";
     private const string SheetAssets = "4_TaiSan";
     private const string SheetComponents = "5_LinhKien";
     private const string SheetAccessories = "6_PhuKien";
@@ -86,6 +88,12 @@ public class ExcelImportService : IExcelImportService
         results.AddRange(await ImportManufacturersSheetAsync(wb, actingUserId, companyId, ct));
         results.AddRange(await ImportLocationsSheetAsync(wb, actingUserId, companyId, ct));
         return Summarize(results);
+    }
+
+    public async Task<ImportSheetResult> ImportAssetModelsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default)
+    {
+        using var wb = new XLWorkbook(xlsxStream);
+        return Summarize(await ImportAssetModelsSheetAsync(wb, actingUserId, companyId, ct));
     }
 
     public async Task<ImportSheetResult> ImportAssetsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default)
@@ -166,8 +174,11 @@ public class ExcelImportService : IExcelImportService
             _context.Categories.Add(category);
             _actionLogService.Log(new ActionLogEntry
             {
-                ItemType = ItemType.Category, ItemId = category.Id, ActionType = ActionType.Import,
-                CreatedBy = actingUserId, CompanyId = companyId,
+                ItemType = ItemType.Category,
+                ItemId = category.Id,
+                ActionType = ActionType.Import,
+                CreatedBy = actingUserId,
+                CompanyId = companyId,
                 Note = $"Import danh mục \"{name}\" (loại: {categoryType})"
             });
             results.Add(new ImportRowResult(r, true, $"Đã import danh mục '{name}'."));
@@ -203,8 +214,11 @@ public class ExcelImportService : IExcelImportService
             _context.Manufacturers.Add(manufacturer);
             _actionLogService.Log(new ActionLogEntry
             {
-                ItemType = ItemType.Manufacturer, ItemId = manufacturer.Id, ActionType = ActionType.Import,
-                CreatedBy = actingUserId, CompanyId = companyId,
+                ItemType = ItemType.Manufacturer,
+                ItemId = manufacturer.Id,
+                ActionType = ActionType.Import,
+                CreatedBy = actingUserId,
+                CompanyId = companyId,
                 Note = $"Import nhà sản xuất \"{name}\" (mã: {code})"
             });
             results.Add(new ImportRowResult(r, true, $"Đã import nhà sản xuất '{name}' (mã {code})."));
@@ -212,6 +226,91 @@ public class ExcelImportService : IExcelImportService
 
         await _context.SaveChangesAsync(ct);
         await _cacheInvalidator.InvalidateManufacturersAsync(ct);
+        return results;
+    }
+
+    private async Task<List<ImportRowResult>> ImportAssetModelsSheetAsync(XLWorkbook wb, Guid actingUserId, Guid companyId, CancellationToken ct)
+    {
+        if (!TryGetSheet(wb, SheetAssetModels, out var ws, out var err)) return [err];
+        int? hr = FindHeaderRow(ws, "Ten model");
+        if (hr == null) return [new ImportRowResult(0, false, $"Sheet '{SheetAssetModels}' thiếu cột 'Ten model'.")];
+        int colName = FindColumn(ws, hr.Value, "Ten model");
+        int colModelNumber = FindColumn(ws, hr.Value, "So model");
+        int colCategory = FindColumn(ws, hr.Value, "Ten danh muc");
+        int colMfr = FindColumn(ws, hr.Value, "Ten nha san xuat");
+        int colNotes = FindColumn(ws, hr.Value, "Ghi chu");
+
+        // AssetModel is global master data (no CompanyId column) — the chosen companyId is used ONLY
+        // to stamp the import ActionLogs (same as Category/Manufacturer in ImportReferenceAsync).
+        var results = new List<ImportRowResult>();
+        // Track names already handled in THIS batch (SaveChanges runs once after the loop, so an
+        // earlier row in the same file is not yet visible to AnyAsync against the DB).
+        var batchNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int r = hr.Value + 1; r <= ws.LastRowUsed()?.RowNumber(); r++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var name = Cell(ws, r, colName)?.Trim();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            // Duplicate by Name (per-company uniqueness NOT enforced — model is global master data).
+            if (batchNames.Contains(name) || await _context.Models.AnyAsync(x => x.Name == name, ct))
+            {
+                results.Add(new ImportRowResult(r, true, $"Model '{name}' đã tồn tại — bỏ qua."));
+                continue;
+            }
+            batchNames.Add(name);
+
+            // Category referenced BY NAME; NEVER auto-created (a missing category errors only that row).
+            Guid? categoryId = null;
+            var categoryName = Cell(ws, r, colCategory)?.Trim();
+            if (!string.IsNullOrWhiteSpace(categoryName))
+            {
+                categoryId = await _context.Categories
+                    .Where(c => c.Name == categoryName && c.CategoryType == CategoryType.Asset)
+                    .Select(c => (Guid?)c.Id).FirstOrDefaultAsync(ct);
+                if (categoryId == null)
+                {
+                    results.Add(new ImportRowResult(r, false, $"Danh mục '{categoryName}' (loại Asset) chưa tồn tại — hãy import sheet 1_DanhMuc trước."));
+                    continue;
+                }
+            }
+
+            // Manufacturer referenced BY NAME; NEVER auto-created.
+            Guid? mfrId = null;
+            var mfrName = Cell(ws, r, colMfr)?.Trim();
+            if (!string.IsNullOrWhiteSpace(mfrName))
+            {
+                mfrId = await _context.Manufacturers.Where(m => m.Name == mfrName).Select(m => (Guid?)m.Id).FirstOrDefaultAsync(ct);
+                if (mfrId == null)
+                {
+                    results.Add(new ImportRowResult(r, false, $"Nhà sản xuất '{mfrName}' chưa tồn tại — hãy import sheet 3_NhaSanXuat trước."));
+                    continue;
+                }
+            }
+
+            var model = new AssetModel
+            {
+                Name = name,
+                ModelNumber = Cell(ws, r, colModelNumber)?.Trim(),
+                CategoryId = categoryId,
+                ManufacturerId = mfrId,
+                Notes = Cell(ws, r, colNotes)?.Trim(),
+                Requestable = false
+            };
+            _context.Models.Add(model);
+            _actionLogService.Log(new ActionLogEntry
+            {
+                ItemType = ItemType.Model,
+                ItemId = model.Id,
+                ActionType = ActionType.Import,
+                CreatedBy = actingUserId,
+                CompanyId = companyId,
+                Note = $"Import model \"{name}\""
+            });
+            results.Add(new ImportRowResult(r, true, $"Đã import model '{name}'."));
+        }
+
+        await _context.SaveChangesAsync(ct);
         return results;
     }
 
@@ -248,8 +347,11 @@ public class ExcelImportService : IExcelImportService
             _context.Locations.Add(location);
             _actionLogService.Log(new ActionLogEntry
             {
-                ItemType = ItemType.Location, ItemId = location.Id, ActionType = ActionType.Import,
-                CreatedBy = actingUserId, CompanyId = location.CompanyId,
+                ItemType = ItemType.Location,
+                ItemId = location.Id,
+                ActionType = ActionType.Import,
+                CreatedBy = actingUserId,
+                CompanyId = location.CompanyId,
                 Note = $"Import địa điểm \"{row.Name}\""
             });
             results.Add(new ImportRowResult(row.Row, true, $"Đã import địa điểm '{row.Name}'."));
@@ -276,8 +378,11 @@ public class ExcelImportService : IExcelImportService
             _context.Locations.Add(location);
             _actionLogService.Log(new ActionLogEntry
             {
-                ItemType = ItemType.Location, ItemId = location.Id, ActionType = ActionType.Import,
-                CreatedBy = actingUserId, CompanyId = location.CompanyId,
+                ItemType = ItemType.Location,
+                ItemId = location.Id,
+                ActionType = ActionType.Import,
+                CreatedBy = actingUserId,
+                CompanyId = location.CompanyId,
                 Note = $"Import địa điểm \"{row.Name}\""
             });
             results.Add(new ImportRowResult(row.Row, true, $"Đã import địa điểm '{row.Name}'."));
@@ -387,16 +492,24 @@ public class ExcelImportService : IExcelImportService
 
             var asset = new Asset
             {
-                AssetTag = tag, Name = name, Serial = serial, ModelId = modelId,
-                LocationId = locationId, CompanyId = userCompanyId,
-                Status = AssetStatus.Pending, IsConfirmed = true,
+                AssetTag = tag,
+                Name = name,
+                Serial = serial,
+                ModelId = modelId,
+                LocationId = locationId,
+                CompanyId = userCompanyId,
+                Status = AssetStatus.Pending,
+                IsConfirmed = true,
                 Notes = Cell(ws, r, colNotes)?.Trim()
             };
             _context.Assets.Add(asset);
             _actionLogService.Log(new ActionLogEntry
             {
-                ItemType = ItemType.Asset, ItemId = asset.Id, ActionType = ActionType.Import,
-                CreatedBy = actingUserId, CompanyId = asset.CompanyId,
+                ItemType = ItemType.Asset,
+                ItemId = asset.Id,
+                ActionType = ActionType.Import,
+                CreatedBy = actingUserId,
+                CompanyId = asset.CompanyId,
                 Note = $"Import tài sản \"{tag} - {name}\""
             });
             results.Add(new ImportRowResult(r, true, $"Đã import tài sản '{tag}'."));
@@ -499,16 +612,24 @@ public class ExcelImportService : IExcelImportService
 
             var component = new Component
             {
-                Name = g.Name, CategoryId = categoryId, ManufacturerId = mfrId, LocationId = locationId,
-                CompanyId = userCompanyId, ModelNumber = g.ModelNumber,
-                MinAmt = g.MinAmt ?? 0, Qty = 0,
+                Name = g.Name,
+                CategoryId = categoryId,
+                ManufacturerId = mfrId,
+                LocationId = locationId,
+                CompanyId = userCompanyId,
+                ModelNumber = g.ModelNumber,
+                MinAmt = g.MinAmt ?? 0,
+                Qty = 0,
                 TrackingType = isSerial ? TrackingType.Serial : TrackingType.Bulk
             };
             _context.Components.Add(component);
             _actionLogService.Log(new ActionLogEntry
             {
-                ItemType = ItemType.Component, ItemId = component.Id, ActionType = ActionType.Import,
-                CreatedBy = actingUserId, CompanyId = component.CompanyId,
+                ItemType = ItemType.Component,
+                ItemId = component.Id,
+                ActionType = ActionType.Import,
+                CreatedBy = actingUserId,
+                CompanyId = component.CompanyId,
                 Note = $"Import linh kiện \"{g.Name}\" ({(isSerial ? $"{serials.Count} serial" : $"{qty} cái")})"
             });
 
@@ -609,14 +730,24 @@ public class ExcelImportService : IExcelImportService
 
             var accessory = new Accessory
             {
-                Name = name, CategoryId = categoryId, ManufacturerId = mfrId, LocationId = locationId,
-                CompanyId = userCompanyId, ModelNumber = modelNumber, Qty = qty, MinAmt = min, Notes = notes
+                Name = name,
+                CategoryId = categoryId,
+                ManufacturerId = mfrId,
+                LocationId = locationId,
+                CompanyId = userCompanyId,
+                ModelNumber = modelNumber,
+                Qty = qty,
+                MinAmt = min,
+                Notes = notes
             };
             _context.Accessories.Add(accessory);
             _actionLogService.Log(new ActionLogEntry
             {
-                ItemType = ItemType.Accessory, ItemId = accessory.Id, ActionType = ActionType.Import,
-                CreatedBy = actingUserId, CompanyId = accessory.CompanyId,
+                ItemType = ItemType.Accessory,
+                ItemId = accessory.Id,
+                ActionType = ActionType.Import,
+                CreatedBy = actingUserId,
+                CompanyId = accessory.CompanyId,
                 Note = $"Import phụ kiện \"{name}\" ({qty} cái)"
             });
             results.Add(new ImportRowResult(r, true, $"Đã import phụ kiện '{name}'."));
@@ -695,15 +826,25 @@ public class ExcelImportService : IExcelImportService
 
             var consumable = new Consumable
             {
-                Name = name, CategoryId = categoryId, ManufacturerId = mfrId, LocationId = locationId,
-                CompanyId = userCompanyId, ModelNumber = modelNumber, Qty = qty, MinAmt = min, Notes = notes,
+                Name = name,
+                CategoryId = categoryId,
+                ManufacturerId = mfrId,
+                LocationId = locationId,
+                CompanyId = userCompanyId,
+                ModelNumber = modelNumber,
+                Qty = qty,
+                MinAmt = min,
+                Notes = notes,
                 Status = ConsumableStatus.Pending
             };
             _context.Consumables.Add(consumable);
             _actionLogService.Log(new ActionLogEntry
             {
-                ItemType = ItemType.Consumable, ItemId = consumable.Id, ActionType = ActionType.Import,
-                CreatedBy = actingUserId, CompanyId = consumable.CompanyId,
+                ItemType = ItemType.Consumable,
+                ItemId = consumable.Id,
+                ActionType = ActionType.Import,
+                CreatedBy = actingUserId,
+                CompanyId = consumable.CompanyId,
                 Note = $"Import vật tư tiêu hao \"{name}\" ({qty} cái)"
             });
             results.Add(new ImportRowResult(r, true, $"Đã import vật tư tiêu hao '{name}'."));
@@ -748,8 +889,11 @@ public class ExcelImportService : IExcelImportService
             _context.SystemInfos.Add(sys);
             _actionLogService.Log(new ActionLogEntry
             {
-                ItemType = ItemType.SystemInfo, ItemId = sys.Id, ActionType = ActionType.Import,
-                CreatedBy = actingUserId, CompanyId = companyId,
+                ItemType = ItemType.SystemInfo,
+                ItemId = sys.Id,
+                ActionType = ActionType.Import,
+                CreatedBy = actingUserId,
+                CompanyId = companyId,
                 Note = $"Import hệ thống \"{name}\" (mã: {code})"
             });
             results.Add(new ImportRowResult(r, true, $"Đã import hệ thống '{name}' (mã {code})."));
@@ -831,8 +975,11 @@ public class ExcelImportService : IExcelImportService
             _context.SystemPositions.Add(position);
             _actionLogService.Log(new ActionLogEntry
             {
-                ItemType = ItemType.SystemPosition, ItemId = position.Id, ActionType = ActionType.Import,
-                CreatedBy = actingUserId, CompanyId = parent.CompanyId, // inherits from parent SystemInfo
+                ItemType = ItemType.SystemPosition,
+                ItemId = position.Id,
+                ActionType = ActionType.Import,
+                CreatedBy = actingUserId,
+                CompanyId = parent.CompanyId, // inherits from parent SystemInfo
                 Note = $"Import vị trí \"{name}\" (mã: {code}) trong hệ thống \"{parentName}\""
             });
             results.Add(new ImportRowResult(r, true, $"Đã import vị trí '{name}' trong hệ thống '{parentName}' (mã {code})."));

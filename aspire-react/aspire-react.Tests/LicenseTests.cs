@@ -70,8 +70,11 @@ public class LicenseTests
 
         var license = new License
         {
-            Name = "Windows Pro", Seats = seats, Reassignable = reassignable,
-            CategoryId = category.Id, CompanyId = companyId ?? company.Id
+            Name = "Windows Pro",
+            Seats = seats,
+            Reassignable = reassignable,
+            CategoryId = category.Id,
+            CompanyId = companyId ?? company.Id
         };
         ctx.Licenses.Add(license);
         for (var i = 1; i <= seats; i++)

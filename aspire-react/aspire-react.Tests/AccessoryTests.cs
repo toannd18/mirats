@@ -85,8 +85,12 @@ public class AccessoryTests
 
         var result = await handler.Handle(new CreateAccessoryCommand
         {
-            Name = "Cáp HDMI", Qty = 5, MinAmt = 1, CategoryId = categoryId,
-            CompanyId = companyId, CurrentUserId = ActorId
+            Name = "Cáp HDMI",
+            Qty = 5,
+            MinAmt = 1,
+            CategoryId = categoryId,
+            CompanyId = companyId,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -110,8 +114,11 @@ public class AccessoryTests
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
-            AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.User,
-            TargetId = targetId, Quantity = 3, CurrentUserId = ActorId
+            AccessoryId = accessoryId,
+            CheckoutType = AccessoryCheckoutType.User,
+            TargetId = targetId,
+            Quantity = 3,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -137,8 +144,11 @@ public class AccessoryTests
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
-            AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.Department,
-            TargetId = targetId, Quantity = 2, CurrentUserId = ActorId
+            AccessoryId = accessoryId,
+            CheckoutType = AccessoryCheckoutType.Department,
+            TargetId = targetId,
+            Quantity = 2,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -158,8 +168,11 @@ public class AccessoryTests
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
-            AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.Location,
-            TargetId = targetId, Quantity = 2, CurrentUserId = ActorId
+            AccessoryId = accessoryId,
+            CheckoutType = AccessoryCheckoutType.Location,
+            TargetId = targetId,
+            Quantity = 2,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -179,8 +192,11 @@ public class AccessoryTests
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
-            AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.SystemPosition,
-            TargetId = targetId, Quantity = 2, CurrentUserId = ActorId
+            AccessoryId = accessoryId,
+            CheckoutType = AccessoryCheckoutType.SystemPosition,
+            TargetId = targetId,
+            Quantity = 2,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -209,8 +225,11 @@ public class AccessoryTests
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
-            AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.User,
-            TargetId = otherUser.Id, Quantity = 1, CurrentUserId = ActorId
+            AccessoryId = accessoryId,
+            CheckoutType = AccessoryCheckoutType.User,
+            TargetId = otherUser.Id,
+            Quantity = 1,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.False(result.Success);
@@ -229,8 +248,11 @@ public class AccessoryTests
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
-            AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.User,
-            TargetId = targetId, Quantity = 6, CurrentUserId = ActorId
+            AccessoryId = accessoryId,
+            CheckoutType = AccessoryCheckoutType.User,
+            TargetId = targetId,
+            Quantity = 6,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.False(result.Success);
@@ -247,8 +269,11 @@ public class AccessoryTests
 
         var result = await handler.Handle(new CheckoutAccessoryCommand
         {
-            AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.User,
-            TargetId = Guid.NewGuid(), Quantity = 1, CurrentUserId = ActorId
+            AccessoryId = accessoryId,
+            CheckoutType = AccessoryCheckoutType.User,
+            TargetId = Guid.NewGuid(),
+            Quantity = 1,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.False(result.Success);
@@ -268,15 +293,21 @@ public class AccessoryTests
         var checkoutHandler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
         await checkoutHandler.Handle(new CheckoutAccessoryCommand
         {
-            AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.User,
-            TargetId = targetId, Quantity = 3, CurrentUserId = ActorId
+            AccessoryId = accessoryId,
+            CheckoutType = AccessoryCheckoutType.User,
+            TargetId = targetId,
+            Quantity = 3,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
         var checkout = await ctx.AccessoryCheckouts.SingleAsync(c => c.AccessoryId == accessoryId);
 
         var checkinHandler = new CheckinAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
         var result = await checkinHandler.Handle(new CheckinAccessoryCommand
         {
-            CheckoutId = checkout.Id, ReturnQty = 1, Note = "trả 1", CurrentUserId = ActorId
+            CheckoutId = checkout.Id,
+            ReturnQty = 1,
+            Note = "trả 1",
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -302,15 +333,20 @@ public class AccessoryTests
         var checkoutHandler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
         await checkoutHandler.Handle(new CheckoutAccessoryCommand
         {
-            AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.User,
-            TargetId = targetId, Quantity = 3, CurrentUserId = ActorId
+            AccessoryId = accessoryId,
+            CheckoutType = AccessoryCheckoutType.User,
+            TargetId = targetId,
+            Quantity = 3,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
         var checkout = await ctx.AccessoryCheckouts.SingleAsync(c => c.AccessoryId == accessoryId);
 
         var checkinHandler = new CheckinAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
         var result = await checkinHandler.Handle(new CheckinAccessoryCommand
         {
-            CheckoutId = checkout.Id, ReturnQty = 4, CurrentUserId = ActorId
+            CheckoutId = checkout.Id,
+            ReturnQty = 4,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.False(result.Success);
@@ -330,8 +366,11 @@ public class AccessoryTests
         var checkoutHandler = new CheckoutAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
         await checkoutHandler.Handle(new CheckoutAccessoryCommand
         {
-            AccessoryId = accessoryId, CheckoutType = AccessoryCheckoutType.User,
-            TargetId = targetId, Quantity = 1, CurrentUserId = ActorId
+            AccessoryId = accessoryId,
+            CheckoutType = AccessoryCheckoutType.User,
+            TargetId = targetId,
+            Quantity = 1,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         var deleteHandler = new DeleteAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());

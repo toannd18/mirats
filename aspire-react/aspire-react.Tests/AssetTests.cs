@@ -67,8 +67,12 @@ public class AssetTests
 
         var result = await handler.Handle(new CreateAssetCommand
         {
-            AssetTag = "AST-001", Name = "Server 01", Serial = "SN-1",
-            ModelId = modelId, CompanyId = companyId, CurrentUserId = ActorId
+            AssetTag = "AST-001",
+            Name = "Server 01",
+            Serial = "SN-1",
+            ModelId = modelId,
+            CompanyId = companyId,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -117,8 +121,13 @@ public class AssetTests
 
         var result = await handler.Handle(new UpdateAssetCommand
         {
-            Id = asset.Id, AssetTag = "AST-001", Name = "New Name", Serial = "SN-NEW",
-            CompanyId = company.Id, Notes = "edited", CurrentUserId = ActorId
+            Id = asset.Id,
+            AssetTag = "AST-001",
+            Name = "New Name",
+            Serial = "SN-NEW",
+            CompanyId = company.Id,
+            Notes = "edited",
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -142,7 +151,11 @@ public class AssetTests
 
         var result = await handler.Handle(new UpdateAssetCommand
         {
-            Id = asset.Id, AssetTag = "", Name = "Renamed", Notes = "new notes", CurrentUserId = ActorId
+            Id = asset.Id,
+            AssetTag = "",
+            Name = "Renamed",
+            Notes = "new notes",
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -165,7 +178,11 @@ public class AssetTests
 
         var result = await handler.Handle(new UpdateAssetCommand
         {
-            Id = asset.Id, AssetTag = "AST-001", Name = "Old", Serial = "SN-CHANGED", CurrentUserId = ActorId
+            Id = asset.Id,
+            AssetTag = "AST-001",
+            Name = "Old",
+            Serial = "SN-CHANGED",
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.False(result.Success);
@@ -187,7 +204,11 @@ public class AssetTests
 
         var result = await handler.Handle(new UpdateAssetCommand
         {
-            Id = asset.Id, AssetTag = "", Name = "Renamed", Notes = "notes", CurrentUserId = ActorId
+            Id = asset.Id,
+            AssetTag = "",
+            Name = "Renamed",
+            Notes = "notes",
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
@@ -277,7 +298,9 @@ public class AssetTests
         var assetId = await SeedPendingAssetAsync(ctx, "AST-001", companyId, confirmed: false);
         ctx.AssetMaintenances.Add(new AssetMaintenance
         {
-            AssetId = assetId, Title = "Bảo trì định kỳ", CompanyId = companyId,
+            AssetId = assetId,
+            Title = "Bảo trì định kỳ",
+            CompanyId = companyId,
             StartDate = DateTime.UtcNow.AddDays(-1)
         });
         await ctx.SaveChangesAsync();

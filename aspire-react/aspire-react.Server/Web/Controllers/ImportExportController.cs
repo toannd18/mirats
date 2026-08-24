@@ -54,6 +54,23 @@ public class ImportExportController : ControllerBase
         return Ok(new { status = "success", created = result.Created, failed = result.Failed, rows = result.Rows, errors = result.Errors });
     }
 
+    /// <summary>
+    /// Import AssetModel from sheet 3_Model. AssetModel is GLOBAL master data (no CompanyId column) —
+    /// the chosen companyId ONLY stamps the import ActionLogs. Category/Manufacturer are resolved BY NAME
+    /// and NEVER auto-created (a missing reference errors only that row) — so assets must be imported
+    /// AFTER the models/sheets they reference exist. Import models BEFORE sheet 4_TaiSan.
+    /// </summary>
+    [HttpPost("import/asset-models")]
+    [Authorize(Policy = "models.create")]
+    public async Task<IActionResult> ImportAssetModels(IFormFile? file, [FromForm] Guid companyId)
+    {
+        var badCompany = await ResolveImportCompanyIdAsync(companyId);
+        if (badCompany != null) return badCompany;
+        if (!ValidateFile(file, out var bad)) return bad;
+        var result = await _excelImport.ImportAssetModelsAsync(file!.OpenReadStream(), GetCurrentUserId(), companyId);
+        return Ok(new { status = "success", created = result.Created, failed = result.Failed, rows = result.Rows, errors = result.Errors });
+    }
+
     /// <summary>Import assets from sheet 4_TaiSan.</summary>
     [HttpPost("import/assets")]
     [Authorize(Policy = "assets.create")]
@@ -201,6 +218,7 @@ public class ImportExportController : ControllerBase
         AddSheet(wb, "1_DanhMuc", ["Ten danh muc", "Loai (categoryType)", "Ma mau (tagColor)", "Ghi chu"]);
         AddSheet(wb, "2_DiaDiem", ["Ten dia diem", "Dia diem cha", "Ghi chu"]);
         AddSheet(wb, "3_NhaSanXuat", ["Ten nha san xuat"]);
+        AddSheet(wb, "3_Model", ["Ten model", "So model", "Ten danh muc", "Ten nha san xuat", "Ghi chu"]);
         AddSheet(wb, "4_TaiSan", ["Ma tai san (Asset Tag)", "Ten tai san", "Danh muc", "Serial", "Model", "Nha san xuat", "Dia diem", "Trang thai", "Ghi chu"]);
         AddSheet(wb, "5_LinhKien", ["Ten linh kien", "Danh muc", "Kieu theo doi", "Serial", "So luong", "Nguong canh bao", "Model", "Nha san xuat", "Dia diem", "Ghi chu"]);
         AddSheet(wb, "6_PhuKien", ["Ten phu kien", "Danh muc", "So luong", "Nguong canh bao", "Ma / Model", "Nha san xuat", "Dia diem", "Ghi chu"]);

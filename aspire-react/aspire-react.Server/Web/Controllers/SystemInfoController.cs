@@ -54,11 +54,20 @@ public class SystemInfoController : ControllerBase
             .Include(s => s.Company)
             .AsNoTracking()
             .OrderBy(s => s.Code)
-            .Select(s => new {
-                s.Id, s.Code, s.Name, s.Description, s.CompanyId,
+            .Select(s => new
+            {
+                s.Id,
+                s.Code,
+                s.Name,
+                s.Description,
+                s.CompanyId,
                 Company = s.Company == null ? null : new { s.Company.Id, s.Company.Name },
-                Positions = s.Positions.OrderBy(p => p.Code).Select(p => new {
-                    p.Id, p.Code, p.Name, p.Description,
+                Positions = s.Positions.OrderBy(p => p.Code).Select(p => new
+                {
+                    p.Id,
+                    p.Code,
+                    p.Name,
+                    p.Description,
                     SystemInfoId = p.SystemInfoId,
                     SystemInfoName = s.Name
                 })
@@ -88,11 +97,18 @@ public class SystemInfoController : ControllerBase
         // SystemInfo) and would fail JSON serialization with a possible-object-cycle error.
         var data = new
         {
-            s.Id, s.Code, s.Name, s.Description, s.CompanyId,
+            s.Id,
+            s.Code,
+            s.Name,
+            s.Description,
+            s.CompanyId,
             Company = s.Company == null ? null : new { s.Company.Id, s.Company.Name },
             Positions = s.Positions.OrderBy(p => p.Code).Select(p => new
             {
-                p.Id, p.Code, p.Name, p.Description,
+                p.Id,
+                p.Code,
+                p.Name,
+                p.Description,
                 SystemInfoId = p.SystemInfoId,
                 SystemInfoName = s.Name
             })
@@ -168,8 +184,16 @@ public class SystemInfoController : ControllerBase
         if (dto.Description is not null) s.Description = dto.Description;
         if (dto.CompanyId.HasValue) s.CompanyId = dto.CompanyId;
         await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemInfo, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = s.CompanyId,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = s.Code }, name = new { old = before.Name, @new = s.Name }, description = new { old = before.Description, @new = s.Description }, companyId = new { old = before.CompanyId, @new = s.CompanyId } } }), Note = $"Cập nhật hệ thống \"{s.Name}\"" });
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.SystemInfo,
+            ItemId = id,
+            ActionType = ActionType.Update,
+            CreatedBy = GetCurrentUserId(),
+            CompanyId = s.CompanyId,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = s.Code }, name = new { old = before.Name, @new = s.Name }, description = new { old = before.Description, @new = s.Description }, companyId = new { old = before.CompanyId, @new = s.CompanyId } } }),
+            Note = $"Cập nhật hệ thống \"{s.Name}\""
+        });
         await _context.SaveChangesAsync();
         return Ok(new { status = "success", message = "Updated." });
     }
@@ -255,8 +279,16 @@ public class SystemInfoController : ControllerBase
         if (!string.IsNullOrWhiteSpace(dto.Name)) pos.Name = dto.Name;
         if (dto.Description is not null) pos.Description = dto.Description;
         await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemPosition, ItemId = posId, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = pos.SystemInfo?.CompanyId,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = pos.Code }, name = new { old = before.Name, @new = pos.Name }, description = new { old = before.Description, @new = pos.Description } } }), Note = $"Cập nhật vị trí \"{pos.Name}\"" });
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.SystemPosition,
+            ItemId = posId,
+            ActionType = ActionType.Update,
+            CreatedBy = GetCurrentUserId(),
+            CompanyId = pos.SystemInfo?.CompanyId,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = pos.Code }, name = new { old = before.Name, @new = pos.Name }, description = new { old = before.Description, @new = pos.Description } } }),
+            Note = $"Cập nhật vị trí \"{pos.Name}\""
+        });
         await _context.SaveChangesAsync();
         return Ok(new { status = "success", message = "Position updated." });
     }

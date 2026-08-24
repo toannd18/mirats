@@ -67,16 +67,28 @@ public class AssetsController : ControllerBase
 
         var total = await query.CountAsync();
         var assets = await query.OrderBy(a => a.AssetTag).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(a => new {
-                a.Id, a.AssetTag, a.Name, a.Serial, a.Notes, a.PurchaseCost, a.PurchaseDate,
-                Status = a.Status.ToString(), a.IsConfirmed, a.CheckoutCounter, a.CheckinCounter,
-                a.LastCheckout, a.LastCheckin,
+            .Select(a => new
+            {
+                a.Id,
+                a.AssetTag,
+                a.Name,
+                a.Serial,
+                a.Notes,
+                a.PurchaseCost,
+                a.PurchaseDate,
+                Status = a.Status.ToString(),
+                a.IsConfirmed,
+                a.CheckoutCounter,
+                a.CheckinCounter,
+                a.LastCheckout,
+                a.LastCheckin,
                 Model = a.Model == null ? null : new { a.Model.Id, a.Model.Name },
                 Category = a.Model == null || a.Model.Category == null ? null : new { a.Model.Category.Id, a.Model.Category.Name, a.Model.Category.TagColor },
                 Manufacturer = a.Model == null || a.Model.Manufacturer == null ? null : new { a.Model.Manufacturer.Id, a.Model.Manufacturer.Name },
                 Location = a.Location == null ? null : new { a.Location.Id, a.Location.Name },
                 Company = a.Company == null ? null : new { a.Company.Id, a.Company.Name },
-                AssignedTo = a.CurrentAssignment == null ? null : new {
+                AssignedTo = a.CurrentAssignment == null ? null : new
+                {
                     type = a.CurrentAssignment.TargetType.ToString(),
                     targetId = a.CurrentAssignment.TargetId
                 }
@@ -85,7 +97,8 @@ public class AssetsController : ControllerBase
         // ── Batch-resolve assigned-to target names ──
         var atAssets = assets.Where(a => a.AssignedTo != null).Select(a => a.AssignedTo!).ToList();
         var uDict = new Dictionary<Guid, string>(); var dDict = new Dictionary<Guid, string>(); var pDict = new Dictionary<Guid, string>();
-        if (atAssets.Any()) {
+        if (atAssets.Any())
+        {
             var uids = atAssets.Where(x => x.type == "User").Select(x => x.targetId).Distinct().ToList();
             var dids = atAssets.Where(x => x.type == "Department").Select(x => x.targetId).Distinct().ToList();
             var pids = atAssets.Where(x => x.type == "SystemPosition").Select(x => x.targetId).Distinct().ToList();
@@ -93,7 +106,8 @@ public class AssetsController : ControllerBase
             if (dids.Any()) dDict = await _context.Departments.Where(d => dids.Contains(d.Id)).ToDictionaryAsync(d => d.Id, d => d.Name);
             if (pids.Any()) pDict = await _context.SystemPositions.Where(sp => pids.Contains(sp.Id)).ToDictionaryAsync(sp => sp.Id, sp => sp.Name);
         }
-        var enriched = assets.Select(a => {
+        var enriched = assets.Select(a =>
+        {
             string? an = null;
             if (a.AssignedTo != null) an = a.AssignedTo.type switch { "User" => uDict.GetValueOrDefault(a.AssignedTo.targetId), "Department" => dDict.GetValueOrDefault(a.AssignedTo.targetId), "SystemPosition" => pDict.GetValueOrDefault(a.AssignedTo.targetId), _ => null };
             return new { a.Id, a.AssetTag, a.Name, a.Serial, a.Notes, a.PurchaseCost, a.PurchaseDate, a.Status, a.IsConfirmed, a.CheckoutCounter, a.CheckinCounter, a.LastCheckout, a.LastCheckin, a.Model, a.Category, a.Manufacturer, a.Location, a.Company, AssignedTo = a.AssignedTo == null ? null : new { a.AssignedTo.type, a.AssignedTo.targetId, name = an } };
@@ -133,24 +147,44 @@ public class AssetsController : ControllerBase
             };
         }
 
-        return Ok(new { status = "success", data = new {
-            asset.Id, asset.AssetTag, asset.Name, asset.Serial, asset.Image,
-            asset.PurchaseCost, asset.PurchaseDate, asset.WarrantyMonths,
-            asset.LastCheckout, asset.LastCheckin,
-            asset.LastAuditDate, asset.NextAuditDate,
-            asset.CheckinCounter, asset.CheckoutCounter, asset.RequestsCounter,
-            Status = asset.Status.ToString(), asset.IsConfirmed,
-            asset.Physical, asset.Requestable, asset.Accepted,
-            asset.OrderNumber, asset.Notes,
-            asset.CreatedAt, asset.UpdatedAt,
-            Model = asset.Model == null ? null : new { asset.Model.Id, asset.Model.Name, asset.Model.ModelNumber },
-            Category = asset.Model?.Category == null ? null : new { asset.Model.Category.Id, asset.Model.Category.Name, asset.Model.Category.TagColor },
-            Manufacturer = asset.Model?.Manufacturer == null ? null : new { asset.Model.Manufacturer.Id, asset.Model.Manufacturer.Name },
-            Location = asset.Location == null ? null : new { asset.Location.Id, asset.Location.Name },
-            Supplier = asset.Supplier == null ? null : new { asset.Supplier.Id, asset.Supplier.Name },
-            Company = asset.Company == null ? null : new { asset.Company.Id, asset.Company.Name },
-            AssignedTo = assignedTo
-        }});
+        return Ok(new
+        {
+            status = "success",
+            data = new
+            {
+                asset.Id,
+                asset.AssetTag,
+                asset.Name,
+                asset.Serial,
+                asset.Image,
+                asset.PurchaseCost,
+                asset.PurchaseDate,
+                asset.WarrantyMonths,
+                asset.LastCheckout,
+                asset.LastCheckin,
+                asset.LastAuditDate,
+                asset.NextAuditDate,
+                asset.CheckinCounter,
+                asset.CheckoutCounter,
+                asset.RequestsCounter,
+                Status = asset.Status.ToString(),
+                asset.IsConfirmed,
+                asset.Physical,
+                asset.Requestable,
+                asset.Accepted,
+                asset.OrderNumber,
+                asset.Notes,
+                asset.CreatedAt,
+                asset.UpdatedAt,
+                Model = asset.Model == null ? null : new { asset.Model.Id, asset.Model.Name, asset.Model.ModelNumber },
+                Category = asset.Model?.Category == null ? null : new { asset.Model.Category.Id, asset.Model.Category.Name, asset.Model.Category.TagColor },
+                Manufacturer = asset.Model?.Manufacturer == null ? null : new { asset.Model.Manufacturer.Id, asset.Model.Manufacturer.Name },
+                Location = asset.Location == null ? null : new { asset.Location.Id, asset.Location.Name },
+                Supplier = asset.Supplier == null ? null : new { asset.Supplier.Id, asset.Supplier.Name },
+                Company = asset.Company == null ? null : new { asset.Company.Id, asset.Company.Name },
+                AssignedTo = assignedTo
+            }
+        });
     }
 
     // ==================== CREATE ====================
@@ -162,12 +196,21 @@ public class AssetsController : ControllerBase
         var userId = GetCurrentUserId();
         var result = await _mediator.Send(new CreateAssetCommand
         {
-            AssetTag = r.AssetTag, Name = r.Name, Serial = r.Serial,
-            ModelId = r.ModelId, LocationId = r.LocationId,
-            SupplierId = r.SupplierId, CompanyId = r.CompanyId,
-            PurchaseCost = r.PurchaseCost, PurchaseDate = r.PurchaseDate,
-            WarrantyMonths = r.WarrantyMonths, OrderNumber = r.OrderNumber, Notes = r.Notes,
-            Physical = r.Physical, Requestable = r.Requestable, CurrentUserId = userId
+            AssetTag = r.AssetTag,
+            Name = r.Name,
+            Serial = r.Serial,
+            ModelId = r.ModelId,
+            LocationId = r.LocationId,
+            SupplierId = r.SupplierId,
+            CompanyId = r.CompanyId,
+            PurchaseCost = r.PurchaseCost,
+            PurchaseDate = r.PurchaseDate,
+            WarrantyMonths = r.WarrantyMonths,
+            OrderNumber = r.OrderNumber,
+            Notes = r.Notes,
+            Physical = r.Physical,
+            Requestable = r.Requestable,
+            CurrentUserId = userId
         });
         if (!result.Success) return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         return CreatedAtAction(nameof(GetAsset), new { id = result.AssetId }, new { status = "success", message = result.Message, data = new { Id = result.AssetId } });
@@ -182,12 +225,23 @@ public class AssetsController : ControllerBase
         var userId = GetCurrentUserId();
         var result = await _mediator.Send(new UpdateAssetCommand
         {
-            Id = id, AssetTag = r.AssetTag ?? string.Empty, Name = r.Name, Serial = r.Serial,
-            Image = r.Image, ModelId = r.ModelId, LocationId = r.LocationId,
-            SupplierId = r.SupplierId, CompanyId = r.CompanyId,
-            PurchaseCost = r.PurchaseCost, PurchaseDate = r.PurchaseDate,
-            WarrantyMonths = r.WarrantyMonths, OrderNumber = r.OrderNumber, Notes = r.Notes,
-            Physical = r.Physical, Requestable = r.Requestable, CurrentUserId = userId
+            Id = id,
+            AssetTag = r.AssetTag ?? string.Empty,
+            Name = r.Name,
+            Serial = r.Serial,
+            Image = r.Image,
+            ModelId = r.ModelId,
+            LocationId = r.LocationId,
+            SupplierId = r.SupplierId,
+            CompanyId = r.CompanyId,
+            PurchaseCost = r.PurchaseCost,
+            PurchaseDate = r.PurchaseDate,
+            WarrantyMonths = r.WarrantyMonths,
+            OrderNumber = r.OrderNumber,
+            Notes = r.Notes,
+            Physical = r.Physical,
+            Requestable = r.Requestable,
+            CurrentUserId = userId
         });
         if (!result.Success) return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         return Ok(new { status = "success", message = result.Message });
@@ -282,9 +336,18 @@ public class AssetsController : ControllerBase
         var logs = await _context.ActionLogs.Include(l => l.Creator).AsNoTracking()
             .Where(l => l.ItemType == ItemType.Asset && l.ItemId == id && l.DeletedAt == null)
             .OrderByDescending(l => l.ActionDate).Take(50)
-            .Select(l => new { l.Id, l.ActionType, l.Note, l.LogMeta, l.ActionDate,
-                l.LocationId, l.RemoteIp, l.ActionSource,
-                Creator = new { l.Creator.Id, l.Creator.Username, l.Creator.FirstName, l.Creator.LastName } })
+            .Select(l => new
+            {
+                l.Id,
+                l.ActionType,
+                l.Note,
+                l.LogMeta,
+                l.ActionDate,
+                l.LocationId,
+                l.RemoteIp,
+                l.ActionSource,
+                Creator = new { l.Creator.Id, l.Creator.Username, l.Creator.FirstName, l.Creator.LastName }
+            })
             .ToListAsync();
         return Ok(new { status = "success", data = logs });
     }

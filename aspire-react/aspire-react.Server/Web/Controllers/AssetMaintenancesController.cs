@@ -76,12 +76,18 @@ public class AssetMaintenancesController : ControllerBase
                 m.CompanyId,
                 Supplier = m.Supplier == null ? null : new { m.Supplier.Id, m.Supplier.Name },
                 Asset = new { m.Asset.Id, m.Asset.AssetTag, m.Asset.Name },
-                m.SnapshotSystemInfoId, m.SnapshotSystemInfoName,
-                m.SnapshotSystemPositionId, m.SnapshotSystemPositionName,
-                m.SnapshotLocationId, m.SnapshotLocationName,
-                m.SnapshotAssignedUserId, m.SnapshotAssignedUserName,
-                m.SnapshotDepartmentId, m.SnapshotDepartmentName,
-                m.InspectedById, m.InspectedAt,
+                m.SnapshotSystemInfoId,
+                m.SnapshotSystemInfoName,
+                m.SnapshotSystemPositionId,
+                m.SnapshotSystemPositionName,
+                m.SnapshotLocationId,
+                m.SnapshotLocationName,
+                m.SnapshotAssignedUserId,
+                m.SnapshotAssignedUserName,
+                m.SnapshotDepartmentId,
+                m.SnapshotDepartmentName,
+                m.InspectedById,
+                m.InspectedAt,
                 InspectedByName = m.InspectedBy != null
                     ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() != "" ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() : m.InspectedBy.Username
                     : null,
@@ -91,7 +97,8 @@ public class AssetMaintenancesController : ControllerBase
                     Name = (a.User.FirstName + " " + a.User.LastName).Trim() != "" ? (a.User.FirstName + " " + a.User.LastName).Trim() : a.User.Username,
                     a.AssignedAt
                 }),
-                m.CreatedAt, m.UpdatedAt
+                m.CreatedAt,
+                m.UpdatedAt
             }).ToListAsync();
 
         return Ok(new { status = "success", data = items, pagination = new { page, pageSize, totalItems = total, totalPages = (int)Math.Ceiling((double)total / pageSize), hasNextPage = page * pageSize < total, hasPreviousPage = page > 1 } });
@@ -141,12 +148,18 @@ public class AssetMaintenancesController : ControllerBase
                 m.CompanyId,
                 Supplier = m.Supplier == null ? null : new { m.Supplier.Id, m.Supplier.Name },
                 Asset = new { m.Asset.Id, m.Asset.AssetTag, m.Asset.Name, CompanyName = m.Asset.Company != null ? m.Asset.Company.Name : (string?)null },
-                m.SnapshotSystemInfoId, m.SnapshotSystemInfoName,
-                m.SnapshotSystemPositionId, m.SnapshotSystemPositionName,
-                m.SnapshotLocationId, m.SnapshotLocationName,
-                m.SnapshotAssignedUserId, m.SnapshotAssignedUserName,
-                m.SnapshotDepartmentId, m.SnapshotDepartmentName,
-                m.InspectedById, m.InspectedAt,
+                m.SnapshotSystemInfoId,
+                m.SnapshotSystemInfoName,
+                m.SnapshotSystemPositionId,
+                m.SnapshotSystemPositionName,
+                m.SnapshotLocationId,
+                m.SnapshotLocationName,
+                m.SnapshotAssignedUserId,
+                m.SnapshotAssignedUserName,
+                m.SnapshotDepartmentId,
+                m.SnapshotDepartmentName,
+                m.InspectedById,
+                m.InspectedAt,
                 InspectedByName = m.InspectedBy != null
                     ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() != "" ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() : m.InspectedBy.Username
                     : null,
@@ -156,7 +169,8 @@ public class AssetMaintenancesController : ControllerBase
                     Name = (a.User.FirstName + " " + a.User.LastName).Trim() != "" ? (a.User.FirstName + " " + a.User.LastName).Trim() : a.User.Username,
                     a.AssignedAt
                 }),
-                m.CreatedAt, m.UpdatedAt
+                m.CreatedAt,
+                m.UpdatedAt
             }).ToListAsync();
 
         return Ok(new { status = "success", data = items, pagination = new { page, pageSize, totalItems = total, totalPages = (int)Math.Ceiling((double)total / pageSize), hasNextPage = page * pageSize < total, hasPreviousPage = page > 1 } });
@@ -187,52 +201,63 @@ public class AssetMaintenancesController : ControllerBase
         // compare "how it was during maintenance" (Snapshot*) vs "how it is today".
         var cur = await BuildSnapshotAsync(m.Asset, CancellationToken.None);
 
-        return Ok(new { status = "success", data = new
+        return Ok(new
         {
-            m.Id,
-            Type = m.Type.ToString(),
-            m.Title,
-            m.Notes,
-            m.StartDate,
-            m.CompletionDate,
-            m.Cost,
-            m.IsWarranty,
-            m.IsClosed,
-            m.ClosedAt,
-            m.ClosedById,
-            m.CompanyId,
-            Supplier = m.Supplier == null ? null : new { m.Supplier.Id, m.Supplier.Name },
-            Asset = new { m.Asset.Id, m.Asset.AssetTag, m.Asset.Name },
-            m.SnapshotSystemInfoId, m.SnapshotSystemInfoName,
-            m.SnapshotSystemPositionId, m.SnapshotSystemPositionName,
-            m.SnapshotLocationId, m.SnapshotLocationName,
-            m.SnapshotAssignedUserId, m.SnapshotAssignedUserName,
-            m.SnapshotDepartmentId, m.SnapshotDepartmentName,
-            m.InspectedById, m.InspectedAt,
-            InspectedByName = m.InspectedBy != null
+            status = "success",
+            data = new
+            {
+                m.Id,
+                Type = m.Type.ToString(),
+                m.Title,
+                m.Notes,
+                m.StartDate,
+                m.CompletionDate,
+                m.Cost,
+                m.IsWarranty,
+                m.IsClosed,
+                m.ClosedAt,
+                m.ClosedById,
+                m.CompanyId,
+                Supplier = m.Supplier == null ? null : new { m.Supplier.Id, m.Supplier.Name },
+                Asset = new { m.Asset.Id, m.Asset.AssetTag, m.Asset.Name },
+                m.SnapshotSystemInfoId,
+                m.SnapshotSystemInfoName,
+                m.SnapshotSystemPositionId,
+                m.SnapshotSystemPositionName,
+                m.SnapshotLocationId,
+                m.SnapshotLocationName,
+                m.SnapshotAssignedUserId,
+                m.SnapshotAssignedUserName,
+                m.SnapshotDepartmentId,
+                m.SnapshotDepartmentName,
+                m.InspectedById,
+                m.InspectedAt,
+                InspectedByName = m.InspectedBy != null
                 ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() != "" ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() : m.InspectedBy.Username
                 : null,
-            Assignees = m.Assignees.OrderBy(a => a.AssignedAt).Select(a => new
-            {
-                a.UserId,
-                Name = (a.User.FirstName + " " + a.User.LastName).Trim() != "" ? (a.User.FirstName + " " + a.User.LastName).Trim() : a.User.Username,
-                a.AssignedAt
-            }),
-            m.CreatedAt, m.UpdatedAt,
-            currentContext = new
-            {
-                systemInfoId = cur.SysInfoId,
-                systemInfoName = cur.SysInfoName,
-                systemPositionId = cur.PosId,
-                systemPositionName = cur.PosName,
-                locationId = cur.LocId,
-                locationName = cur.LocName,
-                assignedUserId = cur.UserId,
-                assignedUserName = cur.UserName,
-                departmentId = cur.DeptId,
-                departmentName = cur.DeptName
+                Assignees = m.Assignees.OrderBy(a => a.AssignedAt).Select(a => new
+                {
+                    a.UserId,
+                    Name = (a.User.FirstName + " " + a.User.LastName).Trim() != "" ? (a.User.FirstName + " " + a.User.LastName).Trim() : a.User.Username,
+                    a.AssignedAt
+                }),
+                m.CreatedAt,
+                m.UpdatedAt,
+                currentContext = new
+                {
+                    systemInfoId = cur.SysInfoId,
+                    systemInfoName = cur.SysInfoName,
+                    systemPositionId = cur.PosId,
+                    systemPositionName = cur.PosName,
+                    locationId = cur.LocId,
+                    locationName = cur.LocName,
+                    assignedUserId = cur.UserId,
+                    assignedUserName = cur.UserName,
+                    departmentId = cur.DeptId,
+                    departmentName = cur.DeptName
+                }
             }
-        }});
+        });
     }
 
     [HttpPost("assets/{assetId:guid}/maintenances")]

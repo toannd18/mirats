@@ -40,7 +40,9 @@ jobs:
         #   dotnet test aspire-react.Tests --filter "Category=Concurrency"   (while Aspire is up)
         run: dotnet test aspire-react.sln --configuration Release --no-build --verbosity normal --filter "Category!=Concurrency"
       - name: Format check
-        run: dotnet format aspire-react.sln --verify-no-changes --no-restore || true
+        # [CI-FIX CI-2, 2026-08-24] `|| true` removed — the whole solution was formatted and
+        # `--verify-no-changes` passes clean locally, so this is now a real gate.
+        run: dotnet format aspire-react.sln --verify-no-changes --no-restore
 
   frontend-build-lint:
     name: Frontend — Build & Lint
@@ -62,7 +64,9 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint --if-present || true
+        # [CI-FIX CI-2, 2026-08-24] `|| true` removed — all no-explicit-any errors fixed with
+        # proper types; `npm run lint` passes with 0 errors locally, so this is now a real gate.
+        run: npm run lint --if-present
 
       - name: Build
         run: npm run build

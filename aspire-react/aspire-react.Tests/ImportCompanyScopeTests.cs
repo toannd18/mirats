@@ -211,19 +211,21 @@ public class ImportCompanyScopeTests
         public Guid? LastCompanyId { get; private set; }
         private static readonly ImportRowResult OkRow = new(1, true, "Đã import.");
         public Task<ImportSheetResult> ImportReferenceAsync(Stream s, Guid u, Guid c, CancellationToken ct = default)
-            { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
+        { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
+        public Task<ImportSheetResult> ImportAssetModelsAsync(Stream s, Guid u, Guid c, CancellationToken ct = default)
+        { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
         public Task<ImportSheetResult> ImportAssetsAsync(Stream s, Guid u, Guid c, CancellationToken ct = default)
-            { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
+        { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
         public Task<ImportSheetResult> ImportComponentsAsync(Stream s, Guid u, Guid c, CancellationToken ct = default)
-            { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
+        { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
         public Task<ImportSheetResult> ImportAccessoriesAsync(Stream s, Guid u, Guid c, CancellationToken ct = default)
-            { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
+        { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
         public Task<ImportSheetResult> ImportConsumablesAsync(Stream s, Guid u, Guid c, CancellationToken ct = default)
-            { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
+        { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
         public Task<ImportSheetResult> ImportSystemsAsync(Stream s, Guid u, Guid c, CancellationToken ct = default)
-            { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
+        { LastCompanyId = c; return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
         public Task<ImportSheetResult> ImportSystemPositionsAsync(Stream s, Guid u, Guid? c, CancellationToken ct = default)
-            { return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
+        { return Task.FromResult(new ImportSheetResult(1, 0, new[] { OkRow }, Array.Empty<ImportRowResult>())); }
     }
 
     private static ImportExportController BuildController(

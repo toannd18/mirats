@@ -30,15 +30,28 @@ public class AdminController : ControllerBase
 
     // === Models ===
     [HttpGet("models"), Authorize(Policy = "models.view")]
-    public async Task<IActionResult> GetModels() {
+    public async Task<IActionResult> GetModels()
+    {
         var list = await _context.Models.Include(m => m.Manufacturer).Include(m => m.Category).Include(m => m.Depreciation)
             .AsNoTracking().OrderBy(m => m.Name)
-            .Select(m => new { m.Id, m.Name, m.ModelNumber, m.Eol, m.Notes, m.Requestable, m.ManufacturerId, m.CategoryId, m.DepreciationId, m.FieldsetId,
+            .Select(m => new
+            {
+                m.Id,
+                m.Name,
+                m.ModelNumber,
+                m.Eol,
+                m.Notes,
+                m.Requestable,
+                m.ManufacturerId,
+                m.CategoryId,
+                m.DepreciationId,
+                m.FieldsetId,
                 Manufacturer = m.Manufacturer == null ? null : new { m.Manufacturer.Id, m.Manufacturer.Name },
                 Category = m.Category == null ? null : new { m.Category.Id, m.Category.Name },
                 Depreciation = m.Depreciation == null ? null : new { m.Depreciation.Id, m.Depreciation.Name, m.Depreciation.Months }
             }).ToListAsync();
-        return Ok(new { status = "success", data = list }); }
+        return Ok(new { status = "success", data = list });
+    }
     [HttpPost("models"), Authorize(Policy = "models.create")]
     public async Task<IActionResult> CreateModel(AssetModel m)
     {
@@ -48,7 +61,8 @@ public class AdminController : ControllerBase
         return Ok(new { status = "success", data = new { m.Id } });
     }
     [HttpPut("models/{id:guid}"), Authorize(Policy = "models.edit")]
-    public async Task<IActionResult> UpdateModel(Guid id, [FromBody] UpdateAssetModelRequest updated) {
+    public async Task<IActionResult> UpdateModel(Guid id, [FromBody] UpdateAssetModelRequest updated)
+    {
         var m = await _context.Models.FindAsync(id);
         if (m == null) return NotFound(new { status = "error", message = "Not found." });
         // Task M2 patch semantics: only fields explicitly sent are applied (absent → keep current).
@@ -63,11 +77,21 @@ public class AdminController : ControllerBase
         if (updated.Notes is not null) m.Notes = updated.Notes;
         if (updated.Requestable.HasValue) m.Requestable = updated.Requestable.Value;
         await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Model, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = null,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = m.Name }, modelNumber = new { old = before.ModelNumber, @new = m.ModelNumber }, manufacturerId = new { old = before.ManufacturerId, @new = m.ManufacturerId }, categoryId = new { old = before.CategoryId, @new = m.CategoryId }, depreciationId = new { old = before.DepreciationId, @new = m.DepreciationId }, fieldsetId = new { old = before.FieldsetId, @new = m.FieldsetId }, eol = new { old = before.Eol, @new = m.Eol }, notes = new { old = before.Notes, @new = m.Notes }, requestable = new { old = before.Requestable, @new = m.Requestable } } }), Note = $"Cập nhật model \"{m.Name}\"" });
-        return Ok(new { status = "success", message = "Updated." }); }
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.Model,
+            ItemId = id,
+            ActionType = ActionType.Update,
+            CreatedBy = GetCurrentUserId(),
+            CompanyId = null,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = m.Name }, modelNumber = new { old = before.ModelNumber, @new = m.ModelNumber }, manufacturerId = new { old = before.ManufacturerId, @new = m.ManufacturerId }, categoryId = new { old = before.CategoryId, @new = m.CategoryId }, depreciationId = new { old = before.DepreciationId, @new = m.DepreciationId }, fieldsetId = new { old = before.FieldsetId, @new = m.FieldsetId }, eol = new { old = before.Eol, @new = m.Eol }, notes = new { old = before.Notes, @new = m.Notes }, requestable = new { old = before.Requestable, @new = m.Requestable } } }),
+            Note = $"Cập nhật model \"{m.Name}\""
+        });
+        return Ok(new { status = "success", message = "Updated." });
+    }
     [HttpDelete("models/{id:guid}"), Authorize(Policy = "models.delete")]
-    public async Task<IActionResult> DeleteModel(Guid id) {
+    public async Task<IActionResult> DeleteModel(Guid id)
+    {
         var hasAssets = await _context.Assets.AnyAsync(a => a.ModelId == id);
         if (hasAssets) return BadRequest(new { status = "error", message = "Không thể xóa Model đang có tài sản sử dụng." });
         var m = await _context.Models.FindAsync(id);
@@ -76,28 +100,34 @@ public class AdminController : ControllerBase
         _context.Models.Remove(m); await _context.SaveChangesAsync();
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Model, ItemId = id, ActionType = ActionType.Delete, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Xóa model \"{nameM}\"" });
         await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Deleted." }); }
+        return Ok(new { status = "success", message = "Deleted." });
+    }
 
     // === Categories ===
     [HttpGet("categories"), Authorize(Policy = "categories.view")]
     [OutputCache(PolicyName = "RefData", Tags = [CacheTags.Categories])] // Task P: reference-data, non-company-scoped (no CompanyId), same for all authorized users
-    public async Task<IActionResult> GetCategories([FromQuery] CategoryType? type) {
+    public async Task<IActionResult> GetCategories([FromQuery] CategoryType? type)
+    {
         var query = _context.Categories.AsNoTracking();
         if (type.HasValue) query = query.Where(c => c.CategoryType == type.Value);
         var list = await query.OrderBy(c => c.Name)
             .Select(c => new { c.Id, c.Name, c.CategoryType, c.TagColor, c.CheckinEmail, c.RequireAcceptance, c.UseDefaultEula, c.Notes }).ToListAsync();
-        return Ok(new { status = "success", data = list }); }
+        return Ok(new { status = "success", data = list });
+    }
     [HttpPost("categories"), Authorize(Policy = "categories.create")]
-    public async Task<IActionResult> CreateCategory([FromBody] Category c) {
+    public async Task<IActionResult> CreateCategory([FromBody] Category c)
+    {
         var exists = await _context.Categories.AnyAsync(x => x.Name == c.Name && x.CategoryType == c.CategoryType);
         if (exists) return BadRequest(new { status = "error", message = "Tên danh mục đã tồn tại." });
         _context.Categories.Add(c);
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Category, ItemId = c.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Tạo danh mục \"{c.Name}\" (loại: {c.CategoryType})" });
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateCategoriesAsync();
-        return Ok(new { status = "success", data = new { c.Id, c.Name } }); }
+        return Ok(new { status = "success", data = new { c.Id, c.Name } });
+    }
     [HttpPut("categories/{id:guid}"), Authorize(Policy = "categories.edit")]
-    public async Task<IActionResult> UpdateCategory(Guid id, [FromBody] UpdateCategoryRequest updated) {
+    public async Task<IActionResult> UpdateCategory(Guid id, [FromBody] UpdateCategoryRequest updated)
+    {
         var c = await _context.Categories.FindAsync(id);
         if (c == null) return NotFound(new { status = "error", message = "Category not found." });
         // Task M2 patch semantics: only fields explicitly sent are applied (absent → keep current).
@@ -110,13 +140,23 @@ public class AdminController : ControllerBase
         if (updated.UseDefaultEula.HasValue) c.UseDefaultEula = updated.UseDefaultEula.Value;
         if (updated.Notes is not null) c.Notes = updated.Notes;
         // CategoryType cannot be changed after creation
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Category, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = null,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = c.Name }, tagColor = new { old = before.TagColor, @new = c.TagColor }, checkinEmail = new { old = before.CheckinEmail, @new = c.CheckinEmail }, requireAcceptance = new { old = before.RequireAcceptance, @new = c.RequireAcceptance }, useDefaultEula = new { old = before.UseDefaultEula, @new = c.UseDefaultEula }, notes = new { old = before.Notes, @new = c.Notes } } }), Note = $"Cập nhật danh mục \"{oldName}\"" });
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.Category,
+            ItemId = id,
+            ActionType = ActionType.Update,
+            CreatedBy = GetCurrentUserId(),
+            CompanyId = null,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = c.Name }, tagColor = new { old = before.TagColor, @new = c.TagColor }, checkinEmail = new { old = before.CheckinEmail, @new = c.CheckinEmail }, requireAcceptance = new { old = before.RequireAcceptance, @new = c.RequireAcceptance }, useDefaultEula = new { old = before.UseDefaultEula, @new = c.UseDefaultEula }, notes = new { old = before.Notes, @new = c.Notes } } }),
+            Note = $"Cập nhật danh mục \"{oldName}\""
+        });
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateCategoriesAsync();
-        return Ok(new { status = "success", message = "Updated." }); }
+        return Ok(new { status = "success", message = "Updated." });
+    }
     [HttpDelete("categories/{id:guid}"), Authorize(Policy = "categories.delete")]
-    public async Task<IActionResult> DeleteCategory(Guid id) {
+    public async Task<IActionResult> DeleteCategory(Guid id)
+    {
         var c = await _context.Categories.FindAsync(id);
         if (c == null) return NotFound(new { status = "error", message = "Category not found." });
 
@@ -135,16 +175,20 @@ public class AdminController : ControllerBase
         _context.Categories.Remove(c);
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateCategoriesAsync();
-        return Ok(new { status = "success", message = "Deleted." }); }
+        return Ok(new { status = "success", message = "Deleted." });
+    }
 
     // === Manufacturers ===
     [HttpGet("manufacturers"), Authorize(Policy = "manufacturers.view")]
     [OutputCache(PolicyName = "RefData", Tags = [CacheTags.Manufacturers])] // Task P: reference-data, no CompanyId, same for all authorized users
-    public async Task<IActionResult> GetManufacturers() {
+    public async Task<IActionResult> GetManufacturers()
+    {
         var list = await _context.Manufacturers.AsNoTracking().OrderBy(m => m.Code).ToListAsync();
-        return Ok(new { status = "success", data = list }); }
+        return Ok(new { status = "success", data = list });
+    }
     [HttpPost("manufacturers"), Authorize(Policy = "manufacturers.create")]
-    public async Task<IActionResult> CreateManufacturer([FromBody] Manufacturer m) {
+    public async Task<IActionResult> CreateManufacturer([FromBody] Manufacturer m)
+    {
         if (string.IsNullOrWhiteSpace(m.Code) || m.Code.Length < 2 || m.Code.Length > 5)
             return BadRequest(new { status = "error", message = "Mã NSX phải từ 2-5 ký tự." });
         if (await _context.Manufacturers.AnyAsync(x => x.Code == m.Code))
@@ -155,9 +199,11 @@ public class AdminController : ControllerBase
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Manufacturer, ItemId = m.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Tạo nhà sản xuất \"{m.Name}\"" });
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateManufacturersAsync();
-        return Ok(new { status = "success", data = new { m.Id, m.Code, m.Name } }); }
+        return Ok(new { status = "success", data = new { m.Id, m.Code, m.Name } });
+    }
     [HttpPut("manufacturers/{id:guid}"), Authorize(Policy = "manufacturers.edit")]
-    public async Task<IActionResult> UpdateManufacturer(Guid id, [FromBody] Manufacturer updated) {
+    public async Task<IActionResult> UpdateManufacturer(Guid id, [FromBody] Manufacturer updated)
+    {
         var m = await _context.Manufacturers.FindAsync(id);
         if (m == null) return NotFound(new { status = "error", message = "Not found." });
         // Task M2 patch semantics: only fields explicitly sent are applied (absent → keep current).
@@ -180,13 +226,23 @@ public class AdminController : ControllerBase
         if (updated.SupportUrl is not null) m.SupportUrl = updated.SupportUrl;
         if (updated.SupportEmail is not null) m.SupportEmail = updated.SupportEmail;
         await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Manufacturer, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = null,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = m.Code }, name = new { old = before.Name, @new = m.Name }, url = new { old = before.Url, @new = m.Url }, supportUrl = new { old = before.SupportUrl, @new = m.SupportUrl }, supportEmail = new { old = before.SupportEmail, @new = m.SupportEmail } } }), Note = $"Cập nhật nhà sản xuất \"{m.Name}\"" });
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.Manufacturer,
+            ItemId = id,
+            ActionType = ActionType.Update,
+            CreatedBy = GetCurrentUserId(),
+            CompanyId = null,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = m.Code }, name = new { old = before.Name, @new = m.Name }, url = new { old = before.Url, @new = m.Url }, supportUrl = new { old = before.SupportUrl, @new = m.SupportUrl }, supportEmail = new { old = before.SupportEmail, @new = m.SupportEmail } } }),
+            Note = $"Cập nhật nhà sản xuất \"{m.Name}\""
+        });
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateManufacturersAsync();
-        return Ok(new { status = "success", message = "Updated." }); }
+        return Ok(new { status = "success", message = "Updated." });
+    }
     [HttpDelete("manufacturers/{id:guid}"), Authorize(Policy = "manufacturers.delete")]
-    public async Task<IActionResult> DeleteManufacturer(Guid id) {
+    public async Task<IActionResult> DeleteManufacturer(Guid id)
+    {
         var m = await _context.Manufacturers.FindAsync(id);
         if (m == null) return NotFound(new { status = "error", message = "Not found." });
         var mName = m.Name;
@@ -201,16 +257,20 @@ public class AdminController : ControllerBase
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Manufacturer, ItemId = id, ActionType = ActionType.Delete, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Xóa nhà sản xuất \"{mName}\"" });
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateManufacturersAsync();
-        return Ok(new { status = "success", message = "Deleted." }); }
+        return Ok(new { status = "success", message = "Deleted." });
+    }
 
     // === Suppliers ===
     [HttpGet("suppliers"), Authorize(Policy = "suppliers.view")]
     [OutputCache(PolicyName = "RefData", Tags = [CacheTags.Suppliers])] // Task P: reference-data, no CompanyId, same for all authorized users
-    public async Task<IActionResult> GetSuppliers() {
+    public async Task<IActionResult> GetSuppliers()
+    {
         var list = await _context.Suppliers.AsNoTracking().OrderBy(s => s.Code).ToListAsync();
-        return Ok(new { status = "success", data = list }); }
+        return Ok(new { status = "success", data = list });
+    }
     [HttpPost("suppliers"), Authorize(Policy = "suppliers.create")]
-    public async Task<IActionResult> CreateSupplier([FromBody] Supplier s) {
+    public async Task<IActionResult> CreateSupplier([FromBody] Supplier s)
+    {
         if (string.IsNullOrWhiteSpace(s.Code) || s.Code.Length < 2 || s.Code.Length > 5)
             return BadRequest(new { status = "error", message = "Mã NCC phải từ 2-5 ký tự." });
         if (await _context.Suppliers.AnyAsync(x => x.Code == s.Code))
@@ -221,9 +281,11 @@ public class AdminController : ControllerBase
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Supplier, ItemId = s.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Tạo nhà cung cấp \"{s.Name}\"" });
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateSuppliersAsync();
-        return Ok(new { status = "success", data = new { s.Id, s.Code, s.Name } }); }
+        return Ok(new { status = "success", data = new { s.Id, s.Code, s.Name } });
+    }
     [HttpPut("suppliers/{id:guid}"), Authorize(Policy = "suppliers.edit")]
-    public async Task<IActionResult> UpdateSupplier(Guid id, [FromBody] Supplier updated) {
+    public async Task<IActionResult> UpdateSupplier(Guid id, [FromBody] Supplier updated)
+    {
         var s = await _context.Suppliers.FindAsync(id);
         if (s == null) return NotFound(new { status = "error", message = "Not found." });
         // Task M2 patch semantics: only fields explicitly sent are applied (absent → keep current).
@@ -253,13 +315,23 @@ public class AdminController : ControllerBase
         if (updated.ContactName is not null) s.ContactName = updated.ContactName;
         if (updated.ContactEmail is not null) s.ContactEmail = updated.ContactEmail;
         await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Supplier, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = null,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = s.Code }, name = new { old = before.Name, @new = s.Name }, url = new { old = before.Url, @new = s.Url }, address = new { old = before.Address, @new = s.Address }, city = new { old = before.City, @new = s.City }, state = new { old = before.State, @new = s.State }, country = new { old = before.Country, @new = s.Country }, zip = new { old = before.Zip, @new = s.Zip }, phone = new { old = before.Phone, @new = s.Phone }, fax = new { old = before.Fax, @new = s.Fax }, contactName = new { old = before.ContactName, @new = s.ContactName }, contactEmail = new { old = before.ContactEmail, @new = s.ContactEmail } } }), Note = $"Cập nhật nhà cung cấp \"{s.Name}\"" });
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.Supplier,
+            ItemId = id,
+            ActionType = ActionType.Update,
+            CreatedBy = GetCurrentUserId(),
+            CompanyId = null,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = s.Code }, name = new { old = before.Name, @new = s.Name }, url = new { old = before.Url, @new = s.Url }, address = new { old = before.Address, @new = s.Address }, city = new { old = before.City, @new = s.City }, state = new { old = before.State, @new = s.State }, country = new { old = before.Country, @new = s.Country }, zip = new { old = before.Zip, @new = s.Zip }, phone = new { old = before.Phone, @new = s.Phone }, fax = new { old = before.Fax, @new = s.Fax }, contactName = new { old = before.ContactName, @new = s.ContactName }, contactEmail = new { old = before.ContactEmail, @new = s.ContactEmail } } }),
+            Note = $"Cập nhật nhà cung cấp \"{s.Name}\""
+        });
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateSuppliersAsync();
-        return Ok(new { status = "success", message = "Updated." }); }
+        return Ok(new { status = "success", message = "Updated." });
+    }
     [HttpDelete("suppliers/{id:guid}"), Authorize(Policy = "suppliers.delete")]
-    public async Task<IActionResult> DeleteSupplier(Guid id) {
+    public async Task<IActionResult> DeleteSupplier(Guid id)
+    {
         var s = await _context.Suppliers.FindAsync(id);
         if (s == null) return NotFound(new { status = "error", message = "Not found." });
         var sName = s.Name;
@@ -274,11 +346,13 @@ public class AdminController : ControllerBase
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Supplier, ItemId = id, ActionType = ActionType.Delete, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Xóa nhà cung cấp \"{sName}\"" });
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateSuppliersAsync();
-        return Ok(new { status = "success", message = "Deleted." }); }
+        return Ok(new { status = "success", message = "Deleted." });
+    }
 
     // === Locations ===
     [HttpGet("locations"), Authorize(Policy = "locations.view")]
-    public async Task<IActionResult> GetLocations([FromQuery] Guid? companyId) {
+    public async Task<IActionResult> GetLocations([FromQuery] Guid? companyId)
+    {
         // [Task U] Company-scoping: FORCE scope to the acting user's company (or floater) for a
         // regular user — never trust the optional `companyId` query param (omitting it used to
         // reveal every company's locations). Superuser may optionally filter by `companyId`.
@@ -290,7 +364,8 @@ public class AdminController : ControllerBase
             query = query.Where(l => l.CompanyId == companyId.Value);
         var list = await query.OrderBy(l => l.Name)
             .Select(l => new { l.Id, l.Name, l.ParentId, l.CompanyId, l.ManagerId, l.Address, l.City, l.State, l.Country, l.Zip }).ToListAsync();
-        return Ok(new { status = "success", data = list }); }
+        return Ok(new { status = "success", data = list });
+    }
     [HttpPost("locations"), Authorize(Policy = "locations.create")]
     public async Task<IActionResult> CreateLocation(Location l)
     {
@@ -300,7 +375,8 @@ public class AdminController : ControllerBase
         return Ok(new { status = "success", data = new { l.Id } });
     }
     [HttpPut("locations/{id:guid}"), Authorize(Policy = "locations.edit")]
-    public async Task<IActionResult> UpdateLocation(Guid id, [FromBody] Location updated) {
+    public async Task<IActionResult> UpdateLocation(Guid id, [FromBody] Location updated)
+    {
         var l = await _context.Locations.FindAsync(id);
         if (l == null) return NotFound(new { status = "error", message = "Not found." });
 
@@ -321,12 +397,22 @@ public class AdminController : ControllerBase
         if (updated.Country is not null) l.Country = updated.Country;
         if (updated.Zip is not null) l.Zip = updated.Zip;
         await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Location, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = l.CompanyId,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = l.Name }, parentId = new { old = before.ParentId, @new = l.ParentId }, companyId = new { old = before.CompanyId, @new = l.CompanyId }, managerId = new { old = before.ManagerId, @new = l.ManagerId }, address = new { old = before.Address, @new = l.Address }, city = new { old = before.City, @new = l.City }, state = new { old = before.State, @new = l.State }, country = new { old = before.Country, @new = l.Country }, zip = new { old = before.Zip, @new = l.Zip } } }), Note = $"Cập nhật địa điểm \"{l.Name}\"" });
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.Location,
+            ItemId = id,
+            ActionType = ActionType.Update,
+            CreatedBy = GetCurrentUserId(),
+            CompanyId = l.CompanyId,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = l.Name }, parentId = new { old = before.ParentId, @new = l.ParentId }, companyId = new { old = before.CompanyId, @new = l.CompanyId }, managerId = new { old = before.ManagerId, @new = l.ManagerId }, address = new { old = before.Address, @new = l.Address }, city = new { old = before.City, @new = l.City }, state = new { old = before.State, @new = l.State }, country = new { old = before.Country, @new = l.Country }, zip = new { old = before.Zip, @new = l.Zip } } }),
+            Note = $"Cập nhật địa điểm \"{l.Name}\""
+        });
         await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Updated." }); }
+        return Ok(new { status = "success", message = "Updated." });
+    }
     [HttpDelete("locations/{id:guid}"), Authorize(Policy = "locations.delete")]
-    public async Task<IActionResult> DeleteLocation(Guid id) {
+    public async Task<IActionResult> DeleteLocation(Guid id)
+    {
         var l = await _context.Locations.FindAsync(id);
         if (l == null) return NotFound(new { status = "error", message = "Not found." });
 
@@ -348,21 +434,26 @@ public class AdminController : ControllerBase
         _context.Locations.Remove(l); await _context.SaveChangesAsync();
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Location, ItemId = id, ActionType = ActionType.Delete, CreatedBy = GetCurrentUserId(), CompanyId = l.CompanyId, Note = $"Xóa địa điểm \"{lName}\"" });
         await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Deleted." }); }
+        return Ok(new { status = "success", message = "Deleted." });
+    }
 
     // === Status Labels ===
     [HttpGet("statuslabels"), Authorize(Policy = "statuslabels.view")]
-    public async Task<IActionResult> GetStatusLabels() {
+    public async Task<IActionResult> GetStatusLabels()
+    {
         var list = await _context.StatusLabels.AsNoTracking().OrderBy(s => s.Name).ToListAsync();
-        return Ok(new { status = "success", data = list }); }
+        return Ok(new { status = "success", data = list });
+    }
 
     // === Depreciations ===
     // T-CLEAN1: trước đây chỉ [Authorize] trần (review #33 BACKEND_ARCHITECTURE_REVIEW_2026-08-15) —
     // mọi user đăng nhập đều đọc được. Siết về policy chuẩn như các master-data khác.
     [HttpGet("depreciations"), Authorize(Policy = "depreciations.view")]
-    public async Task<IActionResult> GetDepreciations() {
+    public async Task<IActionResult> GetDepreciations()
+    {
         var list = await _context.Depreciations.AsNoTracking().OrderBy(d => d.Name).ToListAsync();
-        return Ok(new { status = "success", data = list }); }
+        return Ok(new { status = "success", data = list });
+    }
 
     private Guid GetCurrentUserId()
     {

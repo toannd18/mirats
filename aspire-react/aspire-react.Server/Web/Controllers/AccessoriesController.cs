@@ -54,8 +54,14 @@ public class AccessoriesController : ControllerBase
 
         var total = await query.CountAsync();
         var items = await query.OrderBy(a => a.Name).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(a => new {
-                a.Id, a.Name, a.ItemNo, a.Notes, a.Qty, a.MinAmt,
+            .Select(a => new
+            {
+                a.Id,
+                a.Name,
+                a.ItemNo,
+                a.Notes,
+                a.Qty,
+                a.MinAmt,
                 a.CompanyId,
                 CompanyName = a.Company != null ? a.Company.Name : null,
                 Remaining = a.Qty - a.Checkouts.Sum(ch => ch.AssignedQty - ch.ReturnedQty),
@@ -82,19 +88,37 @@ public class AccessoriesController : ControllerBase
             return NotFound(new { status = "error", message = "Accessory not found." });
 
         var remaining = a.Qty - a.Checkouts.Sum(ch => ch.AssignedQty - ch.ReturnedQty);
-        return Ok(new { status = "success", data = new {
-            a.Id, a.Name, a.ItemNo, a.Qty, a.MinAmt,
-            a.ModelNumber, a.OrderNumber, a.PurchaseDate, a.PurchaseCost, a.Notes,
-            a.CategoryId, a.ManufacturerId, a.SupplierId, a.LocationId, a.CompanyId,
-            Remaining = remaining, PercentRemaining = a.Qty > 0 ? Math.Round((double)remaining / a.Qty * 100, 2) : 0,
-            IsLowStock = remaining <= a.MinAmt,
-            CheckedOutQty = a.Checkouts.Sum(ch => ch.AssignedQty - ch.ReturnedQty),
-            Category = a.Category == null ? null : new { a.Category.Id, a.Category.Name },
-            Manufacturer = a.Manufacturer == null ? null : new { a.Manufacturer.Id, a.Manufacturer.Name },
-            Supplier = a.Supplier == null ? null : new { a.Supplier.Id, a.Supplier.Name },
-            Location = a.Location == null ? null : new { a.Location.Id, a.Location.Name },
-            Company = a.Company == null ? null : new { a.Company.Id, a.Company.Name }
-        }});
+        return Ok(new
+        {
+            status = "success",
+            data = new
+            {
+                a.Id,
+                a.Name,
+                a.ItemNo,
+                a.Qty,
+                a.MinAmt,
+                a.ModelNumber,
+                a.OrderNumber,
+                a.PurchaseDate,
+                a.PurchaseCost,
+                a.Notes,
+                a.CategoryId,
+                a.ManufacturerId,
+                a.SupplierId,
+                a.LocationId,
+                a.CompanyId,
+                Remaining = remaining,
+                PercentRemaining = a.Qty > 0 ? Math.Round((double)remaining / a.Qty * 100, 2) : 0,
+                IsLowStock = remaining <= a.MinAmt,
+                CheckedOutQty = a.Checkouts.Sum(ch => ch.AssignedQty - ch.ReturnedQty),
+                Category = a.Category == null ? null : new { a.Category.Id, a.Category.Name },
+                Manufacturer = a.Manufacturer == null ? null : new { a.Manufacturer.Id, a.Manufacturer.Name },
+                Supplier = a.Supplier == null ? null : new { a.Supplier.Id, a.Supplier.Name },
+                Location = a.Location == null ? null : new { a.Location.Id, a.Location.Name },
+                Company = a.Company == null ? null : new { a.Company.Id, a.Company.Name }
+            }
+        });
     }
 
     // ==================== CREATE (via CQRS Command) ====================

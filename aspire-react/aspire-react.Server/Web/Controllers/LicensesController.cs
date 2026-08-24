@@ -76,7 +76,15 @@ public class LicensesController : ControllerBase
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(l => new
             {
-                l.Id, l.Name, l.Serial, l.Notes, l.Seats, l.Reassignable, l.ExpirationDate, l.TerminationDate, l.MinSeats,
+                l.Id,
+                l.Name,
+                l.Serial,
+                l.Notes,
+                l.Seats,
+                l.Reassignable,
+                l.ExpirationDate,
+                l.TerminationDate,
+                l.MinSeats,
                 AssignedSeats = l.LicenseSeats.Count(s => s.UserId != null || s.AssetId != null || s.SystemInfoId != null),
                 AvailableSeats = l.Seats - l.LicenseSeats.Count(s => s.UserId != null || s.AssetId != null || s.SystemInfoId != null),
                 ExpiringSoon = l.ExpirationDate != null && l.ExpirationDate <= soon && l.ExpirationDate > now,
@@ -113,17 +121,36 @@ public class LicensesController : ControllerBase
             .Where(s => s.LicenseId == id).OrderBy(s => s.SeatNumber).ToListAsync();
 
         var assigned = seats.Count(s => CountTargets(s) > 0);
-        return Ok(new { status = "success", data = new {
-            l.Id, l.Name, l.Serial, l.Seats, l.Reassignable, l.ExpirationDate, l.TerminationDate,
-            l.PurchaseCost, l.PurchaseDate, l.OrderNumber, l.MinSeats, l.Notes,
-            l.SupplierId, l.ManufacturerId, l.CategoryId, l.CompanyId,
-            AssignedSeats = assigned, AvailableSeats = l.Seats - assigned,
-            Category = l.Category == null ? null : new { l.Category.Id, l.Category.Name },
-            Company = l.Company == null ? null : new { l.Company.Id, l.Company.Name },
-            Supplier = l.Supplier == null ? null : new { l.Supplier.Id, l.Supplier.Name },
-            Manufacturer = l.Manufacturer == null ? null : new { l.Manufacturer.Id, l.Manufacturer.Name },
-            SeatDetails = ProjectSeats(seats)
-        }});
+        return Ok(new
+        {
+            status = "success",
+            data = new
+            {
+                l.Id,
+                l.Name,
+                l.Serial,
+                l.Seats,
+                l.Reassignable,
+                l.ExpirationDate,
+                l.TerminationDate,
+                l.PurchaseCost,
+                l.PurchaseDate,
+                l.OrderNumber,
+                l.MinSeats,
+                l.Notes,
+                l.SupplierId,
+                l.ManufacturerId,
+                l.CategoryId,
+                l.CompanyId,
+                AssignedSeats = assigned,
+                AvailableSeats = l.Seats - assigned,
+                Category = l.Category == null ? null : new { l.Category.Id, l.Category.Name },
+                Company = l.Company == null ? null : new { l.Company.Id, l.Company.Name },
+                Supplier = l.Supplier == null ? null : new { l.Supplier.Id, l.Supplier.Name },
+                Manufacturer = l.Manufacturer == null ? null : new { l.Manufacturer.Id, l.Manufacturer.Name },
+                SeatDetails = ProjectSeats(seats)
+            }
+        });
     }
 
     /// <summary>Seat list — used by the License detail modal and the SystemDetailPage License tab.</summary>
@@ -144,13 +171,15 @@ public class LicensesController : ControllerBase
 
     private static object ProjectSeats(List<LicenseSeat> seats) => seats.Select(s => new
     {
-        s.Id, s.SeatNumber,
+        s.Id,
+        s.SeatNumber,
         Assigned = CountTargets(s) > 0,
         TargetType = s.UserId != null ? "User" : s.AssetId != null ? "Asset" : s.SystemInfoId != null ? "SystemInfo" : (string?)null,
         User = s.User == null ? null : new { s.User.Id, Name = (s.User.FirstName + " " + s.User.LastName).Trim() != "" ? (s.User.FirstName + " " + s.User.LastName).Trim() : s.User.Username },
         Asset = s.Asset == null ? null : new { s.Asset.Id, s.Asset.AssetTag, s.Asset.Name },
         SystemInfo = s.SystemInfo == null ? null : new { s.SystemInfo.Id, s.SystemInfo.Code, s.SystemInfo.Name },
-        s.Note, s.AssignedAt
+        s.Note,
+        s.AssignedAt
     }).ToList();
 
 
@@ -265,12 +294,22 @@ public class LicensesController : ControllerBase
 
         var l = new License
         {
-            Name = r.Name.Trim(), Serial = r.Serial, Seats = r.Seats, Reassignable = r.Reassignable ?? true,
+            Name = r.Name.Trim(),
+            Serial = r.Serial,
+            Seats = r.Seats,
+            Reassignable = r.Reassignable ?? true,
             ExpirationDate = r.ExpirationDate,
             TerminationDate = r.TerminationDate.HasValue ? DateTime.SpecifyKind(r.TerminationDate.Value, DateTimeKind.Unspecified) : null,
-            PurchaseCost = r.PurchaseCost, PurchaseDate = r.PurchaseDate, OrderNumber = r.OrderNumber,
-            Notes = r.Notes, MinSeats = r.MinSeats, SupplierId = r.SupplierId, ManufacturerId = r.ManufacturerId,
-            CategoryId = r.CategoryId, CompanyId = companyId, UpdatedAt = DateTime.UtcNow
+            PurchaseCost = r.PurchaseCost,
+            PurchaseDate = r.PurchaseDate,
+            OrderNumber = r.OrderNumber,
+            Notes = r.Notes,
+            MinSeats = r.MinSeats,
+            SupplierId = r.SupplierId,
+            ManufacturerId = r.ManufacturerId,
+            CategoryId = r.CategoryId,
+            CompanyId = companyId,
+            UpdatedAt = DateTime.UtcNow
         };
         _context.Licenses.Add(l);
         for (var i = 1; i <= r.Seats; i++)
