@@ -2942,6 +2942,44 @@ Kiểm tra code tại thời điểm S5: guard `inUse` của DELETE chỉ check 
 ### 72.3 — Dọn QA-UX1 leftover
 Xác nhận dòng `348ecc54-d431-4522-89d4-5d0a6d2c063b` ("QA-UX1 click-to-detail test", MIRA/AST-MIRA-2026-001) còn đúng 1 dòng như báo cáo §62; 0 assignees, 0 action_logs trỏ tới → xóa cứng, verify **0** còn sót (theo Id và theo pattern Title `QA-%`).
 
+## 73. IMPORT-AM: Bổ sung Import AssetModel + xác nhận Import Asset tách đúng Model↔Category (2026-08-24)
+
+### Bước 0 — Audit (đọc file thật, không suy đoán)
+- **`ExcelImportService.cs`: KHÔNG có** `ImportAssetModelsAsync`/endpoint `import/asset-models`. `ImportReferenceAsync` chỉ làm `1_DanhMuc`/`2_DiaDiem`/`3_NhaSanXuat` → **AssetModel bị bỏ sót từ IMPORT-1** (3 loại reference gốc được import, AssetModel thì không) — gap thật, không phải chủ đích.
+- **`AssetModel` entity** (`Domain/Entities/AssetModel.cs`): `Id`, `Name` (bắt buộc), `ModelNumber`, `ManufacturerId`, `CategoryId`, `DepreciationId`, `FieldsetId`, `Eol`, `Notes`, `Requestable` + nav Manufacturer/Category/Depreciation/Assets. **KHÔNG có `CompanyId` → global master data** (giống Category/Manufacturer). Xác nhận: `AdminController.CreateModel` ghi ActionLog `CompanyId = null` + `GetModels` không lọc công ty.
+- **Import Asset đã ĐÚNG từ trước:** cột "Model" (L361) resolve `_context.Models` (bảng AssetModel) → `Asset.ModelId`; cột "Danh mục" (L340-352) resolve `_context.Categories` + `CategoryType.Asset` **độc lập**. **Không có nhầm lẫn Model↔Category** trong code hiện tại → phần "sửa lỗi nhầm lẫn" thực chất là xác nhận + verify, không phải sửa lỗi có thật. (Lưu ý: `categoryId` chỉ được **validate** chứ không gán lên Asset — Asset không có cột CategoryId, danh mục nằm trên Model.)
+
+### Thay đổi
+- **Backend `ExcelImportService.cs`**: interface `IExcelImportService` + `ImportAssetModelsAsync(stream, actingUserId, companyId)`; đọc sheet **`3_Model`** bằng mẫu sheet-constant + `FindHeaderRow("Ten model")`/`FindColumn`. Mỗi dòng: Name bắt buộc; **skip nếu Name đã tồn tại** (check DB + `batchNames` trong batch — vì SaveChanges chạy cuối vòng nên dòng trùng trong CÙNG file cũng bị skip, không tạo trùng); `CategoryName` (loại Asset) và `ManufacturerName` resolve **BY NAME, KHÔNG tự tạo** (thiếu → error riêng dòng đó kèm hướng dẫn import sheet trước); ghi ActionLog `ItemType.Model`/`ActionType.Import` + companyId. AssetModel là global nên companyId chỉ dùng để stamp ActionLog (giống Category/Manufacturer trong `ImportReferenceAsync`).
+- **`ImportExportController.cs`**: endpoint mới `POST /api/v1/import/asset-models` `[Authorize(Policy = "models.create")]` + `ResolveImportCompanyIdAsync` (same pattern T5); `DownloadTemplate` thêm sheet `3_Model` **giữa `3_NhaSanXuat` và `4_TaiSan`**.
+- **Frontend `ImportPage.tsx`**: option `asset-models` (label "Model tài sản", `permCode: 'models.create'`) **đặt TRƯỚC** "Tài sản" trong Radio + hint nêu rõ import trước assets, không tự tạo ref. `import.service.ts` thêm `'asset-models'` vào `ImportType` (mapping template fallback về "assets").
+- **Unit tests** `ImportExcelServiceTests` (+4): tạo đúng với Category+Manufacturer + ActionLog; skip trùng; lỗi thiếu ref không tự tạo; asset import resolve model tồn tại → ModelId đúng.
+
+### Verify thực nghiệm (API thật, stack Aspire restart với Debug build mới; JWT admin qua ROPC)
+1. **Import AssetModel** (`POST /import/asset-models`, file 4 dòng):
+   | Dòng | Kết quả |
+   |---|---|
+   | Model mới (danh mục + hãng đúng) | **created**; `GET /models` thấy name/modelNumber/category="Thiết bị mạng"/manufacturer="Cisco"/notes ✅ |
+   | Trùng name (cùng file) | **skip** "đã tồn tại — bỏ qua" ✅ (DB chỉ 1 model) |
+   | Danh mục KHÔNG tồn tại | **error** "Danh mục … chưa tồn tại — hãy import 1_DanhMuc trước." ✅ |
+   | Nhà sản xuất KHÔNG tồn tại | **error** "Nhà sản xuất … chưa tồn tại — hãy import 3_NhaSanXuat trước." ✅ |
+2. **Import Asset sau khi có Model** (`POST /import/assets`):
+   | Dòng | Kết quả |
+   |---|---|
+   | Model TỒN TẠI | **created**; `GET /assets` → asset.model.name = đúng model (ModelId trỏ chuẩn) ✅ |
+   | Model KHÔNG tồn tại | **error** "Model … chưa tồn tại — không tự tạo model." ✅ |
+   | Danh mục KHÔNG tồn tại | **error** "Danh mục … chưa tồn tại." ✅ (xử lý độc lập với Model) |
+3. **Thứ tự phụ thuộc**: import asset tham chiếu model chưa tồn tại → lỗi đúng dòng đó (tương đương "asset trước model") ✅.
+- Build: `dotnet build Server -c Debug/Release` 0 lỗi · full `dotnet test` **343/343 PASS** · `npm run build` **0 lỗi TS**.
+- **Sample workbook** `docs/Mirats_DuLieuMau_VatTu_T&E.xlsx` + **API template** `/import/templates/assets`: đều có sheet `3_Model` (headers "Ten model | So model | Ten danh muc | Ten nha san xuat | Ghi chu") đặt **giữa `3_NhaSanXuat` và `4_TaiSan`** (đúng thứ tự import trước assets).
+- **Dọn QA đúng cách**: asset QA (IsConfirmed=true nên API từ chối xóa với `ASSET_CONFIRMED_CANNOT_DELETE`) → xóa cứng bằng SQL (asset + model + 2 action_logs import) — verify 0 row còn sót (assets/models pattern `QA-IMP-%`).
+
+### Lưu ý cho người sau
+- Import AssetModel là endpoint **RIÊNG** (không gộp vào `import/reference`) — nhóm reference import giữ nguyên 3 sheet gốc; sheet `3_Model` không được đọc bởi `ImportReferenceAsync`.
+- `ImportAssetModelsAsync` KHÔNG cần invalidate cache — models không nằm trong 5 nhóm reference cache (chỉ categories/manufacturers/suppliers/permissions/companies).
+- Nếu cần import `DepreciationId`/`FieldsetId`/`Eol`/`Requestable` cho model: mở rộng cột sheet + resolve theo tên (hiện để trống, `Requestable=false`).
+- `Summarize` đếm dòng skip (Success=true) vào "created" — semantics "created" = "xử lý OK (tạo hoặc bỏ qua)" giống các import reference khác, không phải số dòng thật được tạo.
+
 
 
 

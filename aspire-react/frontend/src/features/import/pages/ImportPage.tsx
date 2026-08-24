@@ -25,7 +25,8 @@ interface ImportTypeOption {
 
 const IMPORT_TYPES: ImportTypeOption[] = [
   { value: 'reference', label: 'Danh mục / Địa điểm / Nhà sản xuất', permCode: 'categories.create', hint: 'Sheet 1_DanhMuc, 2_DiaDiem, 3_NhaSanXuat — thiếu sẽ tự tạo. Danh mục & Nhà SX là dữ liệu toàn cục; công ty chọn áp cho Địa điểm và ghi vào nhật ký.' },
-  { value: 'assets', label: 'Tài sản', permCode: 'assets.create', hint: 'Sheet 4_TaiSan — Model KHÔNG tự tạo (báo lỗi từng dòng nếu thiếu).' },
+  { value: 'asset-models', label: 'Model tài sản', permCode: 'models.create', hint: 'Sheet 3_Model — Model là dữ liệu toàn cục; Danh mục / Nhà SX phải tồn tại trước (KHÔNG tự tạo, báo lỗi từng dòng). Import TRƯỚC sheet Tài sản vì Tài sản cần Model.' },
+  { value: 'assets', label: 'Tài sản', permCode: 'assets.create', hint: 'Sheet 4_TaiSan — Model KHÔNG tự tạo (báo lỗi từng dòng nếu thiếu). Cột "Model" tra bảng AssetModel, cột "Danh mục" tra bảng Category độc lập.' },
   { value: 'components', label: 'Linh kiện', permCode: 'components.create', hint: 'Sheet 5_LinhKien — các dòng serial cùng (Tên + Danh mục + Model) gom thành 1 linh kiện.' },
   { value: 'accessories', label: 'Phụ kiện', permCode: 'accessories.create', hint: 'Sheet 6_PhuKien — danh mục / nhà SX / địa điểm phải tồn tại trước.' },
   { value: 'consumables', label: 'Vật tư tiêu hao', permCode: 'consumables.create', hint: 'Sheet 7_VatTuTieuHao — danh mục / nhà SX / địa điểm phải tồn tại trước.' },
@@ -99,7 +100,7 @@ export default function ImportPage() {
 
   if (allowedTypes.length === 0) {
     return (
-      <Empty description="Bạn không có quyền tạo dữ liệu nào (categories/assets/components/accessories/consumables) nên không thể import." />
+      <Empty description="Bạn không có quyền tạo dữ liệu nào (models/categories/assets/components/accessories/consumables) nên không thể import." />
     );
   }
 
