@@ -2827,6 +2827,36 @@ Các action endpoint checkout/checkin/allocate chỉ validate **target↔record*
 
 - Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn QA: 4 user (DB + Keycloak) đã xóa — users về 1 (admin).
 
+## 69. SEC-FIX S5: CompaniesController scope check cho GET /{id}, PUT, DELETE (2026-08-23)
+
+### Lỗ hổng
+`CompaniesController` chỉ có scope ở `GetAll` (Task V). Ba endpoint còn lại **không có scope check nào**: user công ty A đọc/sửa/xóa được công ty B bất kỳ (đã tái hiện trước fix: GET by id trả 200, PUT đổi tên thành công).
+
+### Thay đổi (`Web/Controllers/CompaniesController.cs`, tag `[SEC-FIX S5, 2026-08-23]`)
+- `GET /{id}` — mirror GetAll: superuser → mọi company; user CÓ công ty → chỉ subtree của mình (công ty mình + con cháu — BFS qua `IsCompanyIdInUserScopeAsync`); user không công ty (floater, sentinel `Guid.Empty`) → vẫn được XEM chi tiết theo id (nhất quán quyết định §64/JIT-COMPANYLESS: floater được xem cây công ty để được gán company, chỉ bị chặn trên dữ liệu business). Out-of-scope → **404** hide-existence.
+- `PUT /{id}` — thêm `if (!await _companyScope.IsCompanyIdInUserScopeAsync(id)) return NotFound(...)` TRƯỚC khi load entity. Floater bị chặn write (service trả false cho Guid.Empty) — chủ đích, chỉ Get mới mở view.
+- `DELETE /{id}` — cùng pattern, đặt TRƯỚC guard hasChildren/inUse để out-of-scope luôn là 404 (không lộ thông tin tồn tại qua 400).
+- Superuser bypass ở cả 3 (`IsCompanyIdInUserScopeAsync` trả true cho realm-role admin/superuser; admin có CompanyId=null nên không bao giờ bị khóa nhánh else).
+
+### AR-2 (vấn đề phụ DELETE company) — XÁC NHẬN CÒN TỒN TẠI, để lại backlog riêng
+Kiểm tra code tại thời điểm S5: guard `inUse` của DELETE chỉ check 6 bảng (Components/Assets/Consumables/Accessories/Licenses/AssetMaintenances), **thiếu** Locations/Departments/SystemInfos/SystemPositions/AssetTagCounters (FK SetNull → xóa công ty sẽ âm thầm biến các record này thành "floater" cross-company); đồng thời `ExecuteUpdate` reset `CompanyId=null` cho users của công ty vẫn giữ nguyên. **Không xử lý trong S5** (khác phạm vi: data-integrity/delete-guard thay vì access-control) — cần backlog riêng AR-2.
+
+### Verify thực nghiệm (API thật trên Aspire stack, cây QA: QA5P(parent) → QA5C(child), QA5O root khác, user qa-s5-ch (company=child) & qa-s5-pa (company=parent), đều nhóm Admin)
+| Kịch bản | Trước fix | Sau fix |
+|---|---|---|
+| qa-s5-ch GET company CHA | 200 | **404** ✅ |
+| qa-s5-ch GET company NHAH KHÁC (MIRA) | 200 | **404** ✅ |
+| qa-s5-ch PUT company CHA (đổi tên) | 200 sửa thành công | **404** ✅ |
+| qa-s5-ch PUT MIRA (nhánh khác, body UTF-8 chuẩn) | 200 | **404** ✅ |
+| qa-s5-ch DELETE company CHA | bị chặn guard nhưng lộ 400 tồn tại | **404** ✅ (scope chạy trước guard) |
+| qa-s5-ch DELETE root nhánh khác (QA5O) | 200 xóa thật | **404** ✅ |
+| qa-s5-pa GET/PUT company CON (subtree dương tính) | 200 | **200** ✅ (PUT no-op cùng giá trị) |
+| qa-s5-pa GET/DELETE MIRA + DELETE QA5O (ngoài subtree) | 200 | **404** ✅ |
+| Superuser GET/PUT/DELETE bất kỳ (QA5P, MIRA, QA5O) | 200 | **200** ✅ |
+
+- Ghi chú verify: lần PUT MIRA đầu trả 400 do harness PS 5.1 encode body tiếng Việt Latin-1 (server auto-400 JSON parse) — gửi lại bằng UTF-8 byte[] + charset header → đúng 404; MIRA nguyên vẹn trong DB.
+- Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn QA: xóa logs/user_groups/users (DB) + 2 user Keycloak + 2 company qua API — companies về [MIRA, QCRC], 0 user `qa-%`, 0 user KC `qa-s5*`.
+
 
 
 

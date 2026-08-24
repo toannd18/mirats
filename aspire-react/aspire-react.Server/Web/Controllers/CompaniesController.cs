@@ -68,6 +68,17 @@ public class CompaniesController : ControllerBase
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id)
     {
+        // [SEC-FIX S5, 2026-08-23] Company-scoping, mirroring GetAll: Superuser → any company;
+        // a regular user WITH a company → only companies inside their subtree (own company +
+        // descendants — a child user may NOT read a parent/other-branch company by id);
+        // a company-less regular user → still allowed to VIEW a company by id (consistent with
+        // the decision that company-less users may view the tree in GetAll). Out-of-scope →
+        // 404 (hide existence).
+        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (userCompanyId.HasValue && userCompanyId.Value != Guid.Empty && !_companyScope.IsSuperUser()
+            && !await _companyScope.IsCompanyIdInUserScopeAsync(id))
+            return NotFound(new { status = "error", message = "Not found" });
+
         var c = await _context.Companies.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
         if (c == null) return NotFound(new { status = "error", message = "Not found" });
         return Ok(new { status = "success", data = new { c.Id, c.Name, c.Code, c.ParentId, Children = new List<object>() } });
@@ -94,6 +105,13 @@ public class CompaniesController : ControllerBase
     [HttpPut("{id:guid}"), Authorize(Policy = "companies.edit")]
     public async Task<IActionResult> Update(Guid id, [FromBody] CompanyDto dto)
     {
+        // [SEC-FIX S5, 2026-08-23] Company-scoping on write: a regular user may only update
+        // companies inside their subtree (own + descendants); Superuser → any company.
+        // Out-of-scope → 404 (hide existence). Previously Update had NO scope check at all — a
+        // user from a child/another-branch company could rename/re-parent any company.
+        if (!await _companyScope.IsCompanyIdInUserScopeAsync(id))
+            return NotFound(new { status = "error", message = "Not found" });
+
         var c = await _context.Companies.FindAsync(id);
         if (c == null) return NotFound(new { status = "error", message = "Not found" });
         var before = new { c.Name, c.Code, c.ParentId };
@@ -123,6 +141,12 @@ public class CompaniesController : ControllerBase
     [HttpDelete("{id:guid}"), Authorize(Policy = "companies.delete")]
     public async Task<IActionResult> Delete(Guid id)
     {
+        // [SEC-FIX S5, 2026-08-23] Company-scoping on write: a regular user may only delete
+        // companies inside their subtree; Superuser → any company. Out-of-scope → 404 (hide
+        // existence). Previously Delete had NO scope check at all.
+        if (!await _companyScope.IsCompanyIdInUserScopeAsync(id))
+            return NotFound(new { status = "error", message = "Not found" });
+
         var hasChildren = await _context.Companies.AnyAsync(x => x.ParentId == id);
         if (hasChildren)
             return BadRequest(new { status = "error", message = "Không thể xóa công ty có công ty con." });
