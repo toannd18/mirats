@@ -131,8 +131,16 @@ public class CompaniesController : ControllerBase
                 return BadRequest(new { status = "error", message = "Không thể chọn chính nó hoặc công ty con làm cha." });
         }
         await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Company, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = null,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = c.Name }, code = new { old = before.Code, @new = c.Code }, parentId = new { old = before.ParentId, @new = c.ParentId } } }), Note = $"Cập nhật công ty \"{c.Name}\"" });
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.Company,
+            ItemId = id,
+            ActionType = ActionType.Update,
+            CreatedBy = GetCurrentUserId(),
+            CompanyId = null,
+            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = c.Name }, code = new { old = before.Code, @new = c.Code }, parentId = new { old = before.ParentId, @new = c.ParentId } } }),
+            Note = $"Cập nhật công ty \"{c.Name}\""
+        });
         await _context.SaveChangesAsync();
         await _cacheInvalidator.InvalidateCompaniesAsync();
         return Ok(new { status = "success", message = "Updated" });
@@ -151,21 +159,28 @@ public class CompaniesController : ControllerBase
         if (hasChildren)
             return BadRequest(new { status = "error", message = "Không thể xóa công ty có công ty con." });
 
-        // Delete guard: a company still referenced by inventory items cannot be deleted. Some FKs are
-        // SET NULL (Asset/Consumable/Accessory), which would silently turn those items into company-less
-        // "floaters" (visible cross-company); License is RESTRICT (a raw 500). Block explicitly instead.
-        var inUse =
-            await _context.Components.IgnoreQueryFilters().AnyAsync(c => c.CompanyId == id) ||
-            await _context.Assets.IgnoreQueryFilters().AnyAsync(a => a.CompanyId == id) ||
-            await _context.Consumables.IgnoreQueryFilters().AnyAsync(c => c.CompanyId == id) ||
-            await _context.Accessories.IgnoreQueryFilters().AnyAsync(a => a.CompanyId == id) ||
-            await _context.Licenses.IgnoreQueryFilters().AnyAsync(l => l.CompanyId == id && l.DeletedAt == null) ||
-            await _context.AssetMaintenances.IgnoreQueryFilters().AnyAsync(m => m.CompanyId == id);
-        if (inUse)
-            return BadRequest(new { status = "error", message = "Công ty đang được tài sản/vật tư/phụ kiện/bản quyền/bảo trì sử dụng — không thể xóa.", error_code = "COMPANY_IN_USE" });
-
-        // No inventory references the company anymore → safe to clear user references and delete.
-        await _context.Users.Where(u => u.CompanyId == id).ExecuteUpdateAsync(s => s.SetProperty(u => u.CompanyId, (Guid?)null));
+        // [SEC-FIX AR-2, 2026-08-24] Full reference audit (AppDbContext + information_schema on the real
+        // DB): FKs referencing companies = assets/consumables/accessories/licenses (SetNull),
+        // components (Restrict), departments/system_infos/users (SetNull), companies.ParentId
+        // (Restrict — covered by the hasChildren check above); locations.CompanyId and
+        // asset_tag_counters.CompanyId are PLAIN COLUMNS without an FK. Previously only 6 inventory
+        // tables were checked — deleting a company silently SetNull'd Departments/SystemInfos/Users
+        // (the ExecuteUpdate below) and orphaned Locations, turning them into cross-company floaters.
+        // Now EVERY referencing table blocks the delete, and a company still having assigned USERS is
+        // blocked too (explicit decision 2026-08-24: no more silent floater-ing of assigned users).
+        var blockers = new List<string>();
+        if (await _context.Users.IgnoreQueryFilters().AnyAsync(u => u.CompanyId == id)) blockers.Add("tài khoản người dùng");
+        if (await _context.Locations.IgnoreQueryFilters().AnyAsync(l => l.CompanyId == id)) blockers.Add("địa điểm");
+        if (await _context.Departments.IgnoreQueryFilters().AnyAsync(d => d.CompanyId == id)) blockers.Add("phòng ban");
+        if (await _context.SystemInfos.IgnoreQueryFilters().AnyAsync(s => s.CompanyId == id)) blockers.Add("hệ thống");
+        if (await _context.Components.IgnoreQueryFilters().AnyAsync(c => c.CompanyId == id)) blockers.Add("linh kiện");
+        if (await _context.Assets.IgnoreQueryFilters().AnyAsync(a => a.CompanyId == id)) blockers.Add("tài sản");
+        if (await _context.Consumables.IgnoreQueryFilters().AnyAsync(c => c.CompanyId == id)) blockers.Add("vật tư");
+        if (await _context.Accessories.IgnoreQueryFilters().AnyAsync(a => a.CompanyId == id)) blockers.Add("phụ kiện");
+        if (await _context.Licenses.IgnoreQueryFilters().AnyAsync(l => l.CompanyId == id && l.DeletedAt == null)) blockers.Add("bản quyền");
+        if (await _context.AssetMaintenances.IgnoreQueryFilters().AnyAsync(m => m.CompanyId == id)) blockers.Add("bảo trì");
+        if (blockers.Count > 0)
+            return BadRequest(new { status = "error", message = $"Công ty đang được sử dụng bởi: {string.Join(", ", blockers)} — không thể xóa.", error_code = "COMPANY_IN_USE" });
 
         var c = await _context.Companies.FindAsync(id);
         if (c == null) return NotFound(new { status = "error", message = "Not found" });
