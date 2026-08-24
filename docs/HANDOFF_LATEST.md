@@ -2881,6 +2881,33 @@ Kiểm tra code tại thời điểm S5: guard `inUse` của DELETE chỉ check 
 
 - Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn test: xóa 2 log ItemType=20 + row system_settings → DB về đúng baseline (GET trả DefaultFormat qua fallback, 0 log SystemSetting).
 
+## 71. SEC-FIX P1: SystemInfo/SystemPosition Update patch-aware + FIELD_LOCKED CompanyId (2026-08-24)
+
+### Lỗ hổng
+`SystemInfoController.Update` (:146 cũ) và `UpdatePosition` (:221 cũ) gán full-replace vô điều kiện với DTO non-nullable — PUT partial (VD chỉ gửi Name) sẽ **wipe Description → null và CompanyId → null** (đúng lớp lỗi Task F/M1 đã fix cho Asset/Consumable/License...). Ngoài ra CompanyId không có FIELD_LOCKED: đổi công ty tự do dù hệ thống đã có Position/Asset/LicenseSeat tham chiếu.
+
+### Thay đổi (`Web/Controllers/SystemInfoController.cs`, tag `[SEC-FIX P1]`)
+- `SystemInfoDto`/`SystemPositionDto` chuyển sang nullable Code/Name. Create bổ sung guard "không được để trống" (message tiếng Việt) — behavior create không đổi.
+- `Update` viết lại theo Task F/M1:
+  - Code chỉ normalize + validate + check-dup **khi thực sự được gửi** (absent field không fail validation, không overwrite).
+  - Patch assignment: `if (normalizedCode != null) s.Code = ...; if (!string.IsNullOrWhiteSpace(dto.Name)) s.Name = ...; if (dto.Description is not null) s.Description = ...; if (dto.CompanyId.HasValue) s.CompanyId = ...`.
+  - **FIELD_LOCKED CompanyId**: khi gửi CompanyId KHÁC giá trị hiện tại VÀ hệ thống đã có `SystemPositions.Any(SystemInfoId==id)` hoặc `LicenseSeats.Any(SystemInfoId==id)` → 400 `error_code="FIELD_LOCKED"` (mirror Consumable-có-lịch-sử :185-187 / License :306-307; Asset chỉ tham chiếu qua Position nên điều kiện Positions đã phủ). Gửi CÙNG giá trị → cho qua (patch-aware, form Lưu không sửa gì vẫn hoạt động).
+- `UpdatePosition`: cùng patch-aware cho Code/Name/Description (position không có CompanyId riêng — kế thừa cha).
+- ActionLog LogMeta giữ nguyên shape old/new (giá trị phản ánh đúng sau áp dụng).
+
+### Verify thực nghiệm (API thật trên Aspire stack, superuser admin; QA: 2 company QPA/QPB, 2 hệ thống QAA-2026-001 [có position] / QAB-2026-001 [trống], position QPA-2026-001)
+| Kịch bản | Kết quả |
+|---|---|
+| T1 PATCH-AWARE: PUT chỉ `{name}` | 200; code/description/companyId **giữ nguyên giá trị cũ** (trước fix sẽ wipe desc+companyId về null) ✅ |
+| T2 FIELD_LOCKED: hệ thống có Position, đổi companyId khác | **400 FIELD_LOCKED**, companyId trong DB không đổi ✅ |
+| T3 gửi lại ĐÚNG companyId hiện tại (form full) | 200 cho qua (lock không chặn nhầm) ✅ |
+| T4 PATCH không gửi companyId | 200; description cập nhật, companyId nguyên ✅ |
+| T5 hệ thống CHƯA có tham chiếu: đổi companyId A→B→A | **200 cả hai chiều** (chưa cần khóa) ✅ |
+| T6 UpdatePosition PATCH-AWARE: PUT chỉ `{name}` | 200; code/description của vị trí giữ nguyên ✅ |
+| T7 Create thiếu name (system/position) | 400 "Tên ... không được để trống." ✅ |
+
+- Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn QA: xóa position/system/company qua API + logs theo ItemId — DB về baseline (0 row QA còn sót).
+
 
 
 

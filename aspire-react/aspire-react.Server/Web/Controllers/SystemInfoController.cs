@@ -108,6 +108,9 @@ public class SystemInfoController : ControllerBase
         dto = dto with { Code = dto.Code?.Trim().ToUpperInvariant() ?? string.Empty };
         if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
             return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX(X)-YYYY-ZZZ (3-4 chữ hoa, viết hoa)." });
+        // [SEC-FIX P1] Code/Name are now nullable on the shared DTO — Create must still require both.
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return BadRequest(new { status = "error", message = "Tên hệ thống không được để trống." });
         if (await _context.SystemInfos.AnyAsync(x => x.Code == dto.Code))
             return BadRequest(new { status = "error", message = "Mã hệ thống đã tồn tại." });
 
@@ -118,7 +121,7 @@ public class SystemInfoController : ControllerBase
         if (userCompanyIdCreate.HasValue && dto.CompanyId.HasValue && dto.CompanyId.Value != userCompanyIdCreate.Value)
             return BadRequest(new { status = "error", message = "Bạn chỉ được tạo hệ thống cho công ty của mình.", error_code = "COMPANY_MISMATCH" });
 
-        var sys = new SystemInfo { Code = dto.Code.ToUpper(), Name = dto.Name, Description = dto.Description, CompanyId = dto.CompanyId };
+        var sys = new SystemInfo { Code = dto.Code!.ToUpper(), Name = dto.Name!, Description = dto.Description, CompanyId = dto.CompanyId };
         _context.SystemInfos.Add(sys);
         await _context.SaveChangesAsync();
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemInfo, ItemId = sys.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = sys.CompanyId, Note = $"Tạo hệ thống \"{sys.Name}\"" });
@@ -129,7 +132,6 @@ public class SystemInfoController : ControllerBase
     [HttpPut("{id:guid}"), Authorize(Policy = "systems.edit")]
     public async Task<IActionResult> Update(Guid id, [FromBody] SystemInfoDto dto)
     {
-        dto = dto with { Code = dto.Code?.Trim().ToUpperInvariant() ?? string.Empty };
         var s = await _context.SystemInfos.FindAsync(id);
         if (s == null) return NotFound(new { status = "error", message = "Not found." });
 
@@ -138,13 +140,33 @@ public class SystemInfoController : ControllerBase
         if (userCompanyIdUpdate.HasValue && s.CompanyId.HasValue && s.CompanyId.Value != userCompanyIdUpdate.Value)
             return NotFound(new { status = "error", message = "Not found." });
 
-        if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
-            return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX(X)-YYYY-ZZZ (3-4 chữ hoa, viết hoa)." });
-        if (await _context.SystemInfos.AnyAsync(x => x.Code == dto.Code && x.Id != id))
-            return BadRequest(new { status = "error", message = "Mã hệ thống đã tồn tại." });
+        // Patch-aware validation: Code is only normalized/validated when it was ACTUALLY sent
+        // (an absent field must not fail validation nor be overwritten — Task F/M1 pattern).
+        string? normalizedCode = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code.Trim().ToUpperInvariant();
+        if (normalizedCode != null)
+        {
+            if (!CodeRegex.IsMatch(normalizedCode))
+                return BadRequest(new { status = "error", message = "Mã hệ thống phải đúng định dạng XXX(X)-YYYY-ZZZ (3-4 chữ hoa, viết hoa)." });
+            if (await _context.SystemInfos.AnyAsync(x => x.Code == normalizedCode && x.Id != id))
+                return BadRequest(new { status = "error", message = "Mã hệ thống đã tồn tại." });
+        }
 
+        // [SEC-FIX P1] FIELD_LOCKED CompanyId — once the system is referenced by a child Position
+        // (where Assets can be parked) or targeted by a LicenseSeat, moving it to another company
+        // would silently re-scope those references. Mirrors Consumable-có-lịch-sử
+        // (ConsumablesController FIELD_LOCKED) / License (:306-307) convention. Patch-aware: only
+        // triggers when CompanyId is EXPLICITLY sent and DIFFERS — re-saving the same value passes.
+        if (dto.CompanyId.HasValue && dto.CompanyId.Value != s.CompanyId
+            && (await _context.SystemPositions.AnyAsync(p => p.SystemInfoId == id)
+                || await _context.LicenseSeats.AnyAsync(ls => ls.SystemInfoId == id)))
+            return BadRequest(new { status = "error", message = "Hệ thống đã có vị trí hoặc seat license tham chiếu — không thể đổi công ty.", error_code = "FIELD_LOCKED" });
+
+        // ─── Patch semantics (Task F/M1 pattern): only fields explicitly sent are applied. ───
         var before = new { s.Code, s.Name, s.Description, s.CompanyId };
-        s.Code = dto.Code.ToUpper(); s.Name = dto.Name; s.Description = dto.Description; s.CompanyId = dto.CompanyId;
+        if (normalizedCode != null) s.Code = normalizedCode.ToUpper();
+        if (!string.IsNullOrWhiteSpace(dto.Name)) s.Name = dto.Name;
+        if (dto.Description is not null) s.Description = dto.Description;
+        if (dto.CompanyId.HasValue) s.CompanyId = dto.CompanyId;
         await _context.SaveChangesAsync();
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemInfo, ItemId = id, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = s.CompanyId,
             LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = s.Code }, name = new { old = before.Name, @new = s.Name }, description = new { old = before.Description, @new = s.Description }, companyId = new { old = before.CompanyId, @new = s.CompanyId } } }), Note = $"Cập nhật hệ thống \"{s.Name}\"" });
@@ -179,6 +201,9 @@ public class SystemInfoController : ControllerBase
         dto = dto with { Code = dto.Code?.Trim().ToUpperInvariant() ?? string.Empty };
         if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
             return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX(X)-YYYY-ZZZ (3-4 chữ hoa, viết hoa)." });
+        // [SEC-FIX P1] Code/Name nullable on the shared DTO — Create still requires both.
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return BadRequest(new { status = "error", message = "Tên vị trí không được để trống." });
         if (await _context.SystemPositions.AnyAsync(x => x.Code == dto.Code))
             return BadRequest(new { status = "error", message = "Mã vị trí đã tồn tại." });
         var sys = await _context.SystemInfos.FindAsync(systemInfoId);
@@ -191,7 +216,7 @@ public class SystemInfoController : ControllerBase
         if (userCompanyIdAddPos.HasValue && sys.CompanyId.HasValue && sys.CompanyId.Value != userCompanyIdAddPos.Value)
             return NotFound(new { status = "error", message = "System not found." });
 
-        var pos = new SystemPosition { SystemInfoId = systemInfoId, Code = dto.Code.ToUpper(), Name = dto.Name, Description = dto.Description };
+        var pos = new SystemPosition { SystemInfoId = systemInfoId, Code = dto.Code!.ToUpper(), Name = dto.Name!, Description = dto.Description };
         _context.SystemPositions.Add(pos);
         await _context.SaveChangesAsync();
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemPosition, ItemId = pos.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = sys.CompanyId, Note = $"Tạo vị trí \"{pos.Name}\" trong hệ thống \"{sys.Name}\"" });
@@ -202,7 +227,6 @@ public class SystemInfoController : ControllerBase
     [HttpPut("{systemInfoId:guid}/positions/{posId:guid}"), Authorize(Policy = "systems.edit")]
     public async Task<IActionResult> UpdatePosition(Guid systemInfoId, Guid posId, [FromBody] SystemPositionDto dto)
     {
-        dto = dto with { Code = dto.Code?.Trim().ToUpperInvariant() ?? string.Empty };
         var pos = await _context.SystemPositions.Include(p => p.SystemInfo)
             .FirstOrDefaultAsync(p => p.Id == posId && p.SystemInfoId == systemInfoId);
         if (pos == null) return NotFound(new { status = "error", message = "Position not found." });
@@ -213,13 +237,23 @@ public class SystemInfoController : ControllerBase
         if (userCompanyIdUpdatePos.HasValue && posCompanyId.HasValue && posCompanyId.Value != userCompanyIdUpdatePos.Value)
             return NotFound(new { status = "error", message = "Position not found." });
 
-        if (string.IsNullOrWhiteSpace(dto.Code) || !CodeRegex.IsMatch(dto.Code))
-            return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX(X)-YYYY-ZZZ (3-4 chữ hoa, viết hoa)." });
-        if (await _context.SystemPositions.AnyAsync(x => x.Code == dto.Code && x.Id != posId))
-            return BadRequest(new { status = "error", message = "Mã vị trí đã tồn tại." });
+        // Patch-aware validation: Code is only normalized/validated when actually sent
+        // ([SEC-FIX P1] same class of fix as the parent SystemInfo Update above).
+        string? normalizedCode = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code.Trim().ToUpperInvariant();
+        if (normalizedCode != null)
+        {
+            if (!CodeRegex.IsMatch(normalizedCode))
+                return BadRequest(new { status = "error", message = "Mã vị trí phải đúng định dạng XXX(X)-YYYY-ZZZ (3-4 chữ hoa, viết hoa)." });
+            if (await _context.SystemPositions.AnyAsync(x => x.Code == normalizedCode && x.Id != posId))
+                return BadRequest(new { status = "error", message = "Mã vị trí đã tồn tại." });
+        }
 
+        // ─── Patch semantics (Task F/M1 pattern): only fields explicitly sent are applied. A
+        // position has no own CompanyId — it inherits its parent SystemInfo's company. ───
         var before = new { pos.Code, pos.Name, pos.Description };
-        pos.Code = dto.Code.ToUpper(); pos.Name = dto.Name; pos.Description = dto.Description;
+        if (normalizedCode != null) pos.Code = normalizedCode.ToUpper();
+        if (!string.IsNullOrWhiteSpace(dto.Name)) pos.Name = dto.Name;
+        if (dto.Description is not null) pos.Description = dto.Description;
         await _context.SaveChangesAsync();
         _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.SystemPosition, ItemId = posId, ActionType = ActionType.Update, CreatedBy = GetCurrentUserId(), CompanyId = pos.SystemInfo?.CompanyId,
             LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = pos.Code }, name = new { old = before.Name, @new = pos.Name }, description = new { old = before.Description, @new = pos.Description } } }), Note = $"Cập nhật vị trí \"{pos.Name}\"" });
@@ -249,5 +283,8 @@ public class SystemInfoController : ControllerBase
     }
 }
 
-public record SystemInfoDto(string Code, string Name, string? Description, Guid? CompanyId = null);
-public record SystemPositionDto(string Code, string Name, string? Description);
+// [SEC-FIX P1] Patch-aware DTOs: Code/Name are nullable so a PARTIAL update payload does not
+// wipe absent fields (Task F/M1 pattern). Create validates presence explicitly; Update assigns
+// only what was actually sent.
+public record SystemInfoDto(string? Code, string? Name, string? Description, Guid? CompanyId = null);
+public record SystemPositionDto(string? Code, string? Name, string? Description);
