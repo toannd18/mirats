@@ -2857,6 +2857,30 @@ Kiểm tra code tại thời điểm S5: guard `inUse` của DELETE chỉ check 
 - Ghi chú verify: lần PUT MIRA đầu trả 400 do harness PS 5.1 encode body tiếng Việt Latin-1 (server auto-400 JSON parse) — gửi lại bằng UTF-8 byte[] + charset header → đúng 404; MIRA nguyên vẹn trong DB.
 - Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn QA: xóa logs/user_groups/users (DB) + 2 user Keycloak + 2 company qua API — companies về [MIRA, QCRC], 0 user `qa-%`, 0 user KC `qa-s5*`.
 
+## 70. SEC-FIX A1: ActionLog cho PUT /system/config/asset-tag-format (2026-08-24)
+
+### Lỗ hổng
+`SystemConfigController.SetAssetTagFormat` thay đổi cấu hình global (format tự sinh Asset Tag) mà **không có ActionLog nào** — không thể truy vết ai đổi format khi nào (vi phạm convention "ActionLog mandatory cho mọi Update").
+
+### Thay đổi
+- `Domain/Enums/ItemType.cs` — thêm **`SystemSetting = 20`** (ItemType lưu int trong DB, không có conversion/check constraint → không cần migration; frontend label map có fallback `?? a.itemType` nên giá trị mới an toàn).
+- `Web/Controllers/SystemConfigController.cs` — inject `AppDbContext` + `IActionLogService`. PUT viết lại:
+  - Validate bằng `AssetTagGenerator.ValidateFormat()` (static mới, trích từ SetFormatAsync — cùng rule, cùng message) → giữ nguyên 400 khi format thiếu `{SEQ:n}`/rỗng.
+  - Đọc setting hiện tại → tính oldValue (fallback `DefaultFormat` khi row chưa tồn tại).
+  - **No-op guard**: giá trị sau trim GIỐNG hệt oldValue → return 200 mà KHÔNG ghi DB, KHÔNG log (quyết định A1: tránh log rác khi admin bấm Lưu không sửa gì — đã test xác nhận).
+  - Khác → mutate tracked entity (create nếu chưa có, dùng `AssetTagGenerator.FormatDescription` const dùng chung) → `_actionLogService.LogAction(ItemType.SystemSetting, settings.Id, Update, loggedByUserId, companyId: null, note, LogMeta {changes:{format:{old,new}}})` → **MỘT SaveChanges duy nhất** (log + config change cùng transaction, đúng convention same-transaction).
+- `Infrastructure/Services/AssetTagGenerator.cs` — trích `ValidateFormat` static + `FormatDescription` const; `SetFormatAsync` refactor dùng chung (behavior không đổi; tests cũ vẫn pass).
+
+### Verify thực nghiệm (API thật trên Aspire stack, superuser admin; nền: CHƯA có row AssetTagFormat, 0 log ItemType=20)
+| Kịch bản | Kết quả |
+|---|---|
+| T1 PUT format mới (`SEQ:3`→`SEQ:4`) | 200; tạo row settings + **đúng 1 ActionLog**: ItemType=20, ActionType=Update(2), CompanyId **NULL**, CreatedBy=local id admin, LogMeta `{"changes":{"format":{"old":"AST-{COMPANY}-{YYYY}-{SEQ:3}","new":"...SEQ:4"}}}` ✅ |
+| T2 PUT LẠI CÙNG giá trị | 200 nhưng **0 log mới** (no-op guard — tổng log vẫn 1) ✅ |
+| T3 PUT không hợp lệ `ABC` | 400 `"Format phải chứa token {SEQ:n} (VD {SEQ:3})."` (message gốc giữ nguyên) ✅ |
+| T4 PUT khôi phục default | 200; log thứ 2 với chuỗi old/new ngược (`SEQ:4`→`SEQ:3`) — mỗi lần đổi thật = 1 log ✅ |
+
+- Build Release + Debug 0 lỗi · fast suite **335/335 PASS** · dọn test: xóa 2 log ItemType=20 + row system_settings → DB về đúng baseline (GET trả DefaultFormat qua fallback, 0 log SystemSetting).
+
 
 
 

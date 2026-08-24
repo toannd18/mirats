@@ -21,11 +21,25 @@ public class AssetTagGenerator : IAssetTagGenerator
 {
     public const string DefaultFormat = "AST-{COMPANY}-{YYYY}-{SEQ:3}";
     public const string FormatSettingKey = "AssetTagFormat";
+    /// <summary>Description stamped on the SystemSetting row when it is first created (shared by
+    /// SetFormatAsync and the SystemConfigController write path so the text never diverges).</summary>
+    public const string FormatDescription = "Format tự sinh Mã tài sản (Asset Tag). Hỗ trợ {COMPANY} (mã công ty, NOCO nếu không có), {YYYY} (năm 4 số) và {SEQ:n} (số thứ tự đệm n chữ số). Nên giữ {COMPANY} để mã unique toàn hệ thống.";
     /// <summary>Reserved code for company-less (floater) assets.</summary>
     public const string NoCompanyCode = "NOCO";
 
     private static readonly Regex SeqTokenRegex = new(@"\{SEQ:(\d)\}", RegexOptions.Compiled);
     private static readonly Regex CompanyTokenRegex = new(@"\{COMPANY\}", RegexOptions.Compiled);
+
+    /// <summary>Validates an asset-tag format candidate (SEC-FIX A1: extracted so the controller's
+    /// single-transaction write path validates identically to <see cref="SetFormatAsync"/>).
+    /// Throws <see cref="ArgumentException"/> with the same messages SetFormatAsync has always used.</summary>
+    public static void ValidateFormat(string? format)
+    {
+        var trimmed = format?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed)) throw new ArgumentException("Format không được để trống.");
+        if (!SeqTokenRegex.IsMatch(trimmed))
+            throw new ArgumentException("Format phải chứa token {SEQ:n} (VD {SEQ:3}).");
+    }
 
     private readonly AppDbContext _context;
 
@@ -105,10 +119,8 @@ public class AssetTagGenerator : IAssetTagGenerator
 
     public async Task SetFormatAsync(string format, Guid? updatedBy, CancellationToken ct = default)
     {
-        var trimmed = format?.Trim();
-        if (string.IsNullOrWhiteSpace(trimmed)) throw new ArgumentException("Format không được để trống.");
-        if (!SeqTokenRegex.IsMatch(trimmed))
-            throw new ArgumentException("Format phải chứa token {SEQ:n} (VD {SEQ:3}).");
+        ValidateFormat(format);
+        var trimmed = format!.Trim();
 
         var setting = await _context.SystemSettings.FirstOrDefaultAsync(s => s.Key == FormatSettingKey, ct);
         if (setting == null)
@@ -117,7 +129,7 @@ public class AssetTagGenerator : IAssetTagGenerator
             {
                 Key = FormatSettingKey,
                 Value = trimmed,
-                Description = "Format tự sinh Mã tài sản (Asset Tag). Hỗ trợ {COMPANY} (mã công ty, NOCO nếu không có), {YYYY} (năm 4 số) và {SEQ:n} (số thứ tự đệm n chữ số). Nên giữ {COMPANY} để mã unique toàn hệ thống.",
+                Description = FormatDescription,
                 UpdatedBy = updatedBy
             };
             _context.SystemSettings.Add(setting);
