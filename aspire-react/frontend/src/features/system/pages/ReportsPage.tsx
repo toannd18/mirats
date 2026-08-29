@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, message, Table, Tabs } from 'antd';
+import { Button, App, Table, Tabs } from 'antd';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 
@@ -21,6 +21,8 @@ interface AuditReportData {
 }
 
 export default function ReportsPage() {
+  // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
+  const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [depData, setDepData] = useState<DepreciationReportRow[]>([]);
   const [auditData, setAuditData] = useState<AuditReportData | null>(null);

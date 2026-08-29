@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Table, Button, Space, Modal, Form, Input, message, Popconfirm, Tooltip } from 'antd';
+import { Table, Button, Space, Modal, Form, Input, App, Popconfirm, Tooltip } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -29,6 +29,8 @@ interface SystemInfoDto {
 const CODE_PATTERN = /^[A-Z]{3,4}-\d{4}-\d{3}$/;
 
 export default function SystemInfoListPage() {
+  // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
+  const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form] = Form.useForm();

@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Button, Card, Divider, Typography, message } from 'antd';
+import { Button, Card, Divider, Typography, App } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -22,6 +22,8 @@ const { Text } = Typography;
  * `depreciations.view` dùng để gate menu/route (App.tsx permMap) và policy backend.
  */
 export default function DepreciationListPage() {
+  // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType | null>(null);
   const isMobile = useIsMobile();
 

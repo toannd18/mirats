@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
-import { Button, Space, Modal, Form, Input, Select, Card, Divider, Tag, Typography, Popconfirm, message } from 'antd';
+import { Button, Space, Modal, Form, Input, Select, Card, Divider, Tag, Typography, Popconfirm, App } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, PhoneOutlined, PrinterOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -29,6 +29,8 @@ interface UserOption {
 }
 
 export default function DepartmentListPage() {
+  // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
+  const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form] = Form.useForm();

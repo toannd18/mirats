@@ -1,5 +1,5 @@
 import { useState, useRef, type ReactNode } from 'react';
-import { Button, Space, Modal, Form, Input, TreeSelect, Card, Divider, Tag, Tooltip, Typography, Popconfirm, message } from 'antd';
+import { Button, Space, Modal, Form, Input, TreeSelect, Card, Divider, Tag, Tooltip, Typography, Popconfirm, App } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -30,6 +30,8 @@ function flattenCompanies(nodes: CompanyNode[], isChild = false): { node: Compan
 }
 
 export default function CompanyListPage() {
+  // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
+  const { message } = App.useApp();
   const [tree, setTree] = useState<CompanyNode[]>([]);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);

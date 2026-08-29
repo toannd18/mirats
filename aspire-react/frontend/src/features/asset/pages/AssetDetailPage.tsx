@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Descriptions, Tag, Spin, Button, Space, Card, message, Steps, Alert, Empty, Typography } from 'antd';
+import { Descriptions, Tag, Spin, Button, Space, Card, App, Steps, Alert, Empty, Typography } from 'antd';
 import {
   ArrowLeftOutlined, EditOutlined, AuditOutlined, InboxOutlined,
   RollbackOutlined, SendOutlined, UserOutlined, TeamOutlined, ClusterOutlined,
@@ -40,6 +40,8 @@ function lifecycleStepIndex(status: AssetStatus): number {
 }
 
 const AssetDetailPage: React.FC = () => {
+  // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [asset, setAsset] = useState<AssetDetailDto | null>(null);
@@ -64,7 +66,7 @@ const AssetDetailPage: React.FC = () => {
       .then(r => setAsset(r.data.data))
       .catch(() => message.error('Không thể tải thông tin tài sản'))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, message]);
 
   useEffect(() => { loadAsset(); }, [loadAsset]);
 

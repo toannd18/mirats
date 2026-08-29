@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Form, Input, Button, message, Alert, Typography, Space } from 'antd';
+import { Card, Form, Input, Button, App, Alert, Typography, Space } from 'antd';
 import { SaveOutlined, ReloadOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
@@ -12,6 +12,8 @@ const { Text } = Typography;
  * sẵn sàng mở rộng thêm setting khác trong cùng trang.
  */
 export default function SystemConfigPage() {
+  // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);

@@ -1,5 +1,5 @@
 import { useState, useRef, type ReactNode } from 'react';
-import { Button, Space, Input, Tag, Modal, Form, Select, Switch, ColorPicker, Card, Divider, Typography, Popconfirm, message } from 'antd';
+import { Button, Space, Input, Tag, Modal, Form, Select, Switch, ColorPicker, Card, Divider, Typography, Popconfirm, App } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -35,6 +35,8 @@ interface CategoryRow {
 }
 
 export default function CategoryListPage() {
+  // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
+  const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form] = Form.useForm();
