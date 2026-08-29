@@ -246,7 +246,7 @@ const AccessoryCheckoutModal: React.FC<AccessoryCheckoutModalProps> = ({
           type="info"
           showIcon
           style={{ marginBottom: 16, borderRadius: 8 }}
-          message={
+          title={
             <Text style={{ fontSize: 13 }}>
               Phụ kiện thuộc công ty <Text strong>{accessory.companyName}</Text>.
               Chỉ có thể cấp phát cho đối tượng thuộc cùng công ty này.

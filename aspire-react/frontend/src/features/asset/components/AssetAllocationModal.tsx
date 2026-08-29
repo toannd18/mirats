@@ -123,7 +123,7 @@ const AssetAllocationModal: React.FC<AllocationModalProps> = ({ open, asset, onC
       )}
       {asset?.company?.name && (
         <Alert type="info" showIcon style={{ marginBottom: 16, borderRadius: 8 }}
-          message={`Tài sản thuộc công ty ${asset.company.name}. Chỉ cấp phát cho đối tượng cùng công ty.`} />
+          title={`Tài sản thuộc công ty ${asset.company.name}. Chỉ cấp phát cho đối tượng cùng công ty.`} />
       )}
       <div style={{ marginBottom: 16 }}>
         <Text strong style={{ display: 'block', marginBottom: 8 }}>Đối tượng cấp phát:</Text>

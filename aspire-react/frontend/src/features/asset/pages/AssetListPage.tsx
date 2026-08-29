@@ -354,7 +354,7 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
       </Card>
 
       <Alert type="info" showIcon style={{ borderRadius: 8 }} title={
-        <Space direction="vertical" size={2}>
+        <Space orientation="vertical" size={2}>
           <span>Sau khi xác nhận, tài sản sẽ được tạo chính thức với trạng thái “Chờ cấp phát”. Tài sản sẽ sẵn sàng để cấp phát ngay sau khi tạo.</span>
           <span>Sau khi tạo, chỉ Tên và Ghi chú có thể được chỉnh sửa. Các thông tin khác không thể thay đổi và tài sản không thể xóa.</span>
         </Space>

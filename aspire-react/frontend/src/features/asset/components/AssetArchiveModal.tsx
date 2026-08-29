@@ -58,7 +58,7 @@ const AssetArchiveModal: React.FC<AssetArchiveModalProps> = ({ open, asset, onCl
         </Descriptions>
       )}
       <Alert type="warning" showIcon style={{ marginBottom: 16, borderRadius: 8 }}
-        message="Tài sản sẽ được chuyển sang trạng thái Lưu trữ và chuyển đến vị trí đã chọn." />
+        title="Tài sản sẽ được chuyển sang trạng thái Lưu trữ và chuyển đến vị trí đã chọn." />
       <div style={{ marginBottom: 16 }}>
         <Text strong style={{ display: 'block', marginBottom: 8 }}>Vị trí lưu trữ / Kho thanh lý *</Text>
         <Select showSearch size="large" style={{ width: '100%' }} placeholder="Chọn vị trí lưu trữ hoặc kho thanh lý (bắt buộc)"

@@ -19,6 +19,9 @@ const palette = {
   warningAmber: '#fa8c16',     // cảnh báo tồn kho / thu hồi / lưu trữ / statistic "Sắp hết"
   stockSuccessBg: '#f6ffed',   // nền card tồn kho (stock summary)
   stockSuccessBorder: '#b7eb8f', // viền card tồn kho
+  // FE-R3 — token hóa màu phát sinh ở Maintenance pages (audit 2026-08-28):
+  success: '#16A34A',          // icon "đã lưu" (CheckCircle) — khớp theme colorSuccess; 3.30:1 đạt AA graphics (3:1); #52c41a cũ chỉ 2.27:1
+  accentPurple: '#722ed1',     // icon accent "Tiêu chuẩn kỹ thuật" (Experiment) — 6.94:1 đạt AA text
 };
 
 export const designTokens: ThemeConfig = {
@@ -116,6 +119,10 @@ export const uiColors = {
   /** Nền + viền card tồn kho (stock summary). */
   stockSuccessBg: palette.stockSuccessBg,
   stockSuccessBorder: palette.stockSuccessBorder,
+  /** [FE-R3] Icon "đã lưu" (CheckCircle) — khớp theme colorSuccess #16A34A. */
+  success: palette.success,
+  /** [FE-R3] Icon accent tím "Tiêu chuẩn kỹ thuật" (ExperimentOutlined). */
+  accentPurple: palette.accentPurple,
 } as const;
 
 /**

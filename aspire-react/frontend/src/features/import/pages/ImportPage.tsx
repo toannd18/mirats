@@ -118,7 +118,7 @@ export default function ImportPage() {
       </Paragraph>
 
       <Card style={{ marginBottom: 16 }}>
-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Space orientation="vertical" size="large" style={{ width: '100%' }}>
           <div>
             <Text strong>1. Loại dữ liệu</Text>
             <Radio.Group
@@ -212,7 +212,7 @@ export default function ImportPage() {
             style={{ marginBottom: 12 }}
             type={result.failed === 0 ? 'success' : result.created === 0 ? 'error' : 'warning'}
             showIcon
-            message={`Đã tạo ${result.created} bản ghi — ${result.failed} dòng lỗi.`}
+            title={`Đã tạo ${result.created} bản ghi — ${result.failed} dòng lỗi.`}
           />
           <Table
             size="small"

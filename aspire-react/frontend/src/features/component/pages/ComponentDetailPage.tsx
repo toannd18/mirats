@@ -518,11 +518,11 @@ function CheckoutModal({ open, onClose, trackingType, inStockUnits, assets, comp
       okText="Cấp phát" cancelText="Hủy" confirmLoading={submitting} destroyOnHidden width={520}>
       {!componentCompanyId && (
         <Alert type="warning" style={{ marginBottom: 12 }}
-          message="Linh kiện chưa xác định công ty — không thể cấp phát. Hãy bổ sung công ty trước (chỉ hiển thị trong form Sửa)." />
+          title="Linh kiện chưa xác định công ty — không thể cấp phát. Hãy bổ sung công ty trước (chỉ hiển thị trong form Sửa)." />
       )}
       {crossCompany && (
         <Alert type="error" style={{ marginBottom: 12 }}
-          message="Tài sản thuộc công ty khác với linh kiện — không thể cấp phát." />
+          title="Tài sản thuộc công ty khác với linh kiện — không thể cấp phát." />
       )}
       <Text strong style={{ display: 'block', marginBottom: 8 }}>Tài sản nhận *</Text>
       <Select showSearch style={{ width: '100%' }} placeholder="Chọn tài sản..."
