@@ -130,6 +130,11 @@ public static class PermissionCatalog
         new("systems.create", "systems", "create", "Tạo hệ thống / vị trí"),
         new("systems.edit", "systems", "edit", "Cập nhật hệ thống / vị trí"),
         new("systems.delete", "systems", "delete", "Xóa hệ thống / vị trí"),
+
+        // === Bảo dưỡng định kỳ theo checklist (MC — Maintenance Checklist) ===
+        new("maintenance.templates", "maintenance", "templates", "Quản lý Template & version checklist bảo dưỡng (xem/tạo/sửa/publish)"),
+        new("maintenance.campaigns", "maintenance", "campaigns", "Quản lý đợt bảo dưỡng (tạo/hoàn thành/ghi kết quả checklist)"),
+        new("maintenance.view", "maintenance", "view", "Xem lịch sử đợt bảo dưỡng & kết quả checklist"),
         new("admin", "system", "admin", "Quyền quản trị hệ thống (wildcard cho mọi quyền khác)"),
         new("superuser", "system", "superuser", "Toàn quyền tuyệt đối (bypass mọi kiểm tra)"),
         new("system.config", "system", "config", "Cấu hình hệ thống (VD format tự sinh Mã tài sản)")

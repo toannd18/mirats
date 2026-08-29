@@ -1,4 +1,4 @@
-# HANDOFF LATEST — Tổng kết toàn bộ phiên làm việc (Session Summary & Handoff)
+﻿# HANDOFF LATEST — Tổng kết toàn bộ phiên làm việc (Session Summary & Handoff)
 
 > **Ngày:** 2026-08-14 · **Lộ trình:** ST1 → ST10 (Audit & Nâng cấp hệ thống)
 > **Stack:** .NET 10 Web API + React 18/AntD v6 (Vite) + .NET Aspire (AppHost) + PostgreSQL 18 + Keycloak 26
@@ -2841,6 +2841,8 @@ Các action endpoint checkout/checkin/allocate chỉ validate **target↔record*
 ### AR-2 (vấn đề phụ DELETE company) — XÁC NHẬN CÒN TỒN TẠI, để lại backlog riêng
 Kiểm tra code tại thời điểm S5: guard `inUse` của DELETE chỉ check 6 bảng (Components/Assets/Consumables/Accessories/Licenses/AssetMaintenances), **thiếu** Locations/Departments/SystemInfos/SystemPositions/AssetTagCounters (FK SetNull → xóa công ty sẽ âm thầm biến các record này thành "floater" cross-company); đồng thời `ExecuteUpdate` reset `CompanyId=null` cho users của công ty vẫn giữ nguyên. **Không xử lý trong S5** (khác phạm vi: data-integrity/delete-guard thay vì access-control) — cần backlog riêng AR-2.
 
+> **[2026-08-27, phát hiện mới — ghi nhận backlog, KHÔNG sửa ngay] DELETE /companies trả 500** khi công ty còn **ActionLog** tham chiếu (`action_logs.CompanyId`): tái hiện thật khi xóa company QA7A còn 5 dòng ActionLog từ system/template tạo → HTTP 500 (không phải 400 guard). Giả thuyết: guard AR-2 check "10 nhóm dữ liệu" nhưng có thể **thiếu `action_logs`** trong danh sách check (hoặc lỗi phát sinh sau commit ở bước log). Bổ sung vào backlog AR-2: thêm ActionLog vào danh sách bảng cần check (và cân nhắc Location/Department/SystemInfo/SystemPosition/AssetTagCounter như dòng trên) + xử lý 500 thay vì 400 guard khi có dữ liệu tham chiếu.
+
 ### Verify thực nghiệm (API thật trên Aspire stack, cây QA: QA5P(parent) → QA5C(child), QA5O root khác, user qa-s5-ch (company=child) & qa-s5-pa (company=parent), đều nhóm Admin)
 | Kịch bản | Trước fix | Sau fix |
 |---|---|---|
@@ -2979,6 +2981,168 @@ Xác nhận dòng `348ecc54-d431-4522-89d4-5d0a6d2c063b` ("QA-UX1 click-to-detai
 - `ImportAssetModelsAsync` KHÔNG cần invalidate cache — models không nằm trong 5 nhóm reference cache (chỉ categories/manufacturers/suppliers/permissions/companies).
 - Nếu cần import `DepreciationId`/`FieldsetId`/`Eol`/`Requestable` cho model: mở rộng cột sheet + resolve theo tên (hiện để trống, `Requestable=false`).
 - `Summarize` đếm dòng skip (Success=true) vào "created" — semantics "created" = "xử lý OK (tạo hoặc bỏ qua)" giống các import reference khác, không phải số dòng thật được tạo.
+
+---
+
+## 74. MC-7 — Checklist bảo dưỡng theo vị trí (Position-scoped maintenance checklist)
+
+Chuỗi MC-7 (được duyệt từng bước): hạng mục checklist có thể khai báo danh sách vị trí hệ thống (SystemPosition) áp dụng; campaign chỉ sinh kết quả cho cặp (Item × DeviceSnapshot) đúng vị trí khai báo; danh sách rỗng = universal (backward-compat).
+
+### MC-7a — Bảng `maintenance_checklist_item_positions` + delete-guard (ĐÃ DUYỆT)
+- Migration `20260827032418_AddMaintenanceChecklistItemPositions` **(đã apply live DB)**: `maintenance_checklist_item_positions` (ItemId FK **CASCADE**, SystemPositionId FK **RESTRICT** — mirror Company AR-2 delete-guard: vị trí đang được template dùng không xóa được; UNIQUE (ItemId,SystemPositionId)).
+- `SystemInfoController`: `Delete`/`DeletePosition` chặn vị trí/system đang bị checklist tham chiếu → **400 `POSITION_IN_USE_BY_CHECKLIST`**. Verify live: tham chiếu → 400; không tham chiếu → 200.
+- Test: `MaintenancePositionGuardTests` (4).
+
+### MC-7b — Item CRUD `positionIds` (ĐÃ DUYỆT)
+- DTO `MaintenanceChecklistItemDto(..., Guid[]? PositionIds = null)` — null/[] = universal.
+- `ValidatePositionsAsync` → 400 **`INVALID_POSITION`** nếu position không thuộc SystemInfo của template (khớp vị trí theo SystemPosition từ MC-1, không phải Category/DeviceType).
+- `ReplaceItemPositionsAsync` (null = patch no-op); GET version trả `positionIds` + `positionNames`.
+- Test: `MaintenanceTemplateTests` +3 (persist+names, INVALID_POSITION, replace/empty/absent).
+
+### MC-7c — API Campaign: chặn cặp ngoài phạm vi + Complete gate đếm applicable pairs (HOÀN TẤT 2026-08-27)
+- `MaintenanceCampaignsController.UpsertResult`: sau `INVALID_CHECKLIST_ITEM`, check `IsApplicablePairAsync(itemId, snapshot.SystemPositionId)` → **400 `INVALID_ITEM_POSITION`** (item khai báo vị trí nhưng snapshot không thuộc danh sách → không tạo result thừa ngay từ upsert). `INVALID_POSITION` (item save) vs `INVALID_ITEM_POSITION` (campaign upsert) là 2 mã riêng.
+- `Complete`: gate cũ `S×I` toàn phần → sum **applicable pairs** (`items.Sum(it => it.Positions.Count==0 ? snapshots.Count : snapshots.Count(s => s.SystemPositionId ∈ it.Positions))`, items `.Include(i => i.Positions)`); due-date giữ `items.Min(CycleMonths)` (warn-early, MC-3).
+- Script dọn: `scripts/cleanup-maintenance-stale-results.sql` — xóa result thừa của campaign **InProgress** (item khai báo vị trí, snapshot ngoài danh sách); **Completed tuyệt đối không đụng** (bất biến), idempotent.
+- **Verify E2E (standalone 55428, fixture QA7C — 4 yêu cầu user):**
+  1. Upsert cặp ngoài phạm vi (snap@pos2 × itemScoped) → **400 `INVALID_ITEM_POSITION`** ✅
+  2. Complete ở 2/3 applicable pairs (1 universal + 1 scoped trộn chung) → **400 `CAMPAIGN_RESULTS_INCOMPLETE` "(2/3 bản ghi)"** (đếm 3, không phải 4) ✅
+  3. Complete ở 3/3 → **200 OK** ✅
+  4. Chạy script cleanup thật: campaign2 (InProgress) results 3→2, campaign1 (Completed) results 3→3 (bất biến) ✅
+- Test: `MaintenanceCampaignTests` +3 (gate 2/3 không phải 4, upsert out-of-scope, stale-cleanup InProgress-only replica).
+- **Suite cuối: 376/376 PASS** (`dotnet test --filter "Category!=Concurrency"`). Fixture QA7C đã dọn sạch: tpl_total=1 (chỉ "Bảo dưỡng RDP"), sys_total=1 (chỉ RDP-2026-001), ipp=0, camp_total=1, results=0 — **dữ liệu user nguyên vẹn**.
+
+### ⛔ HARD GATE — BẮT BUỘC trước MC-7d (frontend position selection)
+**Server đang chạy (PID 30432, start 09:20) vẫn là binary Debug cũ build 08-25 — KHÔNG có guard MC-7a/b/c.** Người dùng đã chốt: KHÔNG restart stack trong 7b/7c (giữ nguyên), nhưng **TRƯỚC KHI MC-7d được coi là sẵn sàng, PHẢI restart server** để nạp guard MC-7a (chặn cứng, không bỏ qua). DB FK RESTRICT đã active (xóa vị trí đang tham chiếu qua binary cũ → raw 500, KHÔNG phải 400 sạch). Ghi nhận: nhắc lại gate này trước khi duyệt hoàn tất chuỗi MC-7.
+
+### Backlog (KHÔNG sửa ngay, chỉ ghi nhận)
+- `DELETE /companies` → 500 khi còn ActionLog tham chiếu (guard AR-2 có thể thiếu ActionLog trong danh sách 10 nhóm dữ liệu đã check) — ghi nhận, chưa fix.
+
+### MC-7d — Frontend: Template Builder multi-select vị trí + Campaign Detail applicable pairs (HOÀN TẤT 2026-08-27)
+- **Backend (nhỏ, phục vụ frontend)**: `GET /maintenance/templates/{id}` giờ trả `SystemInfo.Positions` (id/code/name, sort theo code) — nguồn options cho multi-select, dùng chung policy `maintenance.templates` (không phụ thuộc `systems.view`). `GetVisibleTemplateAsync` thêm `.ThenInclude(s => s.Positions)`.
+- **Template Builder** (`MaintenanceTemplateBuilderPage.tsx`): cột "Vị trí áp dụng" trong bảng items — item khai báo vị trí → Tag từng vị trí (positionNames), rỗng → Tag "Mọi vị trí"; form item thêm `Select mode="multiple"` (options từ `template.systemInfo.positions`, label "name (code)") + ghi chú "Bỏ trống = áp dụng cho mọi vị trí (universal)". Edit item pre-fill `positionIds` (setFieldsValue từ MC-7b response).
+- **Campaign Detail** (`MaintenanceCampaignDetailPage.tsx`): helper `isApplicablePair(snapshot, item)` (positions rỗng = universal; có khai báo → snapshot.systemPositionId ∈ positions — khớp backend MC-7c); **chỉ render dòng applicable** trong bảng mỗi item; label panel thêm Tag vị trí + đếm `x/y` theo applicable; tiến độ tổng `recordedTotal / applicableTotal` (applicableTotal = sum applicable pairs, recordedTotal đếm result có cặp applicable); gate Complete + tooltip/alert theo applicable pairs.
+- **Verify UI thật (playwright chromium + stack chính thức 5173/5428/8080, login admin chuẩn — HARD GATE restart đã thỏa, xem dưới):**
+  1. Template Builder: row "QA7D Item Scoped … QA7D Pos 1 Alpha" + row "QA7D Item Universal … Mọi vị trí" (Tag đúng); form "Vị trí áp dụng" hiện combobox placeholder "Bỏ trống = mọi vị trí" + ghi chú universal; dropdown hiện 2 options từ systemInfo.positions ("QA7D Pos 1 Alpha (QAD-2026-101)"…); chọn 2 vị trí → lưu item "QA7D Item MultiPos" → row hiện 2 tags + DB xác nhận 2 dòng `maintenance_checklist_item_positions` ✅
+  2. Campaign Detail (2 snapshots AST-001@pos1, AST-002@pos2; itemScoped[Pos1] + itemUniversal): "Tiến độ kết quả 0/3" (applicable=3, KHÔNG 4=S×I); panel scoped "0/1 thiết bị" chỉ hiện 1 dòng AST-001@pos1 (KHÔNG AST-002@pos2 ngoài phạm vi); panel universal "0/2 thiết bị" ✅
+  3. Ghi 1 result applicable → reload "1/3"; ghi 2 result nữa → "3/3" + nút "Hoàn thành đợt" enabled; Complete qua API → 200 (nextDue = end + 6 tháng min cycle) ✅
+  4. Upsert cặp ngoài phạm vi (scoped × AST-002@pos2) → **400 `INVALID_ITEM_POSITION`** (server mới) ✅
+- Screenshot bằng chứng: `qa7d_template_builder.png`, `qa7d_campaign_detail.png`, `qa7d_campaign_3of3.png` (repo root).
+- Fixture QA7D đã dọn sạch (campaign → template → assets → models → system theo FK): tpl=1/sys=1/camp=1/ipp=0/results=0 — **dữ liệu user nguyên vẹn** (chỉ "Bảo dưỡng RDP").
+
+### ✅ HARD GATE restart server — ĐÃ THỎA (2026-08-27)
+**Trong lúc MC-7d verify, stack cũ của user (AppHost PID 28444 + Server PID 30432 binary 08-25 + containers postgres-qpwwqhqt/keycloak-cyadfcwr/pgadmin/cache-dutkdkem) đã tắt hoàn toàn** (containers Exited 255, không còn process dotnet — nguyên nhân không xác định, có thể Docker/AppHost bị đóng). Đã xử lý:
+1. Start lại AppHost (`dotnet run --project aspire-react/aspire-react.AppHost`) — **AppHost build + chạy server với binary MỚI** (MC-7a/b/c/d).
+2. Xác nhận server mới qua proxy 5428 trả `systemInfo.positions` (17 vị trí RDP) — guard MC-7a/b/c/d **đã nạp, KHÔNG còn binary cũ 08-25**.
+3. DB: volume `postgres-data` dùng chung (container mới `postgres-wrcmjtqq`), dữ liệu user nguyên vẹn; Keycloak realm data persistent (redirect/webOrigins 5174 vẫn còn, đã dọn 5174 khỏi redirect nếu cần — kiểm tra).
+4. Đã verify guard thật trên server mới: upsert ngoài phạm vi → 400 `INVALID_ITEM_POSITION`; MC-7a DeletePosition/DeleteSystem guard đã verify từ trước.
+**Kết luận: gate "restart server trước khi MC-7d sẵn sàng" ĐÃ HOÀN THÀNH — stack đang chạy binary mới với đầy đủ guard MC-7a/b/c/d.**
+
+### ✅ Verify HARD GATE trên CHÍNH server thật (5428, 2026-08-27 — theo yêu cầu user xác nhận dứt khoát)
+- **Server cũ PID 30432 (binary Debug 08-25) đã CHẾT** khi stack tắt (không còn process dotnet cũ); server hiện tại do AppHost restart (3 dotnet start 12:28-12:29, dcp proxy 16888 start 12:28:40 mở 5428/8080) — **binary MỚI, guard MC-7a/b/c/d đã nạp**.
+- **Phép thử bắt buộc trên server THẬT (không phải standalone):** fixture QGA (system + position + template + item tham chiếu position) → `DELETE /system-infos/{sys}/positions/{pos}` → **HTTP 400 `POSITION_IN_USE_BY_CHECKLIST`** (không phải 500 thô); `DELETE /system-infos/{sys}` → **400** cùng mã; position KHÔNG tham chiếu → **200 "Position deleted."**. Fixture đã dọn sạch (tpl=1/sys=1/ipp=0/camp=1 — dữ liệu user nguyên vẹn).
+- **Kết luận cuối: HARD GATE restart server ĐÃ THỎA và ĐÃ VERIFY trên chính server thật — MC-7d sẵn sàng dùng, không còn binary cũ.**
+
+### ✅ CHUỖI MC-7 ĐÃ ĐƯỢC DUYỆT HOÀN TẤT (2026-08-27)
+- **MC-7a** (entity `maintenance_checklist_item_positions` + FK RESTRICT + delete-guard `POSITION_IN_USE_BY_CHECKLIST`) → **MC-7b** (Item CRUD nhận `positionIds`) → **MC-7c** (Campaign applicable pairs + Complete gate + `scripts/cleanup-maintenance-stale-results.sql`) → **MC-7d** (Frontend Template Builder multi-select + Campaign Detail applicable rows/progress/gate).
+- **HARD GATE restart server ĐÃ THỎA MÃN ĐẦY ĐỦ**: server đã restart với binary mới (guard MC-7a/b/c/d nạp), verify trên chính server thật 5428 (không phải standalone) — xóa position bị ChecklistItem tham chiếu → 400 `POSITION_IN_USE_BY_CHECKLIST` (không 500 thô).
+- **Stack**: AppHost job nền đang chạy bình thường (binary mới) — GIỮ NGUYÊN theo quyết định user, không dừng/restart thêm. Dùng thử tính năng qua UI http://localhost:5173 khi thuận tiện.
+
+### 🗑️ XÓA TOÀN BỘ DỮ LIỆU BẢO DƯỠNG TẠO HÔM NAY (2026-08-27, theo task user — KÈM CẢ TEMPLATE)
+- **Phạm vi:** mọi dữ liệu maintenance tạo 2026-08-27 (UTC) — gồm cả Template "Bảo dưỡng RDP" (13f72930) + version v1 (c00c59be, IsCurrent) + 2 items + 2 standard_params + 1 campaign InProgress (41397f54) + 1 snapshot + 1 executor. Maintenance cũ (asset_maintenances/assignees): 0 bản ghi hôm nay. Không có RESTRICT cross-scope (version hôm nay chỉ bị campaign hôm nay tham chiếu).
+- **Xóa theo thứ tự FK:** Results(0) → Snapshots(1) → Executors(1) → Campaigns(1) → ItemPositions(0) → StandardParams(2) → Items(2) → Versions(1) → Templates(1) = 9 bản ghi. ActionLog maintenance tạo hôm nay (Note-based: template bảo dưỡng/hạng mục/tiêu chuẩn/publish/đợt/hoàn thành + log QA fixture) = 36 log đã xóa.
+- **Verify sau xóa:** 0 bản ghi hôm nay ở cả 9 bảng + maintenance cũ; **NextMaintenanceDueDate RDP = NULL** (campaign đầu tiên/duy nhất — đúng yêu cầu); dữ liệu khác nguyên vẹn (system_infos 1 RDP, positions 17, assets 19, companies 4, users 1); action_logs còn 118 (giữ log Accessory + log QA7A system/company — không thuộc ItemType maintenance task yêu cầu).
+- **Backup trước xóa:** `backups/aspire-react-db_beforeMaintDelete_20260827_163625.sql`.
+- **Lưu ý:** con số user xác nhận (Items 4/Results 4/Snapshots 2) lệch với DB thực tế (Items 2/Results 0/Snapshots 1 — đã verify toàn bộ mọi ngày); xóa theo dữ liệu DB thực tế, không theo con số ước lượng.
+
+### MC-8 — Tiêu chuẩn kỹ thuật là THUỘC TÍNH CON của ChecklistItem (2026-08-27)
+- **Audit B0:** `MaintenanceStandardParam` trước đây FK `TemplateVersionId` (thuộc Version, không thuộc item cụ thể) — khoảng trống thiết kế; GET version trả `items[]` + `standardParams[]` 2 mảng song song; DB trống (0 standard_params/items/campaigns/results) → sửa schema AN TOÀN không cần backfill.
+- **Schema:** `MaintenanceStandardParam` BỎ `TemplateVersionId`, thêm `ChecklistItemId` (FK CASCADE → `MaintenanceChecklistItem`). Bỏ nav `Version.StandardParams`; thêm `Item.StandardParams`. Migration `20260827134111_MoveStandardParamsToChecklistItem` (rename TemplateVersionId→ChecklistItemId, FK CASCADE sang items) — đã apply DB.
+- **API:** route mới `POST/PUT/DELETE /maintenance/templates/{id}/versions/{versionId}/items/{itemId}/standard-params(/{paramId})` (giữ versionId để scoping + immutable guard `TEMPLATE_VERSION_IN_USE`). GET version trả `items[].standardParams[]` NESTED (bỏ mảng `standardParams` top-level). `ParamsCount` (list + detail version) đổi `v.Items.SelectMany(i => i.StandardParams).Count()`.
+- **Frontend (`MaintenanceTemplateBuilderPage.tsx`):** bỏ card "Tiêu chuẩn kỹ thuật" riêng ngang hàng; bảng ChecklistItems dùng `expandable` — expand 1 hạng mục hiện bảng tiêu chuẩn CỦA RIÊNG hạng mục đó + nút "Thêm tiêu chuẩn"; thêm cột "Tiêu chuẩn" (count Tag, nhất quán với "Vị trí áp dụng" MC-7d).
+- **Verify:** dotnet test 376/376 PASS · tsc 0 lỗi · npm run build 0 lỗi. API thật (server AppHost restart binary mới): tạo item → thêm 2 tiêu chuẩn qua route item → GET version xác nhận `items[0].standardParams` = 2 params nested, top-level `standardParams` KHÔNG tồn tại; DB xác nhận `ChecklistItemId` trỏ đúng item. UI thật (playwright chromium 5173): header có cột "Tiêu chuẩn", expand row hiện "Tiêu chuẩn kỹ thuật của hạng mục …" + bảng CPU load/RAM load nested + nút "Thêm tiêu chuẩn" — KHÔNG còn 2 bảng tách rời. Screenshot `mc8_template_builder_nested.png`.
+- **AppHost restart:** server AppHost đã restart để nạp binary MC-8 (đã dừng containers cũ, start AppHost mới — cùng volume `postgres-data`). Fixture test MC-8 (item "Kiểm tra tài nguyên hệ thống" + 2 params) đã dọn sạch — DB trả về trạng thái user (template "Bảo dưỡng RDP" draft trống, 0 items/params).
+- **MC-8b — Xóa field "Nhóm thiết bị / loại" (DeviceCategoryOrType) khỏi StandardParam (2026-08-27 15:00):** sau MC-7 + MC-8, phạm vi tiêu chuẩn đã được xác định đầy đủ qua Vị trí của Item cha → Asset thật, field tự do này là 2 nguồn sự thật thừa (dễ lệch, tàn dư MC-1). Migration `20260827144952_RemoveDeviceCategoryOrTypeFromStandardParams` (DropColumn), DTO + AppDbContext + API response (bỏ field), frontend form bỏ ô "Nhóm thiết bị / loại" + bảng bỏ cột "Thiết bị" (giữ Thông số/Định mức/Ngưỡng/Cách kiểm tra/Đơn vị). Test 376/376 PASS · tsc 0 lỗi · build 0 lỗi · API thật (route item) + UI thật verify form gọn, không cột Thiết bị.
+
+### MC-BUG — Sửa isDirty khiến gạt Switch "Đạt?" bị mất khi reload (2026-08-27 ~15:30)
+- **Nguyên nhân gốc (KHÔNG phải auto-save):** Frontend `MaintenanceCampaignDetailPage.tsx:148-150` chỉ gọi duy nhất `saveRow()` khi người dùng bấm nút ✓ (dòng) hoặc "Lưu nhóm này" — KHÔNG có `useEffect`/watcher tự động gọi `saveRow` khi `drafts` thay đổi. `updateDraft()` (dòng 138) chỉ cập nhật state cục bộ `drafts` (và xóa `savedKeys`), không gọi API. Bằng chứng: `grep` toàn file chỉ 2 nơi gọi `apiClient.post(.../results)` đều là `saveRow` (156), và `onChange={e => updateDraft(...)}` (319/335/347) KHÔNG kèm `saveRow`. Gõ "88" vào "Giá trị đo" rồi rời trang → DB vẫn 0 results, reload về trống — đã verify UI thật.
+- **Bản ghi "lạc" 1/2** (MeasuredValue=90, Item "Kiểm tra thông số thiết bị" × Firewall FortiGate 40F, 14:37:29) là do người dùng ĐÃ chủ động bấm ✓ trước đó (đúng như ảnh gốc), **không phải auto-save**. Đã xóa theo xác nhận (ID e107b6ab) để trả về 0/2.
+- **Bug thực sự nghiêm trọng hơn báo cáo ban đầu — LỖ HỔNG MẤT DỮ LIỆU khi gạt Switch:** `isDirty()` nhánh `!saved` (dòng 150) chỉ kiểm tra `measuredValue !== '' || !!notes`, BỎ QUA `isPass`. Draft khởi tạo cho dòng chưa lưu: `{ measuredValue:'', isPass:true, notes:'' }` (dòng 128). Hậu quả: gạt Switch `Đạt?` true→false (không gõ gì thêm) → `isDirty` vẫn `false` → nút ✓/Lưu nhóm giữ DISABLE, thay đổi Switch không được lưu, rời trang → MẤT khi reload. Đã verify UI: gạt Switch trước khi sửa → nút vẫn DISABLE; sau khi sửa → nút bật "1 chưa lưu".
+- **Sửa:** `isDirty()` nhánh `!saved` thêm `|| draft.isPass !== true` (so đúng trạng thái gốc của draft chưa lưu). Đã build 0 lỗi TS · verify UI thật: mở trang 0/2 → không chạm → vẫn 0/2; gõ 88 rời trang → vẫn 0 results; gạt Switch → nút Lưu bật; bấm ✓ → chỉ dòng đó 1/2, dòng kia vẫn 0/1.
+
+### MC-9 — Kết quả checklist THEO TỪNG Tiêu chuẩn (1 thiết bị × 1 hạng mục × 1 tiêu chuẩn = 1 dòng) — 2026-08-28
+- **Audit B0 (bắt buộc trước thiết kế):**
+  1. `MaintenanceChecklistResult` hiện unique `(CampaignId, DeviceSnapshotId, ChecklistItemId)` — 1 giá trị đơn (MeasuredValue/IsPass/Notes) cho mỗi (thiết bị × hạng mục), KHÔNG tách theo tiêu chuẩn → đúng bug "1 ô Giá trị đo cho 2 tiêu chuẩn CPU/Memory".
+  2. DB trống `maintenance_checklist_results=0` (sau wipe toàn bộ), 1 template/1 version/2 items/2 params (item "Kiểm tra thông số" có CPU Load + Memory Load) → **không cần backfill**, sửa thẳng.
+  3. RDP gốc: mỗi tiêu chuẩn (CPU/RAM/HDD/Net) có dòng Kết quả đo + Đánh giá riêng → "1 kết quả / (thiết bị × hạng mục × tiêu chuẩn)".
+- **Schema:** thêm `MaintenanceChecklistResult.StandardParamId` `Guid?` FK RESTRICT → `MaintenanceStandardParam` (nullable: `null` = hạng mục không có tiêu chuẩn → 1 dòng chung). Do Postgres UNIQUE coi `NULL` ≠ `NULL`, chia thành 2 partial unique index: `WHERE StandardParamId IS NULL` (3 cột) và `WHERE StandardParamId IS NOT NULL` (4 cột). Migration `20260828043302_AddStandardParamIdToChecklistResult` — đã apply; `postgres-vmtxpmsj` volume cũ tái dùng, migration đã chạy.
+- **Backend:**
+  - `MaintenanceCampaignsController.UpsertResult`: validate `StandardParamId` theo `StandardParams.Count`: hạng mục **không có** tiêu chuẩn mà gửi `StandardParamId` → `STANDARD_PARAM_NOT_APPLICABLE`; hạng mục **có** tiêu chuẩn mà thiếu → `STANDARD_PARAM_REQUIRED`; tiêu chuẩn không thuộc hạng mục → `INVALID_STANDARD_PARAM`. Upsert tìm theo `(Campaign, DeviceSnapshot, ChecklistItem, StandardParamId)` (bao gồm `NULL`).
+  - `DeleteResult`: xóa theo `(…, StandardParamId)` (giữ `DeleteBehavior.Restrict` cho `StandardParamId` FK).
+  - `Complete` gate: `expected = Σ applicableSnapshots × (paramCount||1)` — hạng mục **có** tiêu chuẩn `×paramCount`, **không có** `×1` (`Include(i => i.StandardParams)`). `Get` trả `Results[].standardParamId`.
+  - `MaintenanceChecklistResult` entity + `AppDbContext` unique index comment cập nhật MC-9.
+- **Frontend:**
+  - `MaintenanceCampaignDetailPage.tsx` ([MC-9] dùng đúng AntD `Table`/`Collapse` như trước, mở rộng số dòng): helper `isApplicablePair` giữ nguyên; mỗi thiết bị × mỗi tiêu chuẩn → 1 `ResultRow` (`key = snapshot__item__paramId`); drafts/`isDirty`/`saveRow` theo `paramId`; `applicableTotal/recordedTotal/panelDirty` đếm theo `×paramCount`; label panel thêm Tag `N tiêu chuẩn` (purple) + đếm `x/y kết quả`; Table cột "Tiêu chuẩn" (chỉ hiện khi `hasParams`) + "Thiết bị" dùng `rowSpan` gom nhóm (dòng đầu hiện thiết bị, các dòng tiêu chuẩn con `rowSpan:0` — tránh "danh sách phẳng" khó phân biệt); `useIsMobile()` áp cho cột Tiêu chuẩn/Giá trị đo/Ghi chú/Switch size; scroll `max-content`.
+  - `MaintenanceCampaignListPage.tsx` + `CampaignHistoryTable.tsx`: cột "Kết quả" chuyển `resultsCount` → "N dòng kết quả" (mỗi tiêu chuẩn = 1 dòng), tooltip ghi rõ.
+- **Verify:**
+  - `dotnet build` 0 error · `npm run build` 0 TS · `dotnet test` **380/380 PASS** · `audit-sweeps.ps1` **0 violations**.
+  - **API thật** (server 5428 + DB `postgres-vmtxpmsj` 58163, token admin ROPC `https://localhost:58209`):
+    - Hạng mục có 2 tiêu chuẩn mà upsert thiếu `StandardParamId` → `STANDARD_PARAM_REQUIRED` ✅
+    - Tiêu chuẩn không thuộc hạng mục → `INVALID_STANDARD_PARAM` ✅
+    - Hạng mục không có tiêu chuẩn mà gửi `StandardParamId` → `STANDARD_PARAM_NOT_APPLICABLE` ✅
+    - 2 tiêu chuẩn × 1 thiết bị = **2 dòng riêng**: `CPU Load 55% Đạt`, `Memory Load 70% Không đạt` + `Vệ sinh công nghiệp` 1 dòng chung → campaign `3 results` (`camp.resultsCount` + detail `results[]` có `standardParamId` phân biệt) ✅ (bug cũ "1 ô cho 2 tiêu chuẩn" đã hết).
+    - `Complete` gate: `2/3 → 400 CAMPAIGN_RESULTS_INCOMPLETE "(2/3)"` → thêm đủ → `3/3 → 200 Completed` ✅.
+  - **UI thật** (playwright `mc9c` chromium, vite `0.0.0.0:5173` + node TCP proxy `8080→58209` cho Keycloak, login `admin/<REDACTED_DEV_PASSWORD>`):
+    - Campaign Detail: "Tiến độ kết quả `3 / 3`" + "Hoàn thành đợt" enabled; panel "Vệ sinh công nghiệp `1/1 thiết bị`" (không cột Tiêu chuẩn); panel "Kiểm tra thông số `2/2 kết quả` + Tag `2 tiêu chuẩn`" expand **2 dòng riêng** `CPU Load 55%` / `Memory Load 70%` với rowSpan thiết bị, phân biệt rõ thiết bị/tiêu chuẩn — đúng AntD Table.
+    - Mobile `375px`: không vỡ, Inputs `small`, Switch `small`, scroll ngang `max-content`.
+    - Console: chỉ 1 deprecation `Switch size="default" → "medium"` đã fix; không có error mới.
+    - Template List + Campaign List: không vỡ (list hiển thị "v1 2 mục · 2 tiêu chuẩn").
+  - **Server:** standalone `aspire-react.Server.exe` Release trên `5428` (env `Host=58163/cache=58158/kc=58209`), vite `5173`. `portal-proxy` TCP giữ `localhost:8080`.
+- **Trang liên quan đã kiểm:** Template Builder (expand hạng mục hiện bảng tiêu chuẩn nested), Campaign List (cột Kết quả đổi thành "dòng kết quả"), CampaignHistoryTable (đổi label tương tự), SystemDetail chưa có tab MC-9 riêng nhưng không vỡ.
+
+### MC-10 — Ẩn "Giá trị đo" khi không có tiêu chuẩn + TỰ ĐỘNG suy Đạt/Không đạt khi có tiêu chuẩn (2026-08-28)
+- **Bước 0 — Audit cấu trúc Threshold (BẮT BUỘC, đã báo cáo và được duyệt hướng a):**
+  1. `MaintenanceStandardParam.ThresholdValue`/`NominalValue` là `string?` (`text` trong DB) — UI nhập tự do `"VD: <60%"`/`"VD: 80%"`, KHÔNG có toán tử/giá trị cấu trúc → máy không so sánh chính xác được.
+  2. Dữ liệu thực tế (2 params RDP CPU Load/Memory Load): `ThresholdValue = NULL` (không điền ngưỡng) — xác nhận đây là **DỮ LIỆU THẬT của người dùng**, không phải QA.
+  3. **User chốt hướng (a): đổi cấu trúc Threshold thành (Operator enum + Value number), ngưỡng BẮT BUỘC.**
+- **Schema:** thêm enum `MaintenanceThresholdOperator` (LessThan/LessOrEqual/GreaterThan/GreaterOrEqual/Equal, serializes string) + `ThresholdOperator` (int NOT NULL) + `ThresholdValue` (numeric(18,4) NOT NULL) thay `string?`. Migration `StructuredThresholdOnStandardParam` (`text→numeric` dùng SQL `USING` vì Postgres không implicit-cast text→numeric; chuỗi không phải số → 0; `''`→NULL). **Hệ quả với dữ liệu thật:** 2 params RDP vốn NULL ngưỡng → `ThresholdValue=0`, `ThresholdOperator=0 (LessThan)` (default migration) — KHÔNG phản ánh ý định thật. **Cách xử lý ĐÚNG (tuân thủ immutable guard MC-1/MC-2): KHÔNG sửa SQL; user tạo Version MỚI qua Template Builder để khai ngưỡng đúng** (Version v1 đang khóa bởi campaign thật 1d1722b3 InProgress).
+- **Backend (`MaintenanceTemplatesController`):** DTO `MaintenanceStandardParamDto` đổi `ThresholdValue string` → `ThresholdOperator? + ThresholdValue?`; AddParam validate BẮT BUỘC: thiếu operator → `THRESHOLD_OPERATOR_REQUIRED`, thiếu value → `THRESHOLD_VALUE_REQUIRED`; GetVersion PROJECTION trả `ThresholdOperator.ToString() + ThresholdValue`; Update patch-aware theo cặp.
+- **Backend (`MaintenanceCampaignsController.UpsertResult`):** dòng có `StandardParamId` → server **TỰ ĐỘNG set `IsPass`** = `EvaluateThreshold(operator, threshold, parse(measuredValue))` (KHÔNG tin client gửi isPass); parse số đầu tiên từ `"55%"→55`, `"12,5"→12.5`; measured rỗng/không parse → `IsPass=false` (UI hiện "Chưa xác định" dựa trên MeasuredValue rỗng, không dùng IsPass). Helper `TryParseMeasured`/`EvaluateThreshold` server-side.
+- **Frontend Template Builder:** thay ô text "Ngưỡng cảnh báo" → **`Select` Toán tử so sánh (5 option) + `InputNumber` Giá trị ngưỡng** (bắt buộc); form bố trí: Tên thông số / Giá trị định mức+Đơn vị / Toán tử+Ngưỡng / Cách kiểm tra; cột "Ngưỡng" render `symbol + value + unit` (`≥ 5 GB`); fix deprecation `Space direction → orientation`.
+- **Frontend Campaign Detail:**
+  - Dòng **KHÔNG có StandardParam** → **ẨN ô "Giá trị đo"** (bảng chỉ còn Thiết bị / Đạt? Switch thủ công / Ghi chú / ✓).
+  - Dòng **CÓ StandardParam** → hiện `Giá trị đo` Input + cột Tiêu chuẩn hiển thị `Ngưỡng: < 80 %`; `Đạt?` **TỰ SUY** client-side bằng cùng công thức (`evaluateIsPass`) — **KHÔNG render Switch** (không cho gạt); chưa nhập value/parse fail → Tag **"Chưa xác định"** (KHÔNG mặc định true — tránh lặp bug isDirty MC-BUG).
+- **Verify:**
+  - `dotnet build` 0 error · `npm run build` 0 TS · `dotnet test --filter "Category!=Concurrency"` **376/376 PASS** · `audit-sweeps.ps1` 0 violations.
+  - **API thật** (server 5428, `postgres-vmtxpmsj` 58163): Fixture QA-MC10 (system QAMC-2026-101 → position → model → location → asset mounted → template QA + items [1 có 2 params `CPU < 80 %`, `Memory < 70 %`, 1 không param] → publish → campaign QA):
+    - no-param upsert → `IsPass` giữ theo client (thủ công) ✅
+    - CPU "55%" + client gửi `isPass:false` → server **override `true`** (55<80) ✅; CPU "90%" + client gửi `true` → override **`false`** ✅; Memory "70%" → `false` (70<70) ✅; measured rỗng → `false` (chưa xác định) ✅.
+    - Tạo param thiếu operator → `THRESHOLD_OPERATOR_REQUIRED`; thiếu value → `THRESHOLD_VALUE_REQUIRED`; đủ → 200 ✅.
+    - Complete gate: 3/3 pairs → Completed ✅.
+  - **UI thật** (playwright `mc10`, vite `0.0.0.0:5173` + proxy `8080→58209`, login admin): Campaign QA — "Vệ sinh" (no param) **KHÔNG có cột Giá trị đo**, Switch thủ công; "Đo thông số" (2 params) cột `Tiêu chuẩn | Giá trị đo | Đạt? | Ghi chú`, hiển thị `Ngưỡng: < 80 %`, "Đạt?" = **Chưa xác định** khi trống; gõ "90"→**Không đạt**, "55"→**Đạt**; KHÔNG có Switch trên param row; "1 chưa lưu" + ✓ enabled. Mobile 375px không vỡ (Descriptions 1 cột, scroll ngang). Template Builder v2 draft: modal có `Toán tử so sánh` (5 options) + `Giá trị ngưỡng` InputNumber; cột Ngưỡng "≥ 5 GB". Console chỉ còn pre-existing (không có warning mới sau khi fix `Space direction`).
+  - **Dọn fixture QA-MC10** (bước 3 kế hoạch đã duyệt): campaign QA — **KHÔNG có DELETE API** (thiết kế campaign = lịch sử) → SQL giới hạn đúng id QA (duy nhất row này); template QA xóa qua API (cascade items/params), model/location/position/system QA xóa qua API; 2 asset QA bị guard `ASSET_CONFIRMED` chặn (confirmed=true) → SQL giới hạn id QA; action_logs QA (21+2 log tạo/xóa QA) xóa SQL giới hạn id. **Verify cuối: 0 dấu vết QA ở mọi bảng; dữ liệu thật nguyên vẹn: template RDP 1 + campaign 1d1722b3 (InProgress, 3 results) + 2 params + system RDP 1.**
+  - **Lưu ý người dùng:** 2 param thật RDP (CPU Load, Memory Load) hiện hiển thị ngưỡng `0 <` (giá trị mặc định do migration, vì trước đó không điền ngưỡng). Khi muốn dùng tính năng auto-Đạt: **tạo Version mới** trong Template Builder (Version v1 đã khóa) và khai đúng `Toán tử so sánh + Giá trị ngưỡng`.
+
+### 🗑️ RESET TOÀN BỘ DATABASE + KEYCLOAK MỚI (2026-08-28, theo yêu cầu người dùng "xóa sạch dữ liệu trong database khởi tạo lại database và keycloak mới")
+- **Trạng thái trước reset (đã chụp):** assets 19 · users 1 · companies 6 · action_logs 148 · template RDP 1 · campaign 1 · 2 params · 3 results. **Backup trước khi xóa:** `backups/aspire-react-db_beforeFullReset_20260828_162400.dump` (pg_dump custom, 164484 bytes).
+- **Các bước:** kill server standalone 5428 + vite 5173 + node proxy 8080 → `docker stop/rm` các container đang chạy (postgres-vmtxpmsj, keycloak-tqcgyqgc, cache-fujjkvgs, pgadmin-jfjwwpnt, tunnel proxies) → **xóa 20 container cũ (Exited) đang giữ volume** → `docker volume rm postgres-data keycloak-data` (2 volume data) → start AppHost mới.
+- **AppHost mới (`dotnet run` nền, pid 13132):** container mới `postgres-zkeuzstn` (volume postgres-data MỚI trống) + `keycloak-wfameyep` (volume keycloak-data MỚI) + `cache-amgsdbwv` + `pgadmin-qqhjjudu`; dcp proxy 5428 (server) + 8080 (keycloak) + frontend 5173.
+- **Kết quả verify:** `__EFMigrationsHistory` = **12 migrations** (schema đầy đủ, `Migrate()` chạy từ đầu); mọi bảng rỗng (assets/users/companies/logs/tpls/camps = 0); `permission_groups` = 2 (Superuser/Admin — seed OK); Dashboard UI "Tổng tài sản 0 / Bảo dưỡng quá hạn 0 / Tổng giá trị 0 VND".
+- **Keycloak mới:** realm `aspire-react` import từ `aspire-react-realm.json` (chỉ chứa service-account-backend-service, KHÔNG có user human). Đã tạo lại user **admin/<REDACTED_DEV_PASSWORD>** qua Admin API (master bootstrap) + gán realm role `admin` → login OK, JIT tạo local user `885281ce` (`isSuperUser:true`). Roles realm: `admin`, `superuser` — RealmAccessHelper khớp chính xác vai trò.
+- **Stack hiện tại:** AppHost đang chạy (postgres 62575, keycloak 62622/8443, cache 62577) — dùng stack CHÍNH THỨC này (không standalone), login `admin / <REDACTED_DEV_PASSWORD>`, frontend `http://localhost:5173`, API proxy `http://localhost:5428`, Keycloak `https://localhost:8080`. **Dữ liệu cũ đã backup** tại `backups/aspire-react-db_beforeFullReset_20260828_162400.dump` nếu cần khôi phục.
+
+### 🎨 FIX: Badge "Hệ thống" trong sidebar bị đen (chữ chìm trên nền Sider tối) — 2026-08-28
+- **Triệu chứng:** item "Hệ thống" (trong submenu "Quản trị", có Badge đếm hệ thống quá hạn bảo dưỡng) hiển thị chữ màu TỐI `#020617` trên nền Sider `#0F172A` → chìm, khó đọc. User báo kèm hiện tượng DevTools `--ant-color-text:;` (không resolve tại element Badge).
+- **Nguyên nhân gốc:** AntD `.ant-badge` set `color: var(--ant-color-text)` (#020617) trên root. Override cũ trong `index.css` CHỈ phủ `.ant-menu-dark .ant-menu-submenu-title .ant-badge` — tức chỉ Badge nằm trong **submenu-title** (như "Vật tư"). Còn Badge nằm trong một **menu item thường** (item "Hệ thống" — con của submenu "Quản trị") **KHÔNG được phủ** → vẫn giữ màu đen.
+- **Sửa (`frontend/src/index.css`):** mở rộng selector phủ MỌI Badge trong menu dark:
+  ```css
+  .ant-menu-dark .ant-badge,
+  .ant-menu-dark .ant-menu-item .ant-badge,
+  .ant-menu-dark .ant-menu-submenu-title .ant-badge { color: inherit; }
+  ```
+  (Giữ nguyên `span` con `style={{ color: 'inherit' }}` trong `App.tsx`.) Vẫn dùng class ổn định AntD — KHÔNG dùng `css-dev-only-*` (chỉ tồn tại ở dev, đổi theo build).
+- **Verify UI thật** (playwright, login admin): trang `/admin/system-infos` (submenu "Quản trị" mở) → `badge[Hệ thống] color = rgb(255,255,255)` (item đang selected → `darkItemSelectedColor #FFFFFF`), `span[Hệ thống] = rgb(255,255,255)`; `badge[Vật tư] = rgb(203,213,225)` (`darkItemColor #CBD5E1`). **Trước fix: Badge "Hệ thống" = `#020617` (đen). Console 0 error/warning.** `npm run build` 0 TS.
+- **Ghi chú sự cố kèm theo:** trong lúc verify, **Docker Desktop bị tắt** (daemon `npipe` mất) → AppHost (pid 13132) + mọi container sập. Đã khởi động lại Docker Desktop (29.6.2) → start AppHost lại (pid 16576) → container MỚI (postgres-cmxkvbzq, keycloak-hwhepdnd, cache-ettwjdtf). Vì volume `postgres-data`/`keycloak-data` đã bị xóa ở bước RESET trước đó (và AppHost tạo volume mới trống), **DB vẫn trống (không mất dữ liệu gì thêm)**; realm `aspire-react` import lại từ file — user `admin/<REDACTED_DEV_PASSWORD>` đã tồn tại (create trả 409) và đã gán lại realm role `admin` (204) → **login OK**.
+- **Stack hiện tại (sau sự cố):** AppHost pid 16576, containers postgres-cmxkvbzq / keycloak-hwhepdnd / cache-ettwjdtf; frontend `http://localhost:5173` (200), API `http://localhost:5428` (Healthy), Keycloak `https://localhost:8080`. DB: trống (đúng trạng thái reset). **Nếu tắt Docker Desktop lần nữa → stack sẽ sập tương tự.**
 
 
 

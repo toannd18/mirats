@@ -182,9 +182,14 @@ public class ActionLogsController : ControllerBase
             return NotFound(new { status = "error", message = "Hệ thống không tồn tại hoặc ngoài phạm vi công ty của bạn." });
 
         // ──── Core filter (hot path → indexed on TargetSystemInfoId) ────
+        // [MC-3, hướng b] System history now also surfaces MAINTENANCE CAMPAIGN events (create/
+        // complete) alongside the existing SystemPosition-targeted asset actions — both carry
+        // TargetSystemInfoId = systemInfoId, so the OR stays fully index-friendly.
         var query = _context.ActionLogs
             .AsNoTracking()
-            .Where(l => l.TargetType == AssignmentTargetType.SystemPosition && l.TargetSystemInfoId == systemInfoId);
+            .Where(l => l.TargetSystemInfoId == systemInfoId &&
+                        (l.TargetType == AssignmentTargetType.SystemPosition ||
+                         l.ItemType == ItemType.MaintenanceCampaign));
 
         if (systemPositionId.HasValue)
             query = query.Where(l => l.TargetId == systemPositionId.Value);
@@ -255,6 +260,11 @@ public class ActionLogsController : ControllerBase
             .Where(l => itemIds.Contains(l.Id))
             .Select(l => new { l.Id, l.Name })
             .ToDictionaryAsync(l => l.Id, l => l.Name);
+        // [MC-3] Campaign logs render their display name via the pinned system + batch number.
+        var campaignNames = await _context.MaintenanceCampaigns.AsNoTracking()
+            .Where(c => itemIds.Contains(c.Id))
+            .Select(c => new { c.Id, Name = "Bảo dưỡng " + c.SystemInfo.Name + (c.BatchNumber != null ? " (" + c.BatchNumber + ")" : "") })
+            .ToDictionaryAsync(c => c.Id, c => c.Name);
 
         string? ResolveItemName(string itemType, Guid itemId) => Enum.TryParse<ItemType>(itemType, out var it) ? it switch
         {
@@ -263,6 +273,7 @@ public class ActionLogsController : ControllerBase
             ItemType.Consumable => consumableNames.GetValueOrDefault(itemId),
             ItemType.Component => componentNames.GetValueOrDefault(itemId),
             ItemType.License => licenseNames.GetValueOrDefault(itemId),
+            ItemType.MaintenanceCampaign => campaignNames.GetValueOrDefault(itemId),
             _ => null
         } : null;
 

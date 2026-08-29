@@ -4,7 +4,7 @@ import {
   App, Button, Card, Descriptions, Divider, Empty, Space, Spin, Table, Tabs, Tag, Typography,
 } from 'antd';
 import {
-  ArrowLeftOutlined, ClusterOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined,
+  ArrowLeftOutlined, CarOutlined, ClusterOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined,
 } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -15,6 +15,7 @@ import {
 import ActionLogTable from '../../../shared/components/ActionLogTable';
 import type { ActionLogRow } from '../../../shared/components/ActionLogTable';
 import MaintenanceTable from '../../maintenance/components/MaintenanceTable';
+import CampaignHistoryTable from '../../maintenance/components/CampaignHistoryTable';
 import LicenseUsageTable from '../../../shared/components/LicenseUsageTable';
 import { licensesApi } from '../../license/services/licenses.service';
 import { ASSET_STATUS_COLORS, ASSET_STATUS_LABELS, type AssetStatus } from '../../asset/types/asset';
@@ -375,6 +376,18 @@ export default function SystemDetailPage() {
               ),
               children: (
                 <LicenseUsageTable scope={{ type: 'system', id: id! }} />
+              ),
+            },
+            {
+              // [MC-6] Lịch sử bảo dưỡng — các đợt Campaign theo hệ thống (đặt sau License, đúng thiết kế duyệt).
+              key: 'maintenance-campaigns',
+              label: (
+                <Space size={4}>
+                  <CarOutlined /> Lịch sử bảo dưỡng
+                </Space>
+              ),
+              children: (
+                <CampaignHistoryTable systemInfoId={id!} />
               ),
             },
           ]}

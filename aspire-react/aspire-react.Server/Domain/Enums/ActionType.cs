@@ -21,5 +21,9 @@ public enum ActionType
     Dispose = 17,
     Close = 18,
     Reopen = 19,
-    Inspect = 20
+    Inspect = 20,
+    /// <summary>[MC-2] Publish một MaintenanceChecklistTemplateVersion (draft → hiện hành).</summary>
+    Publish = 21,
+    /// <summary>[MC-3] Hoàn thành một MaintenanceCampaign (status → Completed, tính NextMaintenanceDueDate).</summary>
+    Complete = 22
 }

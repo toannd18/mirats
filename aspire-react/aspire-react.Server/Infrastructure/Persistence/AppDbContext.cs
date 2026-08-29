@@ -60,6 +60,17 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
     public DbSet<AssetTagCounter> AssetTagCounters => Set<AssetTagCounter>();
 
+    // Maintenance checklist (MC — đa template có version, campaign cấp Hệ thống)
+    public DbSet<MaintenanceChecklistTemplate> MaintenanceChecklistTemplates => Set<MaintenanceChecklistTemplate>();
+    public DbSet<MaintenanceChecklistTemplateVersion> MaintenanceChecklistTemplateVersions => Set<MaintenanceChecklistTemplateVersion>();
+    public DbSet<MaintenanceChecklistItem> MaintenanceChecklistItems => Set<MaintenanceChecklistItem>();
+    public DbSet<MaintenanceChecklistItemPosition> MaintenanceChecklistItemPositions => Set<MaintenanceChecklistItemPosition>();
+    public DbSet<MaintenanceStandardParam> MaintenanceStandardParams => Set<MaintenanceStandardParam>();
+    public DbSet<MaintenanceCampaign> MaintenanceCampaigns => Set<MaintenanceCampaign>();
+    public DbSet<MaintenanceCampaignExecutor> MaintenanceCampaignExecutors => Set<MaintenanceCampaignExecutor>();
+    public DbSet<MaintenanceCampaignDeviceSnapshot> MaintenanceCampaignDeviceSnapshots => Set<MaintenanceCampaignDeviceSnapshot>();
+    public DbSet<MaintenanceChecklistResult> MaintenanceChecklistResults => Set<MaintenanceChecklistResult>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -221,6 +232,135 @@ public class AppDbContext : DbContext, IApplicationDbContext
             entity.Property(e => e.Name).IsRequired().HasColumnType("text");
             entity.HasIndex(e => e.Code).IsUnique();
             entity.HasOne(e => e.SystemInfo).WithMany(s => s.Positions).HasForeignKey(e => e.SystemInfoId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ─── Maintenance checklist (MC) — template/version/campaign hierarchy ───
+        // Conventions applied here:
+        //  - Template/Version/Item/StandardParam/Campaign/Executor/Snapshot/Result all implement IAuditable
+        //    (auto CreatedAt/UpdatedAt by SaveChanges interceptor, `timestamp with time zone`).
+        //  - MaintenanceCampaign.TemplateVersionId is a plain FK with RESTRICT — a template version that has
+        //    any campaign is IMMUTABLE (cannot be deleted; edit is blocked at the API layer in MC-2).
+        //  - DeviceSnapshot keeps plain Guids + denormalized text (NO FK to assets/positions) so the snapshot
+        //    survives later asset/position changes — results always reference the snapshot, never the live asset.
+        //  - [MC-9] MaintenanceChecklistResult is unique per (Campaign, DeviceSnapshot, ChecklistItem, StandardParamId)
+        //    — mỗi tiêu chuẩn có 1 dòng; hạng mục không có tiêu chuẩn thì StandardParamId IS NULL (1 dòng chung).
+        modelBuilder.Entity<MaintenanceChecklistTemplate>(entity =>
+        {
+            entity.ToTable("maintenance_checklist_templates");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(255);
+            entity.HasOne(e => e.SystemInfo).WithMany().HasForeignKey(e => e.SystemInfoId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Company).WithMany().HasForeignKey(e => e.CompanyId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(e => new { e.SystemInfoId, e.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<MaintenanceChecklistTemplateVersion>(entity =>
+        {
+            entity.ToTable("maintenance_checklist_template_versions");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.VersionNumber).IsRequired();
+            entity.HasOne(e => e.Template).WithMany(t => t.Versions).HasForeignKey(e => e.TemplateId).OnDelete(DeleteBehavior.Cascade);
+            // One current version per template.
+            entity.HasIndex(e => new { e.TemplateId, e.IsCurrent }).IsUnique().HasFilter("\"IsCurrent\" = true");
+            entity.HasIndex(e => new { e.TemplateId, e.VersionNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<MaintenanceChecklistItem>(entity =>
+        {
+            entity.ToTable("maintenance_checklist_items");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.Order).IsRequired();
+            entity.Property(e => e.CycleMonths).IsRequired();
+            entity.HasOne(e => e.TemplateVersion).WithMany(v => v.Items).HasForeignKey(e => e.TemplateVersionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.TemplateVersionId, e.Order }).IsUnique();
+        });
+
+        // [MC-7a] Phạm vi áp dụng của item theo vị trí (SystemPosition):
+        //  - ItemId FK CASCADE: xóa Item → xóa khai báo vị trí (item chỉ xóa được khi version chưa có campaign).
+        //  - SystemPositionId FK RESTRICT: vị trí ĐANG được template tham chiếu KHÔNG xóa được
+        //    (delete-guard ở tầng DB; API trả 400 POSITION_IN_USE_BY_CHECKLIST trước khi FK thô chạy).
+        modelBuilder.Entity<MaintenanceChecklistItemPosition>(entity =>
+        {
+            entity.ToTable("maintenance_checklist_item_positions");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.HasOne(e => e.Item).WithMany(i => i.Positions).HasForeignKey(e => e.ItemId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.SystemPosition).WithMany().HasForeignKey(e => e.SystemPositionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => new { e.ItemId, e.SystemPositionId }).IsUnique();
+        });
+
+        modelBuilder.Entity<MaintenanceStandardParam>(entity =>
+        {
+            entity.ToTable("maintenance_standard_params");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.ParamName).IsRequired().HasMaxLength(100);
+            // [MC-10] Ngưỡng BẮT BUỘC cấu trúc: Operator (enum → int) + Value (decimal) — thay text tự do.
+            entity.Property(e => e.ThresholdOperator).HasConversion<int>().IsRequired();
+            entity.Property(e => e.ThresholdValue).HasColumnType("numeric(18,4)").IsRequired();
+            // [MC-8] Tiêu chuẩn thuộc về 1 ChecklistItem cụ thể (FK CASCADE) — Version suy qua Item.TemplateVersionId.
+            entity.HasOne(e => e.ChecklistItem).WithMany(i => i.StandardParams).HasForeignKey(e => e.ChecklistItemId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.ChecklistItemId);
+        });
+
+        modelBuilder.Entity<MaintenanceCampaign>(entity =>
+        {
+            entity.ToTable("maintenance_campaigns");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.BatchNumber).HasMaxLength(50);
+            entity.HasOne(e => e.SystemInfo).WithMany().HasForeignKey(e => e.SystemInfoId).OnDelete(DeleteBehavior.Restrict);
+            // RESTRICT: a template version used by a campaign is immutable — cannot be deleted.
+            entity.HasOne(e => e.TemplateVersion).WithMany(v => v.Campaigns).HasForeignKey(e => e.TemplateVersionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Company).WithMany().HasForeignKey(e => e.CompanyId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(e => e.Reviewer).WithMany().HasForeignKey(e => e.ReviewerId).OnDelete(DeleteBehavior.SetNull);
+            entity.Property(e => e.Status).HasConversion<int>();
+            entity.HasIndex(e => e.SystemInfoId);
+            entity.HasIndex(e => e.TemplateVersionId);
+        });
+
+        modelBuilder.Entity<MaintenanceCampaignExecutor>(entity =>
+        {
+            entity.ToTable("maintenance_campaign_executors");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.HasOne(e => e.Campaign).WithMany(c => c.Executors).HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.User).WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.CampaignId, e.UserId }).IsUnique();
+        });
+
+        modelBuilder.Entity<MaintenanceCampaignDeviceSnapshot>(entity =>
+        {
+            entity.ToTable("maintenance_campaign_device_snapshots");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.AssetTag).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.AssetName).IsRequired().HasMaxLength(255);
+            entity.HasOne(e => e.Campaign).WithMany(c => c.DeviceSnapshots).HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.CampaignId);
+        });
+
+        modelBuilder.Entity<MaintenanceChecklistResult>(entity =>
+        {
+            entity.ToTable("maintenance_checklist_results");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.HasOne(e => e.Campaign).WithMany(c => c.Results).HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.DeviceSnapshot).WithMany(s => s.Results).HasForeignKey(e => e.DeviceSnapshotId).OnDelete(DeleteBehavior.Cascade);
+            // RESTRICT: results protect checklist items (they belong to immutable versions).
+            entity.HasOne(e => e.ChecklistItem).WithMany(i => i.Results).HasForeignKey(e => e.ChecklistItemId).OnDelete(DeleteBehavior.Restrict);
+            // [MC-9] Mỗi tiêu chuẩn của 1 hạng mục có 1 dòng kết quả riêng; NULL = hạng mục không có tiêu chuẩn.
+            entity.HasOne(e => e.StandardParam).WithMany().HasForeignKey(e => e.StandardParamId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => e.StandardParamId);
+            // Unique trên (Campaign, DeviceSnapshot, ChecklistItem, StandardParamId).
+            // Postgres UNIQUE btree coi NULL là khác nhau → cần partial indexes: 2 dòng (..., NULL) không bị chặn trùng nhau nếu chỉ dùng UNIQUE.
+            // Vì vậy chia thành 2 partial indexes: một cho NULL (unique trên 3 cột) và một cho NOT NULL (unique trên 4 cột).
+            entity.HasIndex(e => new { e.CampaignId, e.DeviceSnapshotId, e.ChecklistItemId }).IsUnique().HasFilter("\"StandardParamId\" IS NULL");
+            entity.HasIndex(e => new { e.CampaignId, e.DeviceSnapshotId, e.ChecklistItemId, e.StandardParamId }).IsUnique().HasFilter("\"StandardParamId\" IS NOT NULL");
         });
 
         modelBuilder.Entity<Location>(entity =>

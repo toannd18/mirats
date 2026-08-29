@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { ConfigProvider, App as AntApp, Spin, Layout, Menu, Button, Drawer, Grid, Badge, Avatar, Dropdown, Breadcrumb, Space } from 'antd';
 import viVN from 'antd/locale/vi_VN';
@@ -9,7 +9,7 @@ import {
   BarChartOutlined, KeyOutlined, AppstoreOutlined, SettingOutlined,
   EnvironmentOutlined, TagOutlined, BankOutlined, ShopOutlined,
   GoldOutlined, ScheduleOutlined, ApartmentOutlined, ClusterOutlined,
-  HistoryOutlined, ExperimentOutlined, MenuOutlined,
+  HistoryOutlined, ExperimentOutlined, MenuOutlined, FileTextOutlined, CarOutlined,
   MenuFoldOutlined, LogoutOutlined, IdcardOutlined, ImportOutlined,
 } from '@ant-design/icons';
 import { initKeycloak, login, logout, isAuthenticated, isSuperUser, getUserInfo } from './services/keycloak';
@@ -18,35 +18,44 @@ import { usePermissionMap } from './hooks/usePermission';
 import { useCurrentUser, clearCurrentUserCache } from './hooks/useCurrentUser';
 import apiClient from './services/api-client';
 import ProtectedRoute from './components/ProtectedRoute';
-import AssetListPage from './features/asset/pages/AssetListPage';
-import AssetDetailPage from './features/asset/pages/AssetDetailPage';
-import MaintenanceListPage from './features/maintenance/pages/MaintenanceListPage';
-import UserListPage from './features/user/pages/UserListPage';
-import UserDetailPage from './features/user/pages/UserDetailPage';
-import DashboardPage from './features/system/pages/DashboardPage';
-import ConsumableListPage from './features/consumable/pages/ConsumableListPage';
-import ConsumableDetailPage from './features/consumable/pages/ConsumableDetailPage';
-import ComponentListPage from './features/component/pages/ComponentListPage';
-import ComponentDetailPage from './features/component/pages/ComponentDetailPage';
-import AccessoryListPage from './features/accessory/pages/AccessoryListPage';
-import AccessoryDetailPage from './features/accessory/pages/AccessoryDetailPage';
-import LicenseListPage from './features/license/pages/LicenseListPage';
-import ReportsPage from './features/system/pages/ReportsPage';
-import GroupListPage from './features/permission/pages/GroupListPage';
-import PermissionMatrixPage from './features/permission/pages/PermissionMatrixPage';
-import CategoryListPage from './features/admin/pages/CategoryListPage';
-import ManufacturerListPage from './features/admin/pages/ManufacturerListPage';
-import SupplierListPage from './features/admin/pages/SupplierListPage';
-import AssetModelListPage from './features/admin/pages/AssetModelListPage';
-import LocationListPage from './features/admin/pages/LocationListPage';
-import DepreciationListPage from './features/admin/pages/DepreciationListPage';
-import CompanyListPage from './features/admin/pages/CompanyListPage';
-import DepartmentListPage from './features/admin/pages/DepartmentListPage';
-import SystemInfoListPage from './features/admin/pages/SystemInfoListPage';
-import SystemConfigPage from './features/admin/pages/SystemConfigPage';
-import SystemHistoryPage from './features/system/pages/SystemHistoryPage';
-import SystemDetailPage from './features/system/pages/SystemDetailPage';
-import ImportPage from './features/import/pages/ImportPage';
+// [FE-R1] Code-splitting: every page component is lazy-loaded per route (React.lazy +
+// dynamic import → Vite emits one chunk per page, see vite build output). The layout
+// shell (AppLayout/ProtectedRoute) stays in the entry chunk so the sidebar/header do
+// not flash while a page chunk is downloading; <Suspense fallback> covers only the
+// content area. AntD components/icons/services are shared chunks (used by every page).
+const DashboardPage = lazy(() => import('./features/system/pages/DashboardPage'));
+const AssetListPage = lazy(() => import('./features/asset/pages/AssetListPage'));
+const AssetDetailPage = lazy(() => import('./features/asset/pages/AssetDetailPage'));
+const MaintenanceListPage = lazy(() => import('./features/maintenance/pages/MaintenanceListPage'));
+const UserListPage = lazy(() => import('./features/user/pages/UserListPage'));
+const UserDetailPage = lazy(() => import('./features/user/pages/UserDetailPage'));
+const ConsumableListPage = lazy(() => import('./features/consumable/pages/ConsumableListPage'));
+const ConsumableDetailPage = lazy(() => import('./features/consumable/pages/ConsumableDetailPage'));
+const ComponentListPage = lazy(() => import('./features/component/pages/ComponentListPage'));
+const ComponentDetailPage = lazy(() => import('./features/component/pages/ComponentDetailPage'));
+const AccessoryListPage = lazy(() => import('./features/accessory/pages/AccessoryListPage'));
+const AccessoryDetailPage = lazy(() => import('./features/accessory/pages/AccessoryDetailPage'));
+const LicenseListPage = lazy(() => import('./features/license/pages/LicenseListPage'));
+const ReportsPage = lazy(() => import('./features/system/pages/ReportsPage'));
+const GroupListPage = lazy(() => import('./features/permission/pages/GroupListPage'));
+const PermissionMatrixPage = lazy(() => import('./features/permission/pages/PermissionMatrixPage'));
+const CategoryListPage = lazy(() => import('./features/admin/pages/CategoryListPage'));
+const ManufacturerListPage = lazy(() => import('./features/admin/pages/ManufacturerListPage'));
+const SupplierListPage = lazy(() => import('./features/admin/pages/SupplierListPage'));
+const AssetModelListPage = lazy(() => import('./features/admin/pages/AssetModelListPage'));
+const LocationListPage = lazy(() => import('./features/admin/pages/LocationListPage'));
+const DepreciationListPage = lazy(() => import('./features/admin/pages/DepreciationListPage'));
+const CompanyListPage = lazy(() => import('./features/admin/pages/CompanyListPage'));
+const DepartmentListPage = lazy(() => import('./features/admin/pages/DepartmentListPage'));
+const SystemInfoListPage = lazy(() => import('./features/admin/pages/SystemInfoListPage'));
+const SystemConfigPage = lazy(() => import('./features/admin/pages/SystemConfigPage'));
+const SystemHistoryPage = lazy(() => import('./features/system/pages/SystemHistoryPage'));
+const SystemDetailPage = lazy(() => import('./features/system/pages/SystemDetailPage'));
+const ImportPage = lazy(() => import('./features/import/pages/ImportPage'));
+const MaintenanceTemplateListPage = lazy(() => import('./features/maintenance/pages/MaintenanceTemplateListPage'));
+const MaintenanceTemplateBuilderPage = lazy(() => import('./features/maintenance/pages/MaintenanceTemplateBuilderPage'));
+const MaintenanceCampaignListPage = lazy(() => import('./features/maintenance/pages/MaintenanceCampaignListPage'));
+const MaintenanceCampaignDetailPage = lazy(() => import('./features/maintenance/pages/MaintenanceCampaignDetailPage'));
 
 const { Header, Sider, Content } = Layout;
 
@@ -61,6 +70,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [lowStock, setLowStock] = useState(0);
+  const [systemsOverdue, setSystemsOverdue] = useState(0);
   const perm = usePermissionMap();
   const currentUser = useCurrentUser();
   const userInfo = getUserInfo();
@@ -72,6 +82,8 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/dashboard': 'Dashboard',
     '/consumables': 'Vật tư tiêu hao', '/components': 'Linh kiện', '/accessories': 'Phụ kiện',
     '/licenses': 'Bản quyền', '/assets': 'Tài sản', '/maintenances': 'Bảo trì',
+    '/maintenance/templates': 'Template bảo dưỡng',
+    '/maintenance/campaigns': 'Đợt bảo dưỡng',
     '/system-history': 'Lịch sử hệ thống', '/reports': 'Báo cáo', '/users': 'Người dùng',
     '/groups': 'Nhóm', '/permissions': 'Phân quyền',
     '/admin/categories': 'Danh mục', '/admin/manufacturers': 'Nhà SX', '/admin/suppliers': 'Nhà cung cấp',
@@ -116,6 +128,8 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/licenses': 'licenses.view',
     '/assets': 'assets.view',
     '/maintenances': 'assets.view',
+    '/maintenance/templates': 'maintenance.templates',
+    '/maintenance/campaigns': 'maintenance.view',
     '/reports': 'reports.view',
     '/users': 'users.view',
     '/groups': 'admin',
@@ -149,14 +163,18 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     return (perm.permissions[code] ?? 0) === 1;
   };
 
-  const filterChildren = (children: { key: string; label: string; icon?: React.ReactNode }[]) =>
+  const filterChildren = (children: { key: string; label: React.ReactNode; icon?: React.ReactNode }[]) =>
     children.filter(c => canSee(c.key));
 
   useEffect(() => {
     if (!authenticated) return;
     let alive = true;
     apiClient.get('/dashboard/summary')
-      .then(res => { if (alive) setLowStock(res.data?.data?.lowStockCount ?? 0); })
+      .then(res => {
+        if (!alive) return;
+        setLowStock(res.data?.data?.lowStockCount ?? 0);
+        setSystemsOverdue(res.data?.data?.systemsOverdueMaintenance ?? 0);
+      })
       .catch(() => { /* silent — badge is best-effort */ });
     return () => { alive = false; };
   }, [authenticated]);
@@ -177,7 +195,13 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { key: '/admin/depreciations', icon: <ScheduleOutlined />, label: 'Khấu hao' },
     { key: '/admin/companies', icon: <BankOutlined />, label: 'Công ty' },
     { key: '/admin/departments', icon: <ApartmentOutlined />, label: 'Phòng ban' },
-    { key: '/admin/system-infos', icon: <ClusterOutlined />, label: 'Hệ thống' },
+    // [MC-4] Badge "bảo dưỡng quá hạn" trên mục Hệ thống — mirror pattern Badge "Vật tư" (low stock):
+    // span con color inherit + CSS override .ant-menu-dark .ant-menu-submenu-title .ant-badge trong index.css.
+    { key: '/admin/system-infos', icon: <ClusterOutlined />, label: (
+      <Badge count={systemsOverdue} size="small" overflowCount={999} offset={[8, 0]}>
+        <span style={{ color: 'inherit' }}>Hệ thống</span>
+      </Badge>
+    ) },
     { key: '/admin/import', icon: <ImportOutlined />, label: 'Import Excel' },
     { key: '/admin/system-config', icon: <SettingOutlined />, label: 'Cấu hình hệ thống' },
   ]);
@@ -211,6 +235,8 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   if (canSee('/licenses')) business.push({ key: '/licenses', icon: <KeyOutlined />, label: 'Bản quyền' });
   if (canSee('/assets')) business.push({ key: '/assets', icon: <LaptopOutlined />, label: 'Tài sản' });
   if (canSee('/maintenances')) business.push({ key: '/maintenances', icon: <ExperimentOutlined />, label: 'Bảo trì' });
+  if (canSee('/maintenance/templates')) business.push({ key: '/maintenance/templates', icon: <FileTextOutlined />, label: 'Template bảo dưỡng' });
+  if (canSee('/maintenance/campaigns')) business.push({ key: '/maintenance/campaigns', icon: <CarOutlined />, label: 'Đợt bảo dưỡng' });
   business.push({ key: '/system-history', icon: <HistoryOutlined />, label: 'Lịch sử hệ thống' });
   if (canSee('/reports')) business.push({ key: '/reports', icon: <BarChartOutlined />, label: 'Báo cáo' });
   if (business.length > 0) menuGroups.push({ label: 'NGHIỆP VỤ', items: business });
@@ -371,7 +397,17 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </Header>
         <Content style={{ margin: isMobile ? 8 : 24, padding: isMobile ? 12 : 24, background: '#fff' }}>
-          {children}
+          {/* [FE-R1] Suspense boundary covers ONLY the content area — the layout shell stays
+              mounted while a page chunk downloads, so sidebar/header never flash. */}
+          <Suspense
+            fallback={
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 240 }}>
+                <Spin size="large" />
+              </div>
+            }
+          >
+            {children}
+          </Suspense>
         </Content>
       </Layout>
       {/* Mobile: sidebar as Drawer overlay opened from the hamburger button. */}
@@ -445,6 +481,26 @@ function App() {
             <Route path="/maintenances" element={
               <ProtectedRoute>
                 <AppLayout><MaintenanceListPage /></AppLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/maintenance/templates" element={
+              <ProtectedRoute>
+                <AppLayout><MaintenanceTemplateListPage /></AppLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/maintenance/templates/:id" element={
+              <ProtectedRoute>
+                <AppLayout><MaintenanceTemplateBuilderPage /></AppLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/maintenance/campaigns" element={
+              <ProtectedRoute>
+                <AppLayout><MaintenanceCampaignListPage /></AppLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/maintenance/campaigns/:id" element={
+              <ProtectedRoute>
+                <AppLayout><MaintenanceCampaignDetailPage /></AppLayout>
               </ProtectedRoute>
             } />
             <Route path="/system-history" element={

@@ -50,6 +50,13 @@ public class DashboardController : ControllerBase
         var lowAccessories = await accessories.CountAsync(a => (a.Qty - a.Checkouts.Sum(ch => (int?)(ch.AssignedQty - ch.ReturnedQty) ?? 0)) <= a.MinAmt);
         var lowComponents = await components.CountAsync(c => (c.Qty - c.Assignments.Sum(a => (int?)a.AssignedQty ?? 0)) <= c.MinAmt);
 
+        // [MC-4] Systems with an overdue maintenance schedule — same company-scoped count pattern as
+        // overdueAudits. A system is "quá hạn" when its next maintenance due date is in the past
+        // (NextMaintenanceDueDate is computed at campaign Complete; NULL = never completed → not counted).
+        var systemsOverdueMaintenance = await _context.SystemInfos.AsNoTracking()
+            .Where(s => userCompanyId == null || s.CompanyId == null || s.CompanyId == userCompanyId.Value)
+            .CountAsync(s => s.NextMaintenanceDueDate != null && s.NextMaintenanceDueDate < now);
+
         return Ok(new
         {
             status = "success",
@@ -61,6 +68,7 @@ public class DashboardController : ControllerBase
                 overdueAudits,
                 archivedAssets = archived,
                 lowStockCount = lowConsumables + lowAccessories + lowComponents,
+                systemsOverdueMaintenance,
                 totalAssetValue = totalValue
             }
         });

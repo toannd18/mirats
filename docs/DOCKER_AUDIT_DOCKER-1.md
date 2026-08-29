@@ -1,4 +1,4 @@
-# DOCKER-1 Audit — Hard-code, Biến Môi Trường & Thiết Kế Triển Khai Docker
+﻿# DOCKER-1 Audit — Hard-code, Biến Môi Trường & Thiết Kế Triển Khai Docker
 
 > **Phạm vi:** AUDIT + THIẾT KẾ. Không code, không xóa dữ liệu trong lượt này. Báo cáo làm cơ sở để duyệt các task Docker-2..N.
 
@@ -16,7 +16,7 @@
   "ServerUrl": "https://localhost:8080",          // ← hard-code host/port + scheme
   "Realm": "aspire-react",                         // ← hard-code realm name
   "ClientId": "backend-service",                   // ← hard-code confidential client id
-  "ClientSecret": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", // ← SECRET hard-code
+  "ClientSecret": "<REDACTED_CLIENT_SECRET_GUID>", // ← SECRET hard-code
   "SuperUserGroupName": "superuser",
   "TimeoutSeconds": 30
 }
@@ -73,7 +73,7 @@ var keycloak = builder.AddKeycloak("keycloak", 8080)  // port 8080 hard-code
     .WithDataVolume("keycloak-data")
     .WithRealmImport("../aspire-react-realm.json")
     .WithEnvironment("KC_BOOTSTRAP_ADMIN_USERNAME", "admin")         // ← hard-code
-    .WithEnvironment("KC_BOOTSTRAP_ADMIN_PASSWORD", "Admin123!");    // ← SECRET hard-code
+    .WithEnvironment("KC_BOOTSTRAP_ADMIN_PASSWORD", "<REDACTED_DEV_PASSWORD>");    // ← SECRET hard-code
 var webfrontend = builder.AddViteApp("webfrontend", "../frontend")
     .WithEndpoint("http", e => { e.Port = 5173; e.IsProxied = false; }); // port 5173 hard-code
 ```
@@ -111,23 +111,23 @@ proxy: { '/api': { target: backendUrl, changeOrigin: true, secure: false } }
 "realm": "aspire-react",
 "clients": [
   { "clientId": "frontend", "redirectUris": ["http://localhost:5173/*", "https://localhost:5173/*"], "webOrigins": ["http://localhost:5173", "https://localhost:5173"] },
-  { "clientId": "backend-service", "secret": "a1b2c3d4-e5f6-7890-abcd-ef1234567890" }
+  { "clientId": "backend-service", "secret": "<REDACTED_CLIENT_SECRET_GUID>" }
 ],
 "users": [
-  { "username": "admin", "email": "admin@aspire-react.local", "credentials": [{ "value": "Admin123!" }], "realmRoles": ["admin"] }
+  { "username": "admin", "email": "admin@aspire-react.local", "credentials": [{ "value": "<REDACTED_DEV_PASSWORD>" }], "realmRoles": ["admin"] }
 ]
 ```
-- Chứa **cả 2 secret**: `backend-service` secret + user `admin` password `Admin123!`. Đây là file import realm lần đầu — nếu giữ nguyên sẽ hard-code credential vào image/volume.
+- Chứa **cả 2 secret**: `backend-service` secret + user `admin` password `<REDACTED_DEV_PASSWORD>`. Đây là file import realm lần đầu — nếu giữ nguyên sẽ hard-code credential vào image/volume.
 
-### 1.12 Tổng hợp: mật khẩu `Admin123!` — vị trí chính xác
+### 1.12 Tổng hợp: mật khẩu `<REDACTED_DEV_PASSWORD>` — vị trí chính xác
 | File | Dòng | Vai trò |
 |------|------|---------|
-| `aspire-react.AppHost/AppHost.cs:18` | `KC_BOOTSTRAP_ADMIN_PASSWORD = "Admin123!"` | **Keycloak master admin** (realm `master`) — bootstrap lần đầu, lưu vào volume `keycloak-data` (H2). Sau lần đầu, đổi env không đổi password trong DB. |
-| `aspire-react-realm.json:52` | `credentials[0].value = "Admin123!"` cho user `admin` | **Admin ứng dụng** trong realm `aspire-react` (realm role `admin`, dùng để đăng nhập app). Import 1 lần; sau đó lưu trong DB Keycloak. |
-| `aspire-react.Tests/ConcurrencyRaceAuditTests.cs:48` | `["password"] = "Admin123!"` | Test code — không ảnh hưởng prod, nhưng là tham chiếu thứ 3. |
-| `docs/*` (DEVELOPMENT_WORKFLOW.md, HANDOFF_LATEST.md, DEPLOYMENT.md, ASSET_MODULE_HANDOFF.md) | nhiều dòng | Tài liệu — ghi chú `admin/Admin123!` để dev đăng nhập. Không phải hard-code runtime. |
+| `aspire-react.AppHost/AppHost.cs:18` | `KC_BOOTSTRAP_ADMIN_PASSWORD = "<REDACTED_DEV_PASSWORD>"` | **Keycloak master admin** (realm `master`) — bootstrap lần đầu, lưu vào volume `keycloak-data` (H2). Sau lần đầu, đổi env không đổi password trong DB. |
+| `aspire-react-realm.json:52` | `credentials[0].value = "<REDACTED_DEV_PASSWORD>"` cho user `admin` | **Admin ứng dụng** trong realm `aspire-react` (realm role `admin`, dùng để đăng nhập app). Import 1 lần; sau đó lưu trong DB Keycloak. |
+| `aspire-react.Tests/ConcurrencyRaceAuditTests.cs:48` | `["password"] = "<REDACTED_DEV_PASSWORD>"` | Test code — không ảnh hưởng prod, nhưng là tham chiếu thứ 3. |
+| `docs/*` (DEVELOPMENT_WORKFLOW.md, HANDOFF_LATEST.md, DEPLOYMENT.md, ASSET_MODULE_HANDOFF.md) | nhiều dòng | Tài liệu — ghi chú `admin/<REDACTED_DEV_PASSWORD>` để dev đăng nhập. Không phải hard-code runtime. |
 
-**Kết luận:** `Admin123!` xuất hiện ở **đúng 2 nơi runtime** (AppHost bootstrap + realm JSON user). Cả 2 đều cần tách ra biến môi trường cho triển khai thật. Docs là tài liệu, giữ nguyên nhưng cần ghi chú "chỉ dùng cho dev".
+**Kết luận:** `<REDACTED_DEV_PASSWORD>` xuất hiện ở **đúng 2 nơi runtime** (AppHost bootstrap + realm JSON user). Cả 2 đều cần tách ra biến môi trường cho triển khai thật. Docs là tài liệu, giữ nguyên nhưng cần ghi chú "chỉ dùng cho dev".
 
 ### 1.13 Các giá trị còn lại cần env hóa (đã liệt kê) + không có secret ẩn khác
 - Không có JWT signing key riêng (dùng Keycloak).
@@ -184,7 +184,7 @@ Tương ứng `ConnectionStrings__aspire-react-db` trong backend sẽ là `Host=
 | `KEYCLOAK_REALM` | Tùy chọn | `aspire-react` | Tên realm. Đồng bộ với `Keycloak__Realm` backend + `VITE_KEYCLOAK_REALM`. |
 | `KEYCLOAK_FRONTEND_CLIENT_ID` | Tùy chọn | `frontend` | Public client id. |
 | `KEYCLOAK_BACKEND_CLIENT_ID` | Tùy chọn | `backend-service` | Confidential client id. |
-| `KEYCLOAK_BACKEND_CLIENT_SECRET` | **BẮT BUỘC (prod)** | *(không default)* — dev `a1b2c3d4-...-7890` | Secret của `backend-service`. Phải map vào `Keycloak__ClientSecret` backend + realm JSON placeholder. |
+| `KEYCLOAK_BACKEND_CLIENT_SECRET` | **BẮT BUỘC (prod)** | *(không default)* — dev `<REDACTED_CLIENT_SECRET_GUID-prefix>-7890` | Secret của `backend-service`. Phải map vào `Keycloak__ClientSecret` backend + realm JSON placeholder. |
 | `KEYCLOAK_SERVER_URL` | Tùy chọn | `https://keycloak:8080` (prod nội bộ) / `https://localhost:8080` (dev) | Base URL Keycloak. Backend `Keycloak__Authority = ${KEYCLOAK_SERVER_URL}/realms/${KEYCLOAK_REALM}`. Frontend `VITE_KEYCLOAK_URL = ${KEYCLOAK_SERVER_URL}`. |
 
 `redirectUris`/`webOrigins` trong realm JSON cho `frontend` hiện hard-code `http://localhost:5173` — prod phải là `https://<prod-host>/*` qua biến `FRONTEND_URL` (xem Frontend).
@@ -279,7 +279,7 @@ Lưu ý: `VITE_*` được bake vào bundle lúc `npm run build` — compose ph�
 ```
 INITIAL_ADMIN_USERNAME=        # required, e.g. admin
 INITIAL_ADMIN_EMAIL=           # required, e.g. admin@example.com
-INITIAL_ADMIN_PASSWORD=        # required, secret — no default, no fallback like "Admin123!"
+INITIAL_ADMIN_PASSWORD=        # required, secret — no default, no fallback like "<REDACTED_DEV_PASSWORD>"
 ```
 
 ### 5b. Keycloak master admin (quản trị Keycloak Admin Console — realm `master`)
@@ -332,7 +332,7 @@ KC_BOOTSTRAP_ADMIN_PASSWORD=
 
 ## 7. Đề xuất xử lý mật khẩu admin mặc định an toàn
 
-- **Xóa `Admin123!` khỏi mọi file seed/realm cho triển khai thật.** Trong `aspire-react-realm.json` prod: bỏ block `users` (hoặc để `users: []`), thay `secret: "a1b2c3d4-..."` bằng placeholder `${KEYCLOAK_BACKEND_CLIENT_SECRET}` (Keycloak hỗ trợ thay biến khi import nếu dùng `KC_SPI_...` hoặc seed qua Admin API).
+- **Xóa `<REDACTED_DEV_PASSWORD>` khỏi mọi file seed/realm cho triển khai thật.** Trong `aspire-react-realm.json` prod: bỏ block `users` (hoặc để `users: []`), thay `secret: "<REDACTED_CLIENT_SECRET_GUID-prefix>"` bằng placeholder `${KEYCLOAK_BACKEND_CLIENT_SECRET}` (Keycloak hỗ trợ thay biến khi import nếu dùng `KC_SPI_...` hoặc seed qua Admin API).
 - **Không hard-code fallback** như `${DB_PASSWORD:-postgres}` hay `${KC_ADMIN_PASSWORD:-admin}` trong `docker-compose.yml` prod — dùng `${VAR:?required}` để compose fail nếu thiếu, buộc người dùng set.
 - **Dev fallback** chỉ cho `docker-compose.override.yml` hoặc `.env.development` (không commit prod).
 - **Tài liệu:** `docs/DEPLOYMENT.md` cần cập nhật: hướng dẫn `cp .env.example .env` rồi **bắt buộc** điền `INITIAL_ADMIN_*` + `KC_BOOTSTRAP_*` + `KEYCLOAK_BACKEND_CLIENT_SECRET` + `POSTGRES_PASSWORD` trước `docker compose up`.
@@ -371,11 +371,11 @@ KC_BOOTSTRAP_ADMIN_PASSWORD=
 aspire-react.Server/appsettings.json:10  Keycloak:ServerUrl = https://localhost:8080
 aspire-react.Server/appsettings.json:11  Keycloak:Realm = aspire-react
 aspire-react.Server/appsettings.json:12  Keycloak:ClientId = backend-service
-aspire-react.Server/appsettings.json:13  Keycloak:ClientSecret = a1b2c3d4-e5f6-7890-abcd-ef1234567890
+aspire-react.Server/appsettings.json:13  Keycloak:ClientSecret = <REDACTED_CLIENT_SECRET_GUID>
 aspire-react.Server/appsettings.json:14  Keycloak:SuperUserGroupName = superuser
 aspire-react.AppHost/AppHost.cs:14       AddKeycloak("keycloak", 8080)
 aspire-react.AppHost/AppHost.cs:17       KC_BOOTSTRAP_ADMIN_USERNAME = admin
-aspire-react.AppHost/AppHost.cs:18       KC_BOOTSTRAP_ADMIN_PASSWORD = Admin123!
+aspire-react.AppHost/AppHost.cs:18       KC_BOOTSTRAP_ADMIN_PASSWORD = <REDACTED_DEV_PASSWORD>
 aspire-react.AppHost/AppHost.cs:38       webfrontend Port = 5173
 aspire-react.Server/Program.cs:39        WithOrigins("http://localhost:5173")
 aspire-react.Server/Properties/launchSettings.json: http  http://localhost:5428
@@ -389,8 +389,8 @@ frontend/src/services/api-client.ts:7    VITE_API_BASE_URL ?? http://localhost:5
 frontend/vite.config.ts:10               mode production ? /api/v1 : http://localhost:5428
 aspire-react-realm.json:2                realm aspire-react
 aspire-react-realm.json:13               clientId frontend + redirectUris http://localhost:5173/*
-aspire-react-realm.json:31               clientId backend-service + secret a1b2c3d4-...
-aspire-react-realm.json:43               users[0].username admin / credentials Admin123!
+aspire-react-realm.json:31               clientId backend-service + secret <REDACTED_CLIENT_SECRET_GUID-prefix>
+aspire-react-realm.json:43               users[0].username admin / credentials <REDACTED_DEV_PASSWORD>
 ```
 
 *Hết báo cáo DOCKER-1.*
@@ -417,7 +417,7 @@ aspire-react-realm.json:43               users[0].username admin / credentials A
 - **Server Dockerfile:** `COPY nuget.config ./` + `.dockerignore` (bin/obj) + `rm -rf obj/bin` trước publish (fix lỗi fallback package folder Windows trên Linux build).
 
 ### Realm skeleton PROD (DOCKER-5)
-- `aspire-react-realm.json`: xóa block `users` (không còn `admin/Admin123!`), secret `backend-service`
+- `aspire-react-realm.json`: xóa block `users` (không còn `admin/<REDACTED_DEV_PASSWORD>`), secret `backend-service`
   → placeholder `${KEYCLOAK_BACKEND_CLIENT_SECRET}`, thêm `roles.realm: [admin, superuser]`
   (cần cho `RealmAccessHelper.IsSuperUser` exact match).
 
@@ -459,7 +459,7 @@ aspire-react-realm.json:43               users[0].username admin / credentials A
   - Quy trình 5 bước: `cp .env.example .env` → điền 9 biến BẮT BUỘC (bảng kèm ví dụ)
     → `docker compose up -d --build` → `scripts/seed-initial-admin.*` → xác nhận login.
   - Giải thích rõ 2 loại admin (5a ứng dụng INITIAL_ADMIN_* vs 5b Keycloak master KC_BOOTSTRAP_*),
-    bảng so sánh + quy tắc vàng (không dùng chung, không fallback Admin123!).
+    bảng so sánh + quy tắc vàng (không dùng chung, không fallback <REDACTED_DEV_PASSWORD>).
   - Mục riêng KEYCLOAK_INTERNAL_URL vs KEYCLOAK_PUBLIC_URL (bài học Authority mismatch DOCKER-5),
     cảnh báo "đừng gộp 2 biến về 1".
   - Debug/Dev: pgAdmin `--profile debug`, docker-compose.override.yml expose Postgres/Redis (không commit).
@@ -590,3 +590,27 @@ Kết quả: cold-start build **182s** (dotnet restore ~68s + publish ~13s; fron
 ### 5) Dọn dẹp
 - Toàn bộ dữ liệu test (company/category/mfr/model/asset/system/position/user + action_logs) dọn qua
   `docker compose down -v` (volume `mirats-*` đã xóa). `.env` test giữ local (gitignored).
+
+---
+
+## 🔍 QUYẾT ĐỊNH — KHÔNG áp dụng luồng `aspire deploy` / `AddDockerComposeEnvironment` (2026-08-25)
+
+**Quyết định: GIỮ NGUYÊN `docker-compose.yml` viết tay (DOCKER-1→8). Không thêm `AddDockerComposeEnvironment` vào AppHost.cs, không dùng `aspire deploy` làm luồng production.**
+
+Đã audit đầy đủ tài liệu chính thức + source `Aspire.Hosting.Docker` (không code, không sửa AppHost). Lý do:
+
+1. **Công cụ này SINH compose từ model AppHost, không dùng compose viết tay.** `AddDockerComposeEnvironment(string name)` chỉ có overload theo tên — không có overload nhận file path compose có sẵn (không có cơ chế "wrap" file đã viết). `aspire publish`/`aspire deploy` luôn sinh mới `docker-compose.yaml` + `.env` vào thư mục **`aspire-output/`** — không ghi đè `docker-compose.yml` ở repo root, nhưng **cũng không dùng nó** → nếu áp dụng sẽ tồn tại 2 file compose song song, phân kỳ.
+
+2. **Không tái tạo được các tùy biến dự án đang dựa vào (DOCKER-1→8):**
+   - Healthcheck TCP-connect `/dev/tcp` (keycloak/server, do image nền RHEL-UBI/aspnet không có wget/curl) — không có API map sang khối `healthcheck:` của compose sinh ra; Aspire chỉ có `WithHttpHealthCheck()` / `WithHealthCheck()` phía .NET.
+   - Keycloak `command: start-dev --import-realm` + mount `aspire-react-realm.json:ro` — không có API command-override; bind mount bị "placeholder hóa" (`<RESOURCE>_BINDMOUNT_<index>`) khi deploy.
+   - pgAdmin `profiles: ["debug"]` — mô hình AppHost **không có khái niệm compose profile**.
+   - `env_file: [.env]` + validate fail-fast `${VAR:?required}` — mô hình `.env`/`.env.{environment}` của Aspire khác (chỉ set default/description qua `ConfigureEnvFile`, không có fail-fast).
+
+3. **Không có lợi ích đổi lại cho rủi ro:** nếu thêm `AddDockerComposeEnvironment`, dev `dotnet run` KHÔNG bị ảnh hưởng (source: `IsRunMode` không add resource vào model; pipeline step chỉ chạy ở `IsPublishMode`) — nhưng đổi sang `aspire deploy` đồng nghĩa viết lại toàn bộ các tùy biến trên bằng API không hỗ trợ, hồi quy cao mà không được gì so với compose thủ công đã chạy ổn định qua 8 vòng.
+
+4. **Hướng "chọn lọc (frontend+backend)" không khả thi sạch:** `aspire deploy` sinh toàn bộ mọi resource trong model (bao gồm Keycloak/Postgres), không có cơ chế "giữ một phần thủ công" trong cùng 1 AppHost.
+
+**Nguồn để tra lại (đã đọc bản gốc):** [Deploy to Docker Compose](https://aspire.dev/deployment/docker-compose/) · [Docker integration](https://aspire.dev/integrations/compute/docker/) · [Migrate from Docker Compose](https://aspire.dev/app-host/migrate-from-docker-compose/) · source [`DockerComposeEnvironmentExtensions.cs`](https://github.com/dotnet/aspire/blob/main/src/Aspire.Hosting.Docker/DockerComposeEnvironmentExtensions.cs) (khối `IsRunMode`/`IsPublishMode`).
+
+**Nếu tương lai muốn đánh giá lại:** chỉ nên chạy `aspire publish` thử nghiệm (không `deploy`) ở nhánh riêng để đối chiếu compose sinh ra, KHÔNG thay thế compose hiện tại — và audit lại mục này trước khi quyết định đổi luồng.

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using aspire_react.Server.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using aspire_react.Server.Infrastructure.Persistence;
 namespace aspirereact.Server.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260828043302_AddStandardParamIdToChecklistResult")]
+    partial class AddStandardParamIdToChecklistResult
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1685,11 +1688,8 @@ namespace aspirereact.Server.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<int>("ThresholdOperator")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal>("ThresholdValue")
-                        .HasColumnType("numeric(18,4)");
+                    b.Property<string>("ThresholdValue")
+                        .HasColumnType("text");
 
                     b.Property<string>("Unit")
                         .HasColumnType("text");

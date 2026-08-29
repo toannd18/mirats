@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using aspire_react.Server.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using aspire_react.Server.Infrastructure.Persistence;
 namespace aspirereact.Server.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260827144952_RemoveDeviceCategoryOrTypeFromStandardParams")]
+    partial class RemoveDeviceCategoryOrTypeFromStandardParams
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1552,9 +1555,6 @@ namespace aspirereact.Server.Migrations
                     b.Property<string>("Notes")
                         .HasColumnType("text");
 
-                    b.Property<Guid?>("StandardParamId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1564,16 +1564,8 @@ namespace aspirereact.Server.Migrations
 
                     b.HasIndex("DeviceSnapshotId");
 
-                    b.HasIndex("StandardParamId");
-
                     b.HasIndex("CampaignId", "DeviceSnapshotId", "ChecklistItemId")
-                        .IsUnique()
-                        .HasFilter("\"StandardParamId\" IS NULL");
-
-                    b.HasIndex("CampaignId", "DeviceSnapshotId", "ChecklistItemId", "StandardParamId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_maintenance_checklist_results_CampaignId_DeviceSnapshotId_~1")
-                        .HasFilter("\"StandardParamId\" IS NOT NULL");
+                        .IsUnique();
 
                     b.ToTable("maintenance_checklist_results", (string)null);
                 });
@@ -1685,11 +1677,8 @@ namespace aspirereact.Server.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<int>("ThresholdOperator")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal>("ThresholdValue")
-                        .HasColumnType("numeric(18,4)");
+                    b.Property<string>("ThresholdValue")
+                        .HasColumnType("text");
 
                     b.Property<string>("Unit")
                         .HasColumnType("text");
@@ -2655,18 +2644,11 @@ namespace aspirereact.Server.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("aspire_react.Server.Domain.Entities.MaintenanceStandardParam", "StandardParam")
-                        .WithMany()
-                        .HasForeignKey("StandardParamId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.Navigation("Campaign");
 
                     b.Navigation("ChecklistItem");
 
                     b.Navigation("DeviceSnapshot");
-
-                    b.Navigation("StandardParam");
                 });
 
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.MaintenanceChecklistTemplate", b =>

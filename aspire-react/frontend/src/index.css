@@ -76,11 +76,16 @@ button {
   background: #0369a1;
 }
 
-/* Sidebar: Badge label inside submenu-title (e.g. "Vật tư" with low-stock count).
+/* Sidebar: Badge label inside a MENU ITEM or submenu-title (e.g. "Hệ thống" with
+   overdue-maintenance count, "Vật tư" with low-stock count).
    antd .ant-badge sets color: var(--ant-color-text) (#020617 — dark) on its root,
-   which drowns the label on the dark Sider. Force the Badge to inherit the light
-   submenu-title color. Uses stable antd classes only — NEVER css-dev-only-* hashes
-   (they only exist in dev and change on every build). */
+   which drowns the label on the dark Sider (background #0F172A).
+   IMPORTANT: the previous selector only covered .ant-menu-submenu-title, so a Badge
+   inside a plain MENU ITEM (item "Hệ thống" under submenu "Quản trị") was NOT covered
+   and stayed dark. Cover every Badge under .ant-menu-dark instead.
+   Uses stable antd classes only — NEVER css-dev-only-* hashes (dev-only, change per build). */
+.ant-menu-dark .ant-badge,
+.ant-menu-dark .ant-menu-item .ant-badge,
 .ant-menu-dark .ant-menu-submenu-title .ant-badge {
   color: inherit;
 }

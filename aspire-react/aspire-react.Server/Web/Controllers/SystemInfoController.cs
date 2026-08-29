@@ -61,6 +61,7 @@ public class SystemInfoController : ControllerBase
                 s.Name,
                 s.Description,
                 s.CompanyId,
+                s.NextMaintenanceDueDate,
                 Company = s.Company == null ? null : new { s.Company.Id, s.Company.Name },
                 Positions = s.Positions.OrderBy(p => p.Code).Select(p => new
                 {
@@ -102,6 +103,7 @@ public class SystemInfoController : ControllerBase
             s.Name,
             s.Description,
             s.CompanyId,
+            s.NextMaintenanceDueDate,
             Company = s.Company == null ? null : new { s.Company.Id, s.Company.Name },
             Positions = s.Positions.OrderBy(p => p.Code).Select(p => new
             {
@@ -209,6 +211,23 @@ public class SystemInfoController : ControllerBase
         if (userCompanyIdDelete.HasValue && s.CompanyId.HasValue && s.CompanyId.Value != userCompanyIdDelete.Value)
             return NotFound(new { status = "error", message = "Not found." });
 
+        // [MC-7a delete-guard] Nếu có vị trí thuộc hệ thống này đang được ChecklistItem của template
+        // bảo dưỡng tham chiếu → chặn (FK RESTRICT ở DB sẽ chặn cascade; guard trước để trả 400 mềm,
+        // không để lộ 500 FK thô). Mirror delete-guard Company (AR-2).
+        var posIds = await _context.SystemPositions.AsNoTracking()
+            .Where(p => p.SystemInfoId == id)
+            .Select(p => p.Id)
+            .ToListAsync();
+        if (posIds.Count > 0
+            && await _context.MaintenanceChecklistItemPositions.AsNoTracking()
+                .AnyAsync(ip => posIds.Contains(ip.SystemPositionId)))
+            return BadRequest(new
+            {
+                status = "error",
+                message = "Hệ thống có vị trí đang được ChecklistItem của template bảo dưỡng tham chiếu — không thể xóa.",
+                error_code = "POSITION_IN_USE_BY_CHECKLIST"
+            });
+
         var sysName = s.Name;
         _context.SystemInfos.Remove(s);
         await _context.SaveChangesAsync();
@@ -305,6 +324,17 @@ public class SystemInfoController : ControllerBase
         var posCompanyIdDelete = pos.SystemInfo?.CompanyId;
         if (userCompanyIdDeletePos.HasValue && posCompanyIdDelete.HasValue && posCompanyIdDelete.Value != userCompanyIdDeletePos.Value)
             return NotFound(new { status = "error", message = "Position not found." });
+
+        // [MC-7a delete-guard] Vị trí đang được ChecklistItem của template bảo dưỡng tham chiếu →
+        // chặn xóa (FK RESTRICT ở DB sẽ chặn; guard trước để trả 400 mềm, không lộ 500 FK thô).
+        if (await _context.MaintenanceChecklistItemPositions.AsNoTracking()
+                .AnyAsync(ip => ip.SystemPositionId == posId))
+            return BadRequest(new
+            {
+                status = "error",
+                message = "Vị trí đang được ChecklistItem của template bảo dưỡng tham chiếu — không thể xóa. Hãy điều chỉnh template (version mới) trước.",
+                error_code = "POSITION_IN_USE_BY_CHECKLIST"
+            });
 
         var posName = pos.Name;
         _context.SystemPositions.Remove(pos);

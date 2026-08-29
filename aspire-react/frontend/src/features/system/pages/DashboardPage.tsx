@@ -17,6 +17,7 @@ interface DashboardSummary {
   overdueAudits: number;
   archivedAssets: number;
   lowStockCount: number;
+  systemsOverdueMaintenance: number;
   totalAssetValue: number;
 }
 
@@ -124,6 +125,9 @@ export default function DashboardPage() {
         </Col>
         <Col xs={12} sm={8} md={4}>
           <Card><Statistic title="Sắp hết" value={summary?.lowStockCount ?? 0} styles={{ content: { color: uiColors.warningAmber } }} prefix={<WarningOutlined />} /></Card>
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <Card><Statistic title="Bảo dưỡng quá hạn" value={summary?.systemsOverdueMaintenance ?? 0} styles={{ content: { color: statusColors.overdue } }} prefix={<WarningOutlined />} /></Card>
         </Col>
         <Col xs={12} sm={8} md={4}>
           <Card><Statistic title="Tổng giá trị" value={formatMoney(summary?.totalAssetValue)} /></Card>
