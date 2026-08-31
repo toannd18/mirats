@@ -249,8 +249,10 @@ public class MaintenanceCampaignsController : ControllerBase
             return BadRequest(new { status = "error", message = "Hệ thống (SystemInfoId) là bắt buộc.", error_code = "SYSTEM_INFO_REQUIRED" });
 
         // Company scope on the system (hide existence out-of-scope).
+        // [BUG-A] Read WITHOUT AsNoTracking: this tracked SystemInfo row is re-fetched FOR UPDATE
+        // below to serialize concurrent CreateCampaign calls against the SAME system.
         var userCompanyId = await GetUserCompanyIdAsync();
-        var sys = await _context.SystemInfos.AsNoTracking()
+        var sys = await _context.SystemInfos
             .FirstOrDefaultAsync(s => s.Id == dto.SystemInfoId);
         if (sys == null)
             return NotFound(new { status = "error", message = "Hệ thống không tồn tại hoặc ngoài phạm vi công ty của bạn." });
@@ -259,15 +261,6 @@ public class MaintenanceCampaignsController : ControllerBase
 
         if (dto.EndDate.HasValue && dto.StartDate.HasValue && dto.EndDate.Value < dto.StartDate.Value)
             return BadRequest(new { status = "error", message = "Ngày kết thúc không được trước ngày bắt đầu.", error_code = "END_BEFORE_START" });
-
-        // One InProgress campaign per system at a time (no duplicate concurrent snapshots, no due-date races).
-        if (await _context.MaintenanceCampaigns.AnyAsync(c => c.SystemInfoId == dto.SystemInfoId && c.Status == MaintenanceCampaignStatus.InProgress))
-            return BadRequest(new
-            {
-                status = "error",
-                message = "Hệ thống đang có một đợt bảo dưỡng chưa hoàn thành — hãy hoàn thành hoặc chờ nó kết thúc.",
-                error_code = "CAMPAIGN_ALREADY_IN_PROGRESS"
-            });
 
         var (template, version, error) = await ResolvePinableVersionAsync(dto.SystemInfoId, dto.TemplateId);
         if (error != null) return error;
@@ -295,6 +288,20 @@ public class MaintenanceCampaignsController : ControllerBase
         var startDate = dto.StartDate.HasValue ? ToUtc(dto.StartDate.Value) : DateTime.UtcNow;
         var endDate = dto.EndDate.HasValue ? ToUtc(dto.EndDate.Value) : (DateTime?)null;
 
+        var mountedAssets = await _context.Assets.AsNoTracking()
+            .Include(a => a.Model)
+            .Include(a => a.SystemPosition)
+            .Where(a => a.SystemPositionId != null && a.SystemPosition!.SystemInfoId == dto.SystemInfoId)
+            .ToListAsync();
+
+        // ── [BUG-A] Race-safe "one InProgress campaign per system" — same FOR UPDATE pattern as
+        // AssetTagGenerator (Task O/O-FIX). The old check-then-insert had a race window: 8 parallel
+        // creates produced created=2/blocked=6 (audit 2026-08-30). Fix: inside ONE transaction,
+        // lock the SystemInfo row FOR UPDATE FIRST (serializes concurrent creates per system —
+        // different systems are unaffected), THEN re-check InProgress, THEN insert. Check+insert
+        // are now atomic per system. Business rule unchanged.
+        // Npgsql's retrying execution strategy requires user transactions inside
+        // CreateExecutionStrategy().ExecuteAsync (Task O/O-FIX convention).
         var campaign = new MaintenanceCampaign
         {
             SystemInfoId = dto.SystemInfoId,
@@ -306,14 +313,6 @@ public class MaintenanceCampaignsController : ControllerBase
             ReviewerId = dto.ReviewerId,
             Status = MaintenanceCampaignStatus.InProgress
         };
-
-        // ── Snapshot ALL assets currently mounted at the system's positions (immutable copy). ──
-        var mountedAssets = await _context.Assets.AsNoTracking()
-            .Include(a => a.Model)
-            .Include(a => a.SystemPosition)
-            .Where(a => a.SystemPositionId != null && a.SystemPosition!.SystemInfoId == dto.SystemInfoId)
-            .ToListAsync();
-
         foreach (var a in mountedAssets)
         {
             campaign.DeviceSnapshots.Add(new MaintenanceCampaignDeviceSnapshot
@@ -327,15 +326,48 @@ public class MaintenanceCampaignsController : ControllerBase
                 SystemPositionName = a.SystemPosition?.Name
             });
         }
-
-        // [MC-6] Persist executors (nhiều người thực hiện — join bảng MaintenanceCampaignExecutor).
         foreach (var uid in executorIds)
         {
             campaign.Executors.Add(new MaintenanceCampaignExecutor { UserId = uid });
         }
 
-        _context.MaintenanceCampaigns.Add(campaign);
-        await _context.SaveChangesAsync();
+        IActionResult? raceError = null;
+        var strategy = _context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await _context.Database.BeginTransactionAsync();
+            // FOR UPDATE lock chỉ chạy trên relational provider — InMemory (unit tests) không
+            // dịch được raw SQL; unit tests chạy check+insert không lock (tuần tự, an toàn —
+            // cùng quy ước TestHelpers đã ghi nhận cho Checkout/Checkin handlers).
+            if (_context.Database.IsRelational())
+            {
+                var sysParam = new Npgsql.NpgsqlParameter("sysId", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = dto.SystemInfoId };
+                await _context.SystemInfos
+                    .FromSqlRaw(@"SELECT * FROM public.""system_infos"" WHERE ""Id"" = @sysId FOR UPDATE", sysParam)
+                    .FirstOrDefaultAsync();
+                _context.ChangeTracker.Clear(); // drop the FOR UPDATE snapshot — sys state stays from the pre-read
+            }
+
+            // Re-check INSIDE the lock: at this moment no other transaction holds the row, so this
+            // read sees every campaign committed by earlier creators.
+            var hasInProgress = await _context.MaintenanceCampaigns.AsNoTracking()
+                .AnyAsync(c => c.SystemInfoId == dto.SystemInfoId && c.Status == MaintenanceCampaignStatus.InProgress);
+            if (hasInProgress)
+            {
+                raceError = BadRequest(new
+                {
+                    status = "error",
+                    message = "Hệ thống đang có một đợt bảo dưỡng chưa hoàn thành — hãy hoàn thành hoặc chờ nó kết thúc.",
+                    error_code = "CAMPAIGN_ALREADY_IN_PROGRESS"
+                });
+                return;
+            }
+
+            _context.MaintenanceCampaigns.Add(campaign);
+            await _context.SaveChangesAsync();
+            await tx.CommitAsync();
+        });
+        if (raceError != null) return raceError;
 
         LogCampaignAction(ActionType.Create, campaign,
             $"Tạo đợt bảo dưỡng cho hệ thống \"{sys.Name}\" — version {version.VersionNumber}",
