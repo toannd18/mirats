@@ -228,6 +228,19 @@ public class SystemInfoController : ControllerBase
                 error_code = "POSITION_IN_USE_BY_CHECKLIST"
             });
 
+        // [BUG-C delete-guard] Campaign (kể cả Completed — lịch sử bất biến) tham chiếu SystemInfo qua
+        // FK RESTRICT → xóa system sẽ lộ 500 FK thô (reproduced trong audit backend 2026-08-30).
+        // Chặn trước bằng 400 mềm, cùng pattern AR-2/MC-7a: delete-guard by usage history.
+        var campaignCount = await _context.MaintenanceCampaigns.AsNoTracking()
+            .CountAsync(c => c.SystemInfoId == id);
+        if (campaignCount > 0)
+            return BadRequest(new
+            {
+                status = "error",
+                message = $"Hệ thống đã có {campaignCount} đợt bảo dưỡng (lịch sử bất biến) — không thể xóa.",
+                error_code = "SYSTEM_IN_USE_BY_CAMPAIGN"
+            });
+
         var sysName = s.Name;
         _context.SystemInfos.Remove(s);
         await _context.SaveChangesAsync();
