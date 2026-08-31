@@ -1,4 +1,5 @@
 using System.Text.Json;
+using aspire_react.Server.Application.Maintenance;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -57,27 +58,8 @@ public class MaintenanceCampaignsController : ControllerBase
     private static DateTime ToUtc(DateTime value)
         => value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
-    /// <summary>[MC-10] Trích số thập phân đầu tiên từ chuỗi đo ("55%" → 55, "12,5" → 12.5, "-3" → -3).</summary>
-    private static bool TryParseMeasured(string? raw, out decimal value)
-    {
-        value = 0m;
-        if (string.IsNullOrWhiteSpace(raw)) return false;
-        var m = System.Text.RegularExpressions.Regex.Match(raw.Trim(), @"-?\d+(?:[.,]\d+)?");
-        if (!m.Success) return false;
-        return decimal.TryParse(m.Value.Replace(',', '.'), System.Globalization.NumberStyles.Float,
-            System.Globalization.CultureInfo.InvariantCulture, out value);
-    }
-
-    /// <summary>[MC-10] Đánh giá Đạt/Không đạt theo toán tử ngưỡng.</summary>
-    private static bool EvaluateThreshold(MaintenanceThresholdOperator op, decimal threshold, decimal measured)
-        => op switch
-        {
-            MaintenanceThresholdOperator.LessThan => measured < threshold,
-            MaintenanceThresholdOperator.LessOrEqual => measured <= threshold,
-            MaintenanceThresholdOperator.GreaterThan => measured > threshold,
-            MaintenanceThresholdOperator.GreaterOrEqual => measured >= threshold,
-            _ => Math.Abs(measured - threshold) < 0.0001m // Equal
-        };
+    // [A3] TryParseMeasured/EvaluateThreshold (MC-10) đã tách vào
+    // Application/Maintenance/MaintenanceChecklistRules — controller gọi qua đó (nguồn sự thật duy nhất).
 
     /// <summary>Campaign lookup + company visibility (floater/own-company; superuser sees all).</summary>
     private async Task<MaintenanceCampaign?> GetVisibleCampaignAsync(Guid id)
@@ -493,8 +475,8 @@ public class MaintenanceCampaignsController : ControllerBase
         {
             var param = await _context.MaintenanceStandardParams.AsNoTracking()
                 .FirstAsync(p => p.Id == dto.StandardParamId.Value);
-            existing.IsPass = TryParseMeasured(existing.MeasuredValue, out var mv)
-                ? EvaluateThreshold(param.ThresholdOperator, param.ThresholdValue, mv)
+            existing.IsPass = MaintenanceChecklistRules.TryParseMeasured(existing.MeasuredValue, out var mv)
+                ? MaintenanceChecklistRules.EvaluateThreshold(param.ThresholdOperator, param.ThresholdValue, mv)
                 : false; // chưa có giá trị đo → chưa xác định (UI hiện "Chưa xác định" dựa trên MeasuredValue rỗng)
         }
 
@@ -576,6 +558,7 @@ public class MaintenanceCampaignsController : ControllerBase
         // [MC-7c] KHÔNG còn S×I toàn phần: item không khai báo vị trí (universal) → đếm mọi snapshot;
         // item khai báo vị trí → chỉ đếm snapshot nằm trong danh sách vị trí của item.
         // [MC-9] Với hạng mục CÓ tiêu chuẩn: số dòng = snapshots_applicable × paramCount; KHÔNG có tiêu chuẩn: ×1.
+        // [A3] Công thức đếm nằm ở MaintenanceChecklistRules.CountExpectedResults (nguồn sự thật duy nhất).
         var snapshots = c.DeviceSnapshots.ToList();
         var items = await _context.MaintenanceChecklistItems.AsNoTracking()
             .Include(i => i.Positions)
@@ -583,14 +566,7 @@ public class MaintenanceCampaignsController : ControllerBase
             .Where(i => i.TemplateVersionId == c.TemplateVersionId)
             .ToListAsync();
         var resultCount = c.Results.Count;
-        var expected = items.Sum(it =>
-        {
-            var applicableSnapshots = it.Positions.Count == 0
-                ? snapshots.Count
-                : snapshots.Count(s => s.SystemPositionId.HasValue && it.Positions.Any(p => p.SystemPositionId == s.SystemPositionId.Value));
-            var factor = it.StandardParams.Count == 0 ? 1 : it.StandardParams.Count;
-            return applicableSnapshots * factor;
-        });
+        var expected = MaintenanceChecklistRules.CountExpectedResults(items, snapshots);
         if (expected > 0 && resultCount < expected)
             return BadRequest(new
             {
