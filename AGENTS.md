@@ -16,7 +16,14 @@ AspireReact: Snipe-IT-style multi-tenant IT asset management. .NET 9/10 + React 
 # Full stack (Aspire orchestrates Postgres, Redis, Keycloak, API, frontend)
 cd aspire-react/aspire-react.AppHost && dotnet run
 # Frontend http://localhost:5173 · API http://localhost:5428 · Keycloak admin https://localhost:8080/admin
-# Login: admin / Admin123!
+# Login: admin — password đọc từ file gitignored `.mirats-test-admin-password` ở repo root
+# ([SECRET-ROTATE 2026-08-29] password cũ trong git history đã bị vô hiệu; master admin password ở AppHost user-secrets)
+# Clone mới — setup secrets MỘT lần (không commit giá trị thật):
+#   cd aspire-react/aspire-react.AppHost
+#   dotnet user-secrets set "Parameters:dbPassword" "<pg-password>" ; dotnet user-secrets set "Parameters:kcBootstrapAdminPassword" "<kc-master-password>"
+#   dotnet user-secrets set "Parameters:kcClientSecret" "<sinh trong Keycloak Console > backend-service > Credentials > Regenerate>"
+#   echo "<app-admin-password>" > ../../.mirats-test-admin-password
+#   → hướng dẫn đầy đủ + lưu ý volume: xem CLAUDE.md "Setup secrets lần đầu"
 ```
 ```bash
 cd aspire-react

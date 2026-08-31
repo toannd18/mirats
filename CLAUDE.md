@@ -53,7 +53,24 @@ All backend/solution commands run from `aspire-react/` (where `aspire-react.sln`
 cd aspire-react/aspire-react.AppHost
 dotnet run
 ```
-Frontend: http://localhost:5173 · API: http://localhost:5428 (HTTP) / https://localhost:7314 (HTTPS) · Keycloak admin: https://localhost:8080/admin · default login `admin` / `Admin123!`.
+Frontend: http://localhost:5173 · API: http://localhost:5428 (HTTP) / https://localhost:7314 (HTTPS) · Keycloak admin: https://localhost:8080/admin · dev login: user `admin`, password đọc từ file gitignored `.mirats-test-admin-password` ở repo root (rotated 2026-08-29 [SECRET-ROTATE] — giá trị cũ trong git history đã bị vô hiệu; Keycloak master admin password lưu ở AppHost user-secrets `Parameters:kcBootstrapAdminPassword`).
+
+### Setup secrets lần đầu (người clone mới — làm MỘT lần, KHÔNG commit giá trị thật)
+```bash
+cd aspire-react/aspire-react.AppHost
+dotnet user-secrets init
+dotnet user-secrets set "Parameters:dbPassword" "<postgres-password-của-bạn>"
+dotnet user-secrets set "Parameters:kcBootstrapAdminPassword" "<keycloak-master-admin-password-của-bạn>"
+# kcClientSecret: sinh bằng cơ chế chính thức của Keycloak (KHÔNG tự bịa) — Keycloak Admin Console
+#   > realm aspire-react > Clients > backend-service > Credentials > Regenerate, hoặc qua Admin API:
+#   POST /admin/realms/aspire-react/clients/{clientId}/client-secret
+dotnet user-secrets set "Parameters:kcClientSecret" "<secret-vừa-sinh>"
+echo "<app-admin-password-của-bạn>" > ../../.mirats-test-admin-password   # gitignored; code đọc có .Trim() nên newline cuối vô hại
+```
+Lưu ý:
+- `kcBootstrapAdminPassword` chỉ seed Keycloak master admin **lần đầu khi volume `keycloak-data` rỗng**; nếu volume cũ còn, đổi nó không đổi password đang chạy — reset qua Keycloak Admin API (`PUT /admin/realms/master/users/{id}/reset-password`).
+- `kcClientSecret` được AppHost inject vào Server (`Keycloak__ClientSecret`) và vào container Keycloak (`KEYCLOAK_BACKEND_CLIENT_SECRET`) — bản import realm mới sẽ resolve placeholder `${KEYCLOAK_BACKEND_CLIENT_SECRET}`; với volume cũ, secret active phải rotate qua Admin API (đã làm 2026-08-29 [SECRET-ROTATE]).
+- Postgres password phải giữ nguyên giá trị qua các lần restart (volume `postgres-data` gắn với password lúc tạo).
 
 Prereqs: .NET 10 SDK, Node.js 20+, Docker Desktop (containers for Postgres/Redis/Keycloak).
 

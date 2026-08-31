@@ -27,6 +27,23 @@ public class ConcurrencyRaceAuditTests
     private const string AdminUserId = "eb34917f-843f-4f4e-8651-d505cd317824"; // local admin id
     private const int Iterations = 5;
 
+    // [SECRET-ROTATE 2026-08-29] The app-admin password is no longer hard-coded here (the old
+    // value is public in git history). It resolves, in order:
+    //   1. environment variable MIRATS_TEST_ADMIN_PASSWORD
+    //   2. repo-root file `.mirats-test-admin-password` (gitignored — local dev convenience)
+    // When rotating: Keycloak Admin API → reset-password on the realm 'aspire-react' admin
+    // user, then update that file / env var. NEVER commit the real value.
+    private static string AdminPassword
+    {
+        get
+        {
+            var fromEnv = Environment.GetEnvironmentVariable("MIRATS_TEST_ADMIN_PASSWORD");
+            if (!string.IsNullOrWhiteSpace(fromEnv)) return fromEnv;
+            var repoRoot = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..");
+            return File.ReadAllText(Path.Combine(repoRoot, ".mirats-test-admin-password")).Trim();
+        }
+    }
+
     private static readonly HttpClient _http = new() { BaseAddress = new Uri(BaseUrl) };
     private static string? _token;
     private static readonly object _tokenLock = new();
@@ -45,7 +62,7 @@ public class ConcurrencyRaceAuditTests
             ["grant_type"] = "password",
             ["client_id"] = "frontend",
             ["username"] = "admin",
-            ["password"] = "Admin123!"
+            ["password"] = AdminPassword
         });
         var resp = await kc.PostAsync(KcTokenUrl, form);
         var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());

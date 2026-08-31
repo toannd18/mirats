@@ -88,3 +88,6 @@ opencode-temp/
 screenshots/
 backups/
 docs/assets-template(1).xlsx
+
+# [SECRET-ROTATE 2026-08-29] Local dev/test credentials — NEVER commit
+.mirats-test-admin-password
