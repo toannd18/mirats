@@ -464,55 +464,87 @@ public class MaintenanceCampaignsController : ControllerBase
                 return BadRequest(new { status = "error", message = "Tiêu chuẩn không thuộc hạng mục đã chọn.", error_code = "INVALID_STANDARD_PARAM" });
         }
 
-        var existing = await _context.MaintenanceChecklistResults
-            .FirstOrDefaultAsync(r => r.CampaignId == id && r.DeviceSnapshotId == dto.DeviceSnapshotId && r.ChecklistItemId == dto.ChecklistItemId && r.StandardParamId == dto.StandardParamId);
-
-        // [BUG-B fix] isNew phân biệt Create (lần đầu ghi cặp key) vs Update (ghi đè) cho ActionLog.
-        // Giá trị cũ được chụp TRƯỚC khi patch để LogMeta.changes phản ánh đúng old→new.
-        // oldIsPass là bool? — Create-case KHÔNG có giá trị cũ → old phải null trong LogMeta,
-        // KHÔNG được mặc định false (false là giá trị đo có nghĩa: "không đạt").
+        // ── Upsert + [BUG-D fix] concurrent-safe: race INSERT-vs-INSERT (nhiều request cùng đọc
+        // existing=null rồi cùng Add) → request thua vi phạm partial unique index (23505) →
+        // trước đây raw 500. Upsert semantics = merge: catch unique violation, detach bản ghi
+        // fail, retry — vòng kế tiếp re-read sẽ thấy row (đã được request khác insert) và chuyển
+        // sang nhánh Update. Bounded 3 attempts; vượt → 400 sạch (không 500).
+        // NOTE: chỉ nhánh Create mới có thể đụng 23505; nhánh Update là UPDATE ... WHERE Id
+        // (last-write-wins, không đụng unique index) → nếu 23505 khi !isNew thì là lỗi khác,
+        // để bubble lên thay vì retry vô hạn.
+        const int maxUpsertAttempts = 3;
+        MaintenanceChecklistResult existing = null!;
         var isNew = false;
         string? oldMeasuredValue = null;
         bool? oldIsPass = null;
         string? oldNotes = null;
-        if (existing == null)
+        for (var attempt = 1; ; attempt++)
         {
-            isNew = true;
-            existing = new MaintenanceChecklistResult
+            existing = await _context.MaintenanceChecklistResults
+                .FirstOrDefaultAsync(r => r.CampaignId == id && r.DeviceSnapshotId == dto.DeviceSnapshotId && r.ChecklistItemId == dto.ChecklistItemId && r.StandardParamId == dto.StandardParamId);
+
+            isNew = false;
+            oldMeasuredValue = null;
+            oldIsPass = null;
+            oldNotes = null;
+            if (existing == null)
             {
-                CampaignId = id,
-                DeviceSnapshotId = dto.DeviceSnapshotId,
-                ChecklistItemId = dto.ChecklistItemId,
-                StandardParamId = dto.StandardParamId,
-                MeasuredValue = dto.MeasuredValue,
-                IsPass = dto.IsPass ?? false,
-                Notes = dto.Notes
-            };
-            _context.MaintenanceChecklistResults.Add(existing);
-        }
-        else
-        {
-            // Patch semantics (Task F/M1): absent field NEVER overwrites existing data.
-            oldMeasuredValue = existing.MeasuredValue;
-            oldIsPass = existing.IsPass;
-            oldNotes = existing.Notes;
-            if (dto.MeasuredValue is not null) existing.MeasuredValue = dto.MeasuredValue;
-            if (dto.IsPass.HasValue) existing.IsPass = dto.IsPass.Value;
-            if (dto.Notes is not null) existing.Notes = dto.Notes;
-        }
+                isNew = true;
+                existing = new MaintenanceChecklistResult
+                {
+                    CampaignId = id,
+                    DeviceSnapshotId = dto.DeviceSnapshotId,
+                    ChecklistItemId = dto.ChecklistItemId,
+                    StandardParamId = dto.StandardParamId,
+                    MeasuredValue = dto.MeasuredValue,
+                    IsPass = dto.IsPass ?? false,
+                    Notes = dto.Notes
+                };
+                _context.MaintenanceChecklistResults.Add(existing);
+            }
+            else
+            {
+                // Patch semantics (Task F/M1): absent field NEVER overwrites existing data.
+                oldMeasuredValue = existing.MeasuredValue;
+                oldIsPass = existing.IsPass;
+                oldNotes = existing.Notes;
+                if (dto.MeasuredValue is not null) existing.MeasuredValue = dto.MeasuredValue;
+                if (dto.IsPass.HasValue) existing.IsPass = dto.IsPass.Value;
+                if (dto.Notes is not null) existing.Notes = dto.Notes;
+            }
 
-        // [MC-10] Dòng gắn StandardParam → IsPass TỰ ĐỘNG = so sánh(MeasuredValue, Threshold) theo Operator.
-        // Không tin client gửi isPass (máy quyết định thay — đúng thiết kế đã chốt hướng a).
-        if (dto.StandardParamId.HasValue)
-        {
-            var param = await _context.MaintenanceStandardParams.AsNoTracking()
-                .FirstAsync(p => p.Id == dto.StandardParamId.Value);
-            existing.IsPass = MaintenanceChecklistRules.TryParseMeasured(existing.MeasuredValue, out var mv)
-                ? MaintenanceChecklistRules.EvaluateThreshold(param.ThresholdOperator, param.ThresholdValue, mv)
-                : false; // chưa có giá trị đo → chưa xác định (UI hiện "Chưa xác định" dựa trên MeasuredValue rỗng)
-        }
+            // [MC-10] Dòng gắn StandardParam → IsPass TỰ ĐỘNG = so sánh(MeasuredValue, Threshold) theo Operator.
+            // Không tin client gửi isPass (máy quyết định thay — đúng thiết kế đã chốt hướng a).
+            if (dto.StandardParamId.HasValue)
+            {
+                var param = await _context.MaintenanceStandardParams.AsNoTracking()
+                    .FirstAsync(p => p.Id == dto.StandardParamId.Value);
+                existing.IsPass = MaintenanceChecklistRules.TryParseMeasured(existing.MeasuredValue, out var mv)
+                    ? MaintenanceChecklistRules.EvaluateThreshold(param.ThresholdOperator, param.ThresholdValue, mv)
+                    : false; // chưa có giá trị đo → chưa xác định (UI hiện "Chưa xác định" dựa trên MeasuredValue rỗng)
+            }
 
-        await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+                break; // ghi thành công (Create hoặc Update)
+            }
+            catch (DbUpdateException ex) when (isNew
+                && ex.InnerException is Npgsql.PostgresException pg
+                && pg.SqlState == Npgsql.PostgresErrorCodes.UniqueViolation)
+            {
+                // [BUG-D] Request khác vừa insert cùng key → detach bản ghi fail, retry:
+                // vòng kế tiếp re-read sẽ thấy row và merge (nhánh Update).
+                _context.Entry(existing).State = EntityState.Detached;
+                if (attempt >= maxUpsertAttempts)
+                    return Conflict(new
+                    {
+                        status = "error",
+                        message = "Kết quả vừa được ghi bởi request khác — thử lại.",
+                        error_code = "RESULT_CONCURRENT_WRITE"
+                    });
+            }
+        }
 
         // [BUG-B fix] ActionLog cho ghi/xóa kết quả checklist — cùng format LogCampaignAction
         // (ItemType.MaintenanceCampaign + TargetSystemInfo) như Create/Complete ở trên.
