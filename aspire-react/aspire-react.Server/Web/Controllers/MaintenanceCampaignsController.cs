@@ -453,8 +453,17 @@ public class MaintenanceCampaignsController : ControllerBase
         var existing = await _context.MaintenanceChecklistResults
             .FirstOrDefaultAsync(r => r.CampaignId == id && r.DeviceSnapshotId == dto.DeviceSnapshotId && r.ChecklistItemId == dto.ChecklistItemId && r.StandardParamId == dto.StandardParamId);
 
+        // [BUG-B fix] isNew phân biệt Create (lần đầu ghi cặp key) vs Update (ghi đè) cho ActionLog.
+        // Giá trị cũ được chụp TRƯỚC khi patch để LogMeta.changes phản ánh đúng old→new.
+        // oldIsPass là bool? — Create-case KHÔNG có giá trị cũ → old phải null trong LogMeta,
+        // KHÔNG được mặc định false (false là giá trị đo có nghĩa: "không đạt").
+        var isNew = false;
+        string? oldMeasuredValue = null;
+        bool? oldIsPass = null;
+        string? oldNotes = null;
         if (existing == null)
         {
+            isNew = true;
             existing = new MaintenanceChecklistResult
             {
                 CampaignId = id,
@@ -470,6 +479,9 @@ public class MaintenanceCampaignsController : ControllerBase
         else
         {
             // Patch semantics (Task F/M1): absent field NEVER overwrites existing data.
+            oldMeasuredValue = existing.MeasuredValue;
+            oldIsPass = existing.IsPass;
+            oldNotes = existing.Notes;
             if (dto.MeasuredValue is not null) existing.MeasuredValue = dto.MeasuredValue;
             if (dto.IsPass.HasValue) existing.IsPass = dto.IsPass.Value;
             if (dto.Notes is not null) existing.Notes = dto.Notes;
@@ -486,6 +498,28 @@ public class MaintenanceCampaignsController : ControllerBase
                 : false; // chưa có giá trị đo → chưa xác định (UI hiện "Chưa xác định" dựa trên MeasuredValue rỗng)
         }
 
+        await _context.SaveChangesAsync();
+
+        // [BUG-B fix] ActionLog cho ghi/xóa kết quả checklist — cùng format LogCampaignAction
+        // (ItemType.MaintenanceCampaign + TargetSystemInfo) như Create/Complete ở trên.
+        // Auto-IsPass là giá trị máy tính (post-MC-10), đo được trong LogMeta để truy vết.
+        LogCampaignAction(isNew ? ActionType.Create : ActionType.Update, c,
+            isNew
+                ? $"Ghi kết quả checklist đợt \"{(c.SystemInfo?.Name ?? c.SystemInfoId.ToString())}\""
+                : $"Cập nhật kết quả checklist đợt \"{(c.SystemInfo?.Name ?? c.SystemInfoId.ToString())}\"",
+            new
+            {
+                campaignId = c.Id,
+                deviceSnapshotId = dto.DeviceSnapshotId,
+                checklistItemId = dto.ChecklistItemId,
+                standardParamId = dto.StandardParamId,
+                changes = new
+                {
+                    measuredValue = new { old = oldMeasuredValue, @new = existing.MeasuredValue },
+                    isPass = new { old = oldIsPass, @new = existing.IsPass },
+                    notes = new { old = oldNotes, @new = existing.Notes }
+                }
+            });
         await _context.SaveChangesAsync();
 
         return Ok(new
@@ -510,6 +544,20 @@ public class MaintenanceCampaignsController : ControllerBase
 
         _context.MaintenanceChecklistResults.Remove(result);
         await _context.SaveChangesAsync();
+
+        // [BUG-B fix] ActionLog cho xóa kết quả checklist — đủ dữ liệu truy vết bản ghi đã xóa.
+        LogCampaignAction(ActionType.Delete, c,
+            $"Xóa kết quả checklist đợt \"{(c.SystemInfo?.Name ?? c.SystemInfoId.ToString())}\"",
+            new
+            {
+                campaignId = c.Id,
+                deviceSnapshotId = dto.DeviceSnapshotId,
+                checklistItemId = dto.ChecklistItemId,
+                standardParamId = dto.StandardParamId,
+                deleted = new { measuredValue = result.MeasuredValue, isPass = result.IsPass, notes = result.Notes }
+            });
+        await _context.SaveChangesAsync();
+
         return Ok(new { status = "success", message = "Result deleted." });
     }
 
