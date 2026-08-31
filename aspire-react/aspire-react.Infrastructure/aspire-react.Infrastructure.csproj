@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Giai đoạn 0.1: Infrastructure layer (EF Core persistence, auth, authorization, caching, services).
+       QUY TẮC PHỤ THUỘC: ref Application + Domain. KHÔNG được ref Web.
+       FrameworkReference Microsoft.AspNetCore.App: IHttpContextAccessor (CurrentUserService,
+       ActionLogService, PermissionHandler, CompanyScopeService), IOutputCacheStore/OutputCache
+       policies, IMemoryCache, IHostApplicationBuilder — vốn nằm trong shared framework mà
+       trước đây server kế thừa từ Sdk.Web. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- [Giai đoạn 0.1] Trước đây các file này nằm trong project Sdk.Web và hưởng implicit usings
+         (Microsoft.Extensions.DependencyInjection / Configuration / AspNetCore.Http). Project Sdk
+         thường không có → khai báo global using tương đương ở đây, KHÔNG sửa từng file. -->
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.5.0" />
+    <PackageReference Include="Aspire.StackExchange.Redis.OutputCaching" Version="13.5.0" />
+    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\aspire-react.Application\aspire-react.Application.csproj" />
+    <ProjectReference Include="..\aspire-react.Domain\aspire-react.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

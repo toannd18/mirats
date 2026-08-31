@@ -30,6 +30,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Giai đoạn 0.1: Web layer = entry point, phụ thuộc cả 3 project layer (dependency direction:
+         Domain ← Application ← Infrastructure ← Web). Program.cs là composition root, không đổi. -->
+    <ProjectReference Include="..\aspire-react.Domain\aspire-react.Domain.csproj" />
+    <ProjectReference Include="..\aspire-react.Application\aspire-react.Application.csproj" />
+    <ProjectReference Include="..\aspire-react.Infrastructure\aspire-react.Infrastructure.csproj" />
     <ProjectReference Include="..\aspire-react.ServiceDefaults\aspire-react.ServiceDefaults.csproj" />
   </ItemGroup>
 </Project>

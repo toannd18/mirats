@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Giai đoạn 0.1: Application layer (CQRS commands/queries/handlers/DTOs/validators).
+       QUY TẮC PHỤ THUỘC: chỉ được ref Domain. KHÔNG được ref Infrastructure/Web.
+       Ghi chú: Microsoft.EntityFrameworkCore (+Relational) là package provider-independent
+       (không kéo Npgsql) — cần cho bề mặt DbSet/Database của IApplicationDbContext và các
+       EF extension methods (Include, ExecuteUpdateAsync...) mà handlers dùng, theo pattern
+       Clean Architecture (Jason Taylor). Provider Postgres chỉ tồn tại ở Infrastructure. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
+    <PackageReference Include="MediatR" Version="14.2.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\aspire-react.Domain\aspire-react.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

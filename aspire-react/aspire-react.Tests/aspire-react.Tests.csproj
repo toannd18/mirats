@@ -15,6 +15,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Giai đoạn 0.1: tests dùng type từ cả 4 layer (handlers Application, AppDbContext
+         Infrastructure, entities Domain, controllers Web) → ref cả 4 project. -->
+    <ProjectReference Include="..\aspire-react.Domain\aspire-react.Domain.csproj" />
+    <ProjectReference Include="..\aspire-react.Application\aspire-react.Application.csproj" />
+    <ProjectReference Include="..\aspire-react.Infrastructure\aspire-react.Infrastructure.csproj" />
     <ProjectReference Include="..\aspire-react.Server\aspire-react.Server.csproj" />
   </ItemGroup>
 

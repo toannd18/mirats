@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Giai đoạn 0.1: Domain layer tách thành project riêng.
+       QUY TẮC PHỤ THUỘC: KHÔNG ProjectReference nào, KHÔNG PackageReference nào —
+       Domain phải thuần (entities, enums, interfaces). Compiler tự chặn vi phạm. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
