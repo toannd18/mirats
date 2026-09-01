@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common;
 using Microsoft.AspNetCore.OutputCaching;
 
 namespace aspire_react.Server.Infrastructure.Caching;
@@ -10,6 +11,8 @@ namespace aspire_react.Server.Infrastructure.Caching;
 /// single file owns every tag/eviction decision. This avoids the "each place does it its own way"
 /// drift seen with ActionLog (Task N). Each group invalidates ONLY its own tag (editing a Supplier
 /// never evicts Categories), unless a technical reason forces a wider eviction — documented inline.
+/// [Giai đoạn 1.5] CacheTags constants moved verbatim to Application/Common/CacheTags.cs so
+/// Application commands (ICacheInvalidatingCommand) can reference them — values unchanged.
 /// </para>
 /// </summary>
 public interface ICacheInvalidator
@@ -45,14 +48,4 @@ public sealed class CacheInvalidator : ICacheInvalidator
 
     public Task InvalidateCompaniesAsync(CancellationToken ct = default)
         => _store.EvictByTagAsync(CacheTags.Companies, ct).AsTask();
-}
-
-/// <summary>Output-cache tags for reference-data groups. Must match the <c>Tags</c> on each
-/// <c>[OutputCache]</c> attribute so <see cref="IOutputCacheStore.EvictByTagAsync"/> hits the entry.</summary>
-public static class CacheTags
-{
-    public const string Categories = "ref:categories";
-    public const string Manufacturers = "ref:manufacturers";
-    public const string Suppliers = "ref:suppliers";
-    public const string Companies = "ref:companies";
 }

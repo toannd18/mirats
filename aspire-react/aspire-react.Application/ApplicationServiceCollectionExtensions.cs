@@ -19,6 +19,11 @@ public static class ApplicationServiceCollectionExtensions
         {
             cfg.RegisterServicesFromAssembly(typeof(CheckoutAssetCommand).Assembly);
             cfg.RegisterServicesFromAssembly(typeof(CreateAccessoryCommand).Assembly);
+            // [Giai đoạn 1.5] CacheInvalidationBehavior FIRST (outermost) — its post-phase runs LAST:
+            // evict must happen AFTER ActionLogBehavior's log+commit, otherwise a concurrent GET could
+            // re-cache the OLD data between evict and commit, and an eviction failure must not roll
+            // back committed data. Effective sequence: Validation → Handler → Log+Commit → Evict.
+            cfg.AddOpenBehavior(typeof(CacheInvalidationBehavior<,>));
             // Run FluentValidation validators on every command before its handler executes. Without this
             // pipeline behavior the registered validators never ran in real request flows (only in unit
             // tests that called them manually), e.g. the AssetTag uniqueness rule returned a raw 500 from

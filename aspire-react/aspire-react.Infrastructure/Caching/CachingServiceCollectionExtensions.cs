@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.Interfaces;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -34,6 +35,10 @@ public static class CachingServiceCollectionExtensions
         // Centralized invalidation for the cached reference-data groups (Task P invalidation).
         // Backed by the same Redis IOutputCacheStore registered above; controllers evict through this.
         builder.Services.AddSingleton<ICacheInvalidator, CacheInvalidator>();
+
+        // [Giai đoạn 1.5] Application-side tag eviction contract consumed by
+        // CacheInvalidationBehavior (same Redis IOutputCacheStore).
+        builder.Services.AddSingleton<ICacheTagEvictor, OutputCacheTagEvictor>();
 
         return builder;
     }
