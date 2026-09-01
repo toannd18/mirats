@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using aspire_react.Server.Application.Accessories.Commands;
 using aspire_react.Server.Application.Assets.Commands;
+using aspire_react.Server.Application.Departments.Commands;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Persistence;
@@ -62,12 +63,10 @@ public class TaskL2CreateCompanyScopeTests
         return c;
     }
 
-    private static DepartmentsController BuildDepartments(AppDbContext db, Guid actorId, TestHelpers.FakeScope scope)
-    {
-        var c = new DepartmentsController(db, scope, TestHelpers.CreateActionLogService(db));
-        AttachUser(c, actorId);
-        return c;
-    }
+    // [Giai đoạn 1] Departments migrated to MediatR: Create scope tests now drive the command
+    // handler directly (same substance — scope rule + DB outcome; controller is a thin Send() map).
+    private static CreateDepartmentCommandHandler BuildCreateDepartmentHandler(AppDbContext db, TestHelpers.FakeScope scope)
+        => new(db, scope);
 
     // =========================================================================
     // CreateAssetCommandHandler
@@ -155,7 +154,7 @@ public class TaskL2CreateCompanyScopeTests
         ctx.Users.Add(actor);
         await ctx.SaveChangesAsync();
 
-        var handler = new CreateAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, actor.Id),
+        var handler = new CreateAccessoryCommandHandler(ctx,
             new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         var result = await handler.Handle(new CreateAccessoryCommand
         {
@@ -180,7 +179,7 @@ public class TaskL2CreateCompanyScopeTests
         ctx.Users.Add(actor);
         await ctx.SaveChangesAsync();
 
-        var handler = new CreateAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, actor.Id),
+        var handler = new CreateAccessoryCommandHandler(ctx,
             new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         var result = await handler.Handle(new CreateAccessoryCommand
         {
@@ -204,7 +203,7 @@ public class TaskL2CreateCompanyScopeTests
         ctx.Users.Add(actor);
         await ctx.SaveChangesAsync();
 
-        var handler = new CreateAccessoryCommandHandler(ctx, TestHelpers.CreateActionLogService(ctx, actor.Id),
+        var handler = new CreateAccessoryCommandHandler(ctx,
             new TestHelpers.FakeScope { Super = true });
         var result = await handler.Handle(new CreateAccessoryCommand
         {
@@ -342,9 +341,10 @@ public class TaskL2CreateCompanyScopeTests
         db.Users.Add(actor);
         await db.SaveChangesAsync();
 
-        var controller = BuildDepartments(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        var result = await controller.Create(new Department { Name = "DEPT-X", CompanyId = ctB });
-        Assert.IsType<BadRequestObjectResult>(result);
+        var result = await BuildCreateDepartmentHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA })
+            .Handle(new CreateDepartmentCommand("DEPT-X", ctB, null, null, null, actor.Id), CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("COMPANY_MISMATCH", result.ErrorCode);
         Assert.Empty(await db.Departments.IgnoreQueryFilters().Where(d => d.Name == "DEPT-X").ToListAsync());
     }
 
@@ -357,9 +357,9 @@ public class TaskL2CreateCompanyScopeTests
         db.Users.Add(actor);
         await db.SaveChangesAsync();
 
-        var controller = BuildDepartments(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        var result = await controller.Create(new Department { Name = "DEPT-OK", CompanyId = ctA });
-        Assert.IsType<OkObjectResult>(result);
+        var result = await BuildCreateDepartmentHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA })
+            .Handle(new CreateDepartmentCommand("DEPT-OK", ctA, null, null, null, actor.Id), CancellationToken.None);
+        Assert.True(result.Success);
         Assert.NotNull(await db.Departments.IgnoreQueryFilters().FirstOrDefaultAsync(d => d.Name == "DEPT-OK"));
     }
 
@@ -372,8 +372,8 @@ public class TaskL2CreateCompanyScopeTests
         db.Users.Add(actor);
         await db.SaveChangesAsync();
 
-        var controller = BuildDepartments(db, actor.Id, new TestHelpers.FakeScope { Super = true });
-        var result = await controller.Create(new Department { Name = "DEPT-SU", CompanyId = ctB });
-        Assert.IsType<OkObjectResult>(result);
+        var result = await BuildCreateDepartmentHandler(db, new TestHelpers.FakeScope { Super = true })
+            .Handle(new CreateDepartmentCommand("DEPT-SU", ctB, null, null, null, actor.Id), CancellationToken.None);
+        Assert.True(result.Success);
     }
 }

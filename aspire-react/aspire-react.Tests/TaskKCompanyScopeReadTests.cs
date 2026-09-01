@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using aspire_react.Server.Application.Departments.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Authorization;
@@ -65,12 +66,13 @@ public class TaskKCompanyScopeReadTests
         return controller;
     }
 
-    private static DepartmentsController BuildDepartmentsController(AppDbContext db, Guid actorId, TestHelpers.FakeScope scope)
-    {
-        var controller = new DepartmentsController(db, scope, TestHelpers.CreateActionLogService(db));
-        AttachUser(controller, actorId);
-        return controller;
-    }
+    // [Giai đoạn 1] Departments migrated to MediatR: scope tests now drive the Query handlers
+    // directly (the scoping rules live in the handlers; the controller is a thin Send() mapping).
+    private static ListDepartmentsQueryHandler BuildListDepartmentsHandler(AppDbContext db, TestHelpers.FakeScope scope)
+        => new(db, scope);
+
+    private static GetDepartmentByIdQueryHandler BuildGetDepartmentHandler(AppDbContext db, TestHelpers.FakeScope scope)
+        => new(db, scope);
 
     private static AdminController BuildAdminController(AppDbContext db, Guid actorId, TestHelpers.FakeScope scope)
     {
@@ -231,10 +233,9 @@ public class TaskKCompanyScopeReadTests
         await db.SaveChangesAsync();
 
         // No companyId query param at all â†’ scope still forced to CT-A.
-        var controller = BuildDepartmentsController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        var result = await controller.GetAll(null);
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var names = TestHelpers.ReadDataStringArray(ok.Value, "name");
+        var handler = BuildListDepartmentsHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
+        var list = await handler.Handle(new ListDepartmentsQuery(null), CancellationToken.None);
+        var names = list.Select(x => x.Name).ToList();
         Assert.Contains("D-A", names);
         Assert.Contains("D-F", names);
         Assert.DoesNotContain("D-B", names);
@@ -249,10 +250,9 @@ public class TaskKCompanyScopeReadTests
         db.Departments.AddRange(new Department { Name = "D-A", CompanyId = ctA }, new Department { Name = "D-B", CompanyId = ctB });
         await db.SaveChangesAsync();
 
-        var controller = BuildDepartmentsController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        var result = await controller.GetAll(ctB); // param asks for CT-B but scope forces CT-A
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var names = TestHelpers.ReadDataStringArray(ok.Value, "name");
+        var handler = BuildListDepartmentsHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
+        var list = await handler.Handle(new ListDepartmentsQuery(ctB), CancellationToken.None); // param asks for CT-B but scope forces CT-A
+        var names = list.Select(x => x.Name).ToList();
         Assert.DoesNotContain("D-B", names);
         Assert.Contains("D-A", names);
     }
@@ -266,10 +266,9 @@ public class TaskKCompanyScopeReadTests
         db.Departments.AddRange(new Department { Name = "D-A", CompanyId = ctA }, new Department { Name = "D-B", CompanyId = ctB });
         await db.SaveChangesAsync();
 
-        var controller = BuildDepartmentsController(db, actor.Id, new TestHelpers.FakeScope { Super = true });
-        var result = await controller.GetAll(null);
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var names = TestHelpers.ReadDataStringArray(ok.Value, "name");
+        var handler = BuildListDepartmentsHandler(db, new TestHelpers.FakeScope { Super = true });
+        var list = await handler.Handle(new ListDepartmentsQuery(null), CancellationToken.None);
+        var names = list.Select(x => x.Name).ToList();
         Assert.Contains("D-A", names);
         Assert.Contains("D-B", names);
     }
@@ -284,8 +283,9 @@ public class TaskKCompanyScopeReadTests
         db.Departments.Add(deptB);
         await db.SaveChangesAsync();
 
-        var controller = BuildDepartmentsController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        Assert.IsType<NotFoundObjectResult>(await controller.Get(deptB.Id));
+        var dept = await BuildGetDepartmentHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA })
+            .Handle(new GetDepartmentByIdQuery(deptB.Id), CancellationToken.None);
+        Assert.Null(dept); // out-of-scope → null → controller maps to 404
     }
 
     // =========================================================================
@@ -358,8 +358,9 @@ public class TaskKCompanyScopeReadTests
         db.Departments.Add(deptA);
         await db.SaveChangesAsync();
 
-        var controller = BuildDepartmentsController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        Assert.IsType<OkObjectResult>(await controller.Get(deptA.Id));
+        var dept = await BuildGetDepartmentHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA })
+            .Handle(new GetDepartmentByIdQuery(deptA.Id), CancellationToken.None);
+        Assert.NotNull(dept); // in-scope → found (controller returns 200)
     }
 
     // =========================================================================
