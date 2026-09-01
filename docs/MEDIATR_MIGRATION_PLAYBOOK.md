@@ -113,17 +113,50 @@ Application/<Feature>/
 10. [ ] Báo cáo: bảng parity + khác biệt có chủ đích + fixture QA đã sinh (nếu có) — chờ duyệt
       rồi mới commit.
 
-## 6. Lưu ý riêng: "section extraction" (Categories/Manufacturers/Suppliers/Locations/Models…)
+## 6. Section-extraction (Categories/Manufacturers/Suppliers/Locations/Models/StatusLabels/Depreciations trong AdminController)
 
-- Section nằm trong AdminController → migrate section = tạo Commands/Queries như thường, nhưng
-  **controller action giữ nguyên route/policy trong AdminController** (chỉ thay body bằng Send) —
-  hoặc tách controller riêng nếu muốn (đổi cấu trúc route-file, KHÔNG đổi route string).
-- OutputCache (`RefData` + `CacheTags.*`): giữ attribute ở action; cache invalidation
-  (`ICacheInvalidator.Invalidate*Async`) phải gọi sau khi command thành công — hiện chưa có cơ chế
-  invalidate từ Application layer (ICacheInvalidator thuộc Infrastructure/Caching, Web đang dùng).
-  Phương án khi migrate: invalidate ở controller sau `Send` thành công (đơn giản, giữ nguyên vị trí)
-  hoặc introduce an Application-level cache-invalidation abstraction — **chưa có quyết định, hỏi
-  user khi đến lượt migrate section có OutputCache** (Categories/Manufacturers/Suppliers).
+**QUYẾT ĐỊNH ĐÃ CHỐT (Giai đoạn 2, pilot Category — 2026-09-01): MỖI SECTION = 1 CONTROLLER
+RIÊNG standalone** (VD `CategoriesController`), KHÔNG giữ action trong AdminController với
+IMediator lai tạp. Lý do: mục tiêu là AdminController biến mất dần; ctor lai tạp
+(IMediator + AppDbContext + ICacheInvalidator + IActionLogService cùng lúc) chỉ trì hoãn vấn đề.
+Áp dụng NHẤT QUÁN cho Location/Manufacturer/Supplier — không cần hỏi lại trừ khi section có
+đặc thù thật sự khác.
+
+Quy trình section-extraction đã chạy thực tế trên Category:
+
+1. **Route giữ nguyên 100% URL**: AdminController khai báo class-route `api/v1` + action segment
+   `categories`; controller mới khai báo class-route `api/v1/categories` + action rỗng/
+   `{id:guid}` — URL cuối identical, frontend không đổi. Policy attribute copy verbatim.
+2. **Requests DTO hóa**: `[FromBody] Entity` cũ (mass-binding, cho phép client gửi Id/nav) →
+   `Create<Entity>Request`/`Update<Entity>Request` với đúng field nghiệp vụ — narrowing an toàn,
+   ghi chú trong review. `Update<Entity>Request` record MOVE khỏi AdminController (tránh CS0101).
+3. **Kiểm tra patch-safety NGAY lúc audit**: Category Update vốn PATCH-SAFE (Task M2, conditional
+   assigns) → giữ verbatim, không cần backlog. Department thì ngược lại (full-PUT → BUG-E).
+   Mỗi section phải kết luận riêng mục này.
+4. **Kiểm tra dup-check NGAY lúc audit**: Category dup-check (Name+CategoryType) chỉ tồn tại ở
+   CREATE — UPDATE cho phép rename trùng tên (verify bằng binary cũ trước khi ngờ nhầm bug).
+   Các rule "không tồn tại từ trước" thì đừng thêm vào lúc migrate.
+5. **GetById thiếu** → bổ sung theo route convention (`GET .../{id:guid}`, trả entity, 404 khi
+   thiếu) — đã được duyệt là feature-add nhỏ.
+6. **Cả 2 Behavior cùng lúc**: Create/Update/Delete command implement `ILogggableCommand` +
+   `ICacheInvalidatingCommand` (tags = `CacheTags.*`, `ShouldInvalidateCache` = Success).
+   Log(entry) THIN cũ → enrichment 2a (đã duyệt) — log mới thêm RemoteIp/UserAgent/ActionSource.
+7. **OutputCache attribute giữ trên controller action mới** (`RefData` + `CacheTags.*`) —
+   ICacheInvalidator typed methods CHỈ xóa khỏi controller khi section đó migrate xong; các
+   section chưa migrate trong AdminController vẫn dùng ICacheInvalidator như cũ.
+8. **AdminController thu nhỏ**: xóa section + DTO move đi; usings dọn theo (CacheTags using
+   Application.Common vẫn cần nếu còn section dùng tag).
+9. **Test adaptation**: các test gọi action AdminController → chuyển sang handler-level
+   (pattern TaskK/TaskL2) hoặc drive qua 2 behavior thật nếu test assert ActionLog
+   (xem CategoryAndComponentTests.DeleteCategory_Unused — cache outermost → ActionLog → handler).
+10. **Cạm bẫy InMemory mới**: test file có CreateContext riêng CẦN
+    `ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))` — ActionLogBehavior
+    BeginTransaction sẽ throw trên InMemory nếu thiếu (CategoryAndComponentTests đã từng thiếu).
+
+Các section còn lại áp dụng: **Location** (có company-scoping một phần + has-children guard —
+không quên), **Manufacturer/Supplier** (không scoping; Manufacturer có Code 2-5 ký tự rule),
+**Models** (log dùng Log(entry) thin + LogMeta lớn), StatusLabels/Depreciations (chỉ GET —
+chỉ cần Query, không Command).
 
 ## 7. Cạm bẫy đã gặp ở pilot (đừng té lại)
 

@@ -1,5 +1,6 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using aspire_react.Server.Application.Assets.Commands;
+using aspire_react.Server.Application.Categories.Commands;
 using aspire_react.Server.Application.Users.Commands;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -229,10 +230,10 @@ public class TaskM2PatchSafetyTests
         ctx.Categories.Add(cat);
         await ctx.SaveChangesAsync();
 
-        var controller = new AdminController(ctx, SuperScope, new TestHelpers.NullCacheInvalidator(), TestHelpers.CreateActionLogService(ctx));
-        AttachUser(controller, ActorId);
-        var result = await controller.UpdateCategory(cat.Id, new UpdateCategoryRequest(Name: "New Cat"));
-        Assert.IsType<OkObjectResult>(result);
+        // [Giai đoạn 2] Category Update migrated to MediatR — patch semantics verbatim (Task M2).
+        var result = await new UpdateCategoryCommandHandler(ctx)
+            .Handle(new UpdateCategoryCommand(cat.Id, Name: "New Cat", TagColor: null, CheckinEmail: null, RequireAcceptance: null, UseDefaultEula: null, Notes: null, CurrentUserId: ActorId), CancellationToken.None);
+        Assert.True(result.Success);
 
         var reloaded = await ctx.Categories.SingleAsync(x => x.Id == cat.Id);
         Assert.Equal("New Cat", reloaded.Name);

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Exceptions;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Caching;
@@ -58,6 +59,17 @@ public static class TestHelpers
         public Task InvalidateManufacturersAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task InvalidateSuppliersAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task InvalidateCompaniesAsync(CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    /// <summary>[Giai đoạn 1.5] No-op ICacheTagEvictor for pipeline tests (no real output-cache store wired).</summary>
+    public sealed class NullCacheTagEvictor : ICacheTagEvictor
+    {
+        public List<string[]> Evictions { get; } = new();
+        public Task EvictTagsAsync(IEnumerable<string> tags, CancellationToken ct = default)
+        {
+            Evictions.Add(tags.ToArray());
+            return Task.CompletedTask;
+        }
     }
 
     /// <summary>

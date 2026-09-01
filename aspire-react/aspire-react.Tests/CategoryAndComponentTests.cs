@@ -1,4 +1,7 @@
 using System.Security.Claims;
+using aspire_react.Server.Application.Categories.Commands;
+using aspire_react.Server.Application.Categories.Queries;
+using aspire_react.Server.Application.Common.Behaviors;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -33,6 +36,10 @@ public class CategoryAndComponentTests
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(name)
+            // [Giai đoạn 2] DeleteCategoryCommand now runs inside ActionLogBehavior's ambient
+            // transaction — InMemory ignores transactions but throws by default unless suppressed
+            // (same configuration as TestHelpers.CreateContext and the other tx-touching test files).
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new AppDbContext(options, new SuperUserScope());
     }
@@ -122,11 +129,12 @@ public class CategoryAndComponentTests
         ctx.Components.Add(new Component { Name = "RAM 16GB", TrackingType = TrackingType.Bulk, Qty = 5, CategoryId = category.Id });
         await ctx.SaveChangesAsync();
 
-        var controller = WithUser(new AdminController(ctx, new SuperUserScope(), new TestHelpers.NullCacheInvalidator(), TestHelpers.CreateActionLogService(ctx)), UserId);
-        var result = await controller.DeleteCategory(category.Id);
+        // [Giai đoạn 2] Category migrated to MediatR — guard rule now lives in the command handler.
+        var result = await new DeleteCategoryCommandHandler(ctx)
+            .Handle(new DeleteCategoryCommand(category.Id, UserId), CancellationToken.None);
 
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Equal("CATEGORY_IN_USE", ReadErrorCode(bad.Value));
+        Assert.False(result.Success);
+        Assert.Equal("CATEGORY_IN_USE", result.ErrorCode);
         // Category must still exist (delete was rejected).
         Assert.NotNull(await ctx.Categories.FindAsync(category.Id));
     }
@@ -139,10 +147,15 @@ public class CategoryAndComponentTests
         ctx.Categories.Add(category);
         await ctx.SaveChangesAsync();
 
-        var controller = WithUser(new AdminController(ctx, new SuperUserScope(), new TestHelpers.NullCacheInvalidator(), TestHelpers.CreateActionLogService(ctx)), UserId);
-        var result = await controller.DeleteCategory(category.Id);
+        // [Giai đoạn 2] Command migrated to ILoggableCommand: drive through the REAL behaviors
+        // (cache outermost → ActionLog → handler) so the ActionLogs assertion stays meaningful.
+        var cacheBehavior = new CacheInvalidationBehavior<DeleteCategoryCommand, CategoryResult>(new TestHelpers.NullCacheTagEvictor());
+        var logBehavior = new ActionLogBehavior<DeleteCategoryCommand, CategoryResult>(TestHelpers.CreateActionLogService(ctx), ctx);
+        var handler = new DeleteCategoryCommandHandler(ctx);
+        var cmd = new DeleteCategoryCommand(category.Id, UserId);
+        var result = await cacheBehavior.Handle(cmd, ct => logBehavior.Handle(cmd, ct2 => handler.Handle(cmd, ct2), ct), CancellationToken.None);
 
-        Assert.IsType<OkObjectResult>(result);
+        Assert.True(result.Success);
         Assert.Null(await ctx.Categories.FindAsync(category.Id));
         Assert.Equal(1, await ctx.ActionLogs.CountAsync(l => l.ItemType == ItemType.Category && l.ActionType == ActionType.Delete));
     }
@@ -157,11 +170,11 @@ public class CategoryAndComponentTests
             new Category { Name = "Laptop", CategoryType = CategoryType.Asset });
         await ctx.SaveChangesAsync();
 
-        var controller = WithUser(new AdminController(ctx, new SuperUserScope(), new TestHelpers.NullCacheInvalidator(), TestHelpers.CreateActionLogService(ctx)), UserId);
-        var result = await controller.GetCategories(CategoryType.Component);
+        // [Giai đoạn 2] List migrated to ListCategoriesQuery (type filter verbatim).
+        var list = await new ListCategoriesQueryHandler(ctx)
+            .Handle(new ListCategoriesQuery(CategoryType.Component), CancellationToken.None);
+        var names = list.Select(x => x.Name).ToList();
 
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var names = ReadNames(ok.Value);
         Assert.Equal(2, names.Count);
         Assert.DoesNotContain("Laptop", names);
         Assert.Contains("RAM", names);

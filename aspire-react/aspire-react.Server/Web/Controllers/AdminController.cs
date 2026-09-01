@@ -105,79 +105,8 @@ public class AdminController : ControllerBase
     }
 
     // === Categories ===
-    [HttpGet("categories"), Authorize(Policy = "categories.view")]
-    [OutputCache(PolicyName = "RefData", Tags = [CacheTags.Categories])] // Task P: reference-data, non-company-scoped (no CompanyId), same for all authorized users
-    public async Task<IActionResult> GetCategories([FromQuery] CategoryType? type)
-    {
-        var query = _context.Categories.AsNoTracking();
-        if (type.HasValue) query = query.Where(c => c.CategoryType == type.Value);
-        var list = await query.OrderBy(c => c.Name)
-            .Select(c => new { c.Id, c.Name, c.CategoryType, c.TagColor, c.CheckinEmail, c.RequireAcceptance, c.UseDefaultEula, c.Notes }).ToListAsync();
-        return Ok(new { status = "success", data = list });
-    }
-    [HttpPost("categories"), Authorize(Policy = "categories.create")]
-    public async Task<IActionResult> CreateCategory([FromBody] Category c)
-    {
-        var exists = await _context.Categories.AnyAsync(x => x.Name == c.Name && x.CategoryType == c.CategoryType);
-        if (exists) return BadRequest(new { status = "error", message = "Tên danh mục đã tồn tại." });
-        _context.Categories.Add(c);
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Category, ItemId = c.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Tạo danh mục \"{c.Name}\" (loại: {c.CategoryType})" });
-        await _context.SaveChangesAsync();
-        await _cacheInvalidator.InvalidateCategoriesAsync();
-        return Ok(new { status = "success", data = new { c.Id, c.Name } });
-    }
-    [HttpPut("categories/{id:guid}"), Authorize(Policy = "categories.edit")]
-    public async Task<IActionResult> UpdateCategory(Guid id, [FromBody] UpdateCategoryRequest updated)
-    {
-        var c = await _context.Categories.FindAsync(id);
-        if (c == null) return NotFound(new { status = "error", message = "Category not found." });
-        // Task M2 patch semantics: only fields explicitly sent are applied (absent → keep current).
-        var before = new { c.Name, c.TagColor, c.CheckinEmail, c.RequireAcceptance, c.UseDefaultEula, c.Notes };
-        var oldName = c.Name;
-        if (!string.IsNullOrWhiteSpace(updated.Name)) c.Name = updated.Name;
-        if (updated.TagColor is not null) c.TagColor = updated.TagColor;
-        if (updated.CheckinEmail.HasValue) c.CheckinEmail = updated.CheckinEmail.Value;
-        if (updated.RequireAcceptance.HasValue) c.RequireAcceptance = updated.RequireAcceptance.Value;
-        if (updated.UseDefaultEula.HasValue) c.UseDefaultEula = updated.UseDefaultEula.Value;
-        if (updated.Notes is not null) c.Notes = updated.Notes;
-        // CategoryType cannot be changed after creation
-        _actionLogService.Log(new ActionLogEntry
-        {
-            ItemType = ItemType.Category,
-            ItemId = id,
-            ActionType = ActionType.Update,
-            CreatedBy = GetCurrentUserId(),
-            CompanyId = null,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = c.Name }, tagColor = new { old = before.TagColor, @new = c.TagColor }, checkinEmail = new { old = before.CheckinEmail, @new = c.CheckinEmail }, requireAcceptance = new { old = before.RequireAcceptance, @new = c.RequireAcceptance }, useDefaultEula = new { old = before.UseDefaultEula, @new = c.UseDefaultEula }, notes = new { old = before.Notes, @new = c.Notes } } }),
-            Note = $"Cập nhật danh mục \"{oldName}\""
-        });
-        await _context.SaveChangesAsync();
-        await _cacheInvalidator.InvalidateCategoriesAsync();
-        return Ok(new { status = "success", message = "Updated." });
-    }
-    [HttpDelete("categories/{id:guid}"), Authorize(Policy = "categories.delete")]
-    public async Task<IActionResult> DeleteCategory(Guid id)
-    {
-        var c = await _context.Categories.FindAsync(id);
-        if (c == null) return NotFound(new { status = "error", message = "Category not found." });
-
-        // Guard: reject deletion while any entity still references this category
-        // (components, asset models, consumables, accessories, licenses — incl. soft-deleted).
-        var inUse =
-            await _context.Components.IgnoreQueryFilters().AnyAsync(x => x.CategoryId == id) ||
-            await _context.Models.AnyAsync(x => x.CategoryId == id) ||
-            await _context.Consumables.AnyAsync(x => x.CategoryId == id) ||
-            await _context.Accessories.AnyAsync(x => x.CategoryId == id) ||
-            await _context.Licenses.AnyAsync(x => x.CategoryId == id);
-        if (inUse)
-            return BadRequest(new { status = "error", message = "Danh mục đang được sử dụng — không thể xóa.", error_code = "CATEGORY_IN_USE" });
-
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Category, ItemId = id, ActionType = ActionType.Delete, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Xóa danh mục \"{c.Name}\"" });
-        _context.Categories.Remove(c);
-        await _context.SaveChangesAsync();
-        await _cacheInvalidator.InvalidateCategoriesAsync();
-        return Ok(new { status = "success", message = "Deleted." });
-    }
+    // [Giai đoạn 2] Category CRUD extracted to CategoriesController (standalone, MediatR) —
+    // routes unchanged: /api/v1/categories... See docs/MEDIATR_MIGRATION_PLAYBOOK.md §6.
 
     // === Manufacturers ===
     [HttpGet("manufacturers"), Authorize(Policy = "manufacturers.view")]
@@ -470,7 +399,4 @@ public record UpdateAssetModelRequest(
     string? Name = null, string? ModelNumber = null, Guid? ManufacturerId = null, Guid? CategoryId = null,
     Guid? DepreciationId = null, Guid? FieldsetId = null, int? Eol = null, string? Notes = null, bool? Requestable = null);
 
-/// <summary>Patch-style Update DTO for Category (Task M2).</summary>
-public record UpdateCategoryRequest(
-    string? Name = null, string? TagColor = null, bool? CheckinEmail = null, bool? RequireAcceptance = null,
-    bool? UseDefaultEula = null, string? Notes = null);
+// UpdateCategoryRequest moved to CategoriesController.cs (Giai đoạn 2 — Category section extraction).
