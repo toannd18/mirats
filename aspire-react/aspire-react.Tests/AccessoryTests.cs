@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Accessories.Commands;
+using aspire_react.Server.Application.Common.Behaviors;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Persistence;
@@ -81,9 +82,12 @@ public class AccessoryTests
         await using var ctx = TestHelpers.CreateContext(nameof(Create_Succeeds_CreatesAccessory_AndLogsCreateWithCompanyId));
         var (companyId, categoryId) = await SeedCompanyAndCategoryAsync(ctx);
         var actionLog = TestHelpers.CreateActionLogService(ctx, ActorId);
-        var handler = new CreateAccessoryCommandHandler(ctx, actionLog, new TestHelpers.SuperUserScope());
-
-        var result = await handler.Handle(new CreateAccessoryCommand
+        var handler = new CreateAccessoryCommandHandler(ctx, new TestHelpers.SuperUserScope());
+        // [Giai đoạn 0.2 — M1] Command migrated to ILoggableCommand: the ActionLog is now written by
+        // ActionLogBehavior, so this test drives the command through the REAL behavior to keep the
+        // same assertions meaningful (log fields + same-transaction save).
+        var behavior = new ActionLogBehavior<CreateAccessoryCommand, AccessoryResult>(actionLog, ctx);
+        var cmd = new CreateAccessoryCommand
         {
             Name = "Cáp HDMI",
             Qty = 5,
@@ -91,7 +95,9 @@ public class AccessoryTests
             CategoryId = categoryId,
             CompanyId = companyId,
             CurrentUserId = ActorId
-        }, CancellationToken.None);
+        };
+
+        var result = await behavior.Handle(cmd, ct => handler.Handle(cmd, ct), CancellationToken.None);
 
         Assert.True(result.Success);
         var accessory = await ctx.Accessories.SingleAsync(a => a.Name == "Cáp HDMI");

@@ -24,6 +24,11 @@ public static class ApplicationServiceCollectionExtensions
             // tests that called them manually), e.g. the AssetTag uniqueness rule returned a raw 500 from
             // the DB unique index instead of a clean 400.
             cfg.AddOpenBehavior(typeof(ValidationBehavior<,>));
+            // [Giai đoạn 0.2 — M1] ActionLog for ILoggableCommand commands — registered AFTER
+            // ValidationBehavior so it sits INNER: validation short-circuits invalid requests before
+            // the transaction/log phase; the log is built+persisted only after the handler succeeded.
+            // Opt-in via ILoggableCommand<TResponse> — non-marked commands pass through untouched.
+            cfg.AddOpenBehavior(typeof(ActionLogBehavior<,>));
         });
 
         // Add FluentValidation

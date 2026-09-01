@@ -7,7 +7,13 @@ using MediatR;
 
 namespace aspire_react.Server.Application.Accessories.Commands;
 
-public record CreateAccessoryCommand : IRequest<AccessoryResult>
+/// <summary>
+/// [Giai đoạn 0.2 — M1] PILOT for the ActionLogBehavior: implements ILoggableCommand so the
+/// pipeline persists its ActionLog (previously a manual LogAction call inside the handler).
+/// BuildLogEntry reproduces the EXACT same log fields the manual call produced — verify parity
+/// was done via the real API before/after this migration.
+/// </summary>
+public record CreateAccessoryCommand : IRequest<AccessoryResult>, ILoggableCommand<AccessoryResult>
 {
     public string Name { get; init; } = string.Empty;
     public string? ItemNo { get; init; }
@@ -25,18 +31,39 @@ public record CreateAccessoryCommand : IRequest<AccessoryResult>
     public string? Notes { get; init; }
     public string? Image { get; init; }
     public Guid CurrentUserId { get; init; }
+
+    /// <summary>
+    /// ActionLog source of truth for this command. Null (no log) mirrors the old early-return on
+    /// soft-fail (COMPANY_MISMATCH returned before the manual LogAction call was ever reached).
+    /// The entry's required fields enforce ItemType/ActionType/ItemId/CreatedBy/CompanyId at
+    /// compile time (Task S2a builder).
+    /// </summary>
+    public ActionLogEntry? BuildLogEntry(AccessoryResult response)
+    {
+        if (!response.Success)
+            return null;
+
+        return new ActionLogEntry
+        {
+            ItemType = ItemType.Accessory,
+            ItemId = response.AccessoryId!.Value,
+            ActionType = ActionType.Create,
+            CreatedBy = CurrentUserId,
+            CompanyId = CompanyId,
+            Note = $"Created accessory: {Name}" + (ItemNo != null ? $" (#{ItemNo})" : ""),
+            LogMeta = JsonSerializer.Serialize(new { name = Name, qty = Qty, minAmt = MinAmt })
+        };
+    }
 }
 
 public class CreateAccessoryCommandHandler : IRequestHandler<CreateAccessoryCommand, AccessoryResult>
 {
     private readonly IApplicationDbContext _context;
-    private readonly IActionLogService _actionLogService;
     private readonly ICompanyScopeService _companyScope;
 
-    public CreateAccessoryCommandHandler(IApplicationDbContext context, IActionLogService actionLogService, ICompanyScopeService companyScope)
+    public CreateAccessoryCommandHandler(IApplicationDbContext context, ICompanyScopeService companyScope)
     {
         _context = context;
-        _actionLogService = actionLogService;
         _companyScope = companyScope;
     }
 
@@ -68,14 +95,8 @@ public class CreateAccessoryCommandHandler : IRequestHandler<CreateAccessoryComm
         };
         _context.Accessories.Add(accessory);
 
-        _actionLogService.LogAction(
-            itemType: ItemType.Accessory,
-            itemId: accessory.Id,
-            actionType: ActionType.Create,
-            loggedByUserId: request.CurrentUserId,
-            companyId: accessory.CompanyId,
-            note: $"Created accessory: {request.Name}" + (request.ItemNo != null ? $" (#{request.ItemNo})" : ""),
-            logMeta: JsonSerializer.Serialize(new { name = request.Name, qty = request.Qty, minAmt = request.MinAmt }));
+        // [Giai đoạn 0.2 — M1] ActionLog is now persisted by ActionLogBehavior (ILoggableCommand)
+        // inside the same transaction as this SaveChanges — manual LogAction call removed.
 
         await _context.SaveChangesAsync(cancellationToken);
 
