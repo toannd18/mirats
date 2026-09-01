@@ -107,86 +107,8 @@ public class AdminController : ControllerBase
     // routes unchanged: /api/v1/categories... See docs/MEDIATR_MIGRATION_PLAYBOOK.md §6.
 
     // === Manufacturers ===
-    [HttpGet("manufacturers"), Authorize(Policy = "manufacturers.view")]
-    [OutputCache(PolicyName = "RefData", Tags = [CacheTags.Manufacturers])] // Task P: reference-data, no CompanyId, same for all authorized users
-    public async Task<IActionResult> GetManufacturers()
-    {
-        var list = await _context.Manufacturers.AsNoTracking().OrderBy(m => m.Code).ToListAsync();
-        return Ok(new { status = "success", data = list });
-    }
-    [HttpPost("manufacturers"), Authorize(Policy = "manufacturers.create")]
-    public async Task<IActionResult> CreateManufacturer([FromBody] Manufacturer m)
-    {
-        if (string.IsNullOrWhiteSpace(m.Code) || m.Code.Length < 2 || m.Code.Length > 5)
-            return BadRequest(new { status = "error", message = "Mã NSX phải từ 2-5 ký tự." });
-        if (await _context.Manufacturers.AnyAsync(x => x.Code == m.Code))
-            return BadRequest(new { status = "error", message = "Mã NSX đã tồn tại." });
-        if (await _context.Manufacturers.AnyAsync(x => x.Name == m.Name))
-            return BadRequest(new { status = "error", message = "Tên NSX đã tồn tại." });
-        _context.Manufacturers.Add(m); await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Manufacturer, ItemId = m.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Tạo nhà sản xuất \"{m.Name}\"" });
-        await _context.SaveChangesAsync();
-        await _cacheInvalidator.InvalidateManufacturersAsync();
-        return Ok(new { status = "success", data = new { m.Id, m.Code, m.Name } });
-    }
-    [HttpPut("manufacturers/{id:guid}"), Authorize(Policy = "manufacturers.edit")]
-    public async Task<IActionResult> UpdateManufacturer(Guid id, [FromBody] Manufacturer updated)
-    {
-        var m = await _context.Manufacturers.FindAsync(id);
-        if (m == null) return NotFound(new { status = "error", message = "Not found." });
-        // Task M2 patch semantics: only fields explicitly sent are applied (absent → keep current).
-        if (!string.IsNullOrWhiteSpace(updated.Code))
-        {
-            if (updated.Code.Length < 2 || updated.Code.Length > 5)
-                return BadRequest(new { status = "error", message = "Mã NSX phải từ 2-5 ký tự." });
-            if (await _context.Manufacturers.AnyAsync(x => x.Code == updated.Code && x.Id != id))
-                return BadRequest(new { status = "error", message = "Mã NSX đã tồn tại." });
-            m.Code = updated.Code;
-        }
-        if (!string.IsNullOrWhiteSpace(updated.Name))
-        {
-            if (await _context.Manufacturers.AnyAsync(x => x.Name == updated.Name && x.Id != id))
-                return BadRequest(new { status = "error", message = "Tên NSX đã tồn tại." });
-            m.Name = updated.Name;
-        }
-        var before = new { m.Code, m.Name, m.Url, m.SupportUrl, m.SupportEmail };
-        if (updated.Url is not null) m.Url = updated.Url;
-        if (updated.SupportUrl is not null) m.SupportUrl = updated.SupportUrl;
-        if (updated.SupportEmail is not null) m.SupportEmail = updated.SupportEmail;
-        await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry
-        {
-            ItemType = ItemType.Manufacturer,
-            ItemId = id,
-            ActionType = ActionType.Update,
-            CreatedBy = GetCurrentUserId(),
-            CompanyId = null,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { code = new { old = before.Code, @new = m.Code }, name = new { old = before.Name, @new = m.Name }, url = new { old = before.Url, @new = m.Url }, supportUrl = new { old = before.SupportUrl, @new = m.SupportUrl }, supportEmail = new { old = before.SupportEmail, @new = m.SupportEmail } } }),
-            Note = $"Cập nhật nhà sản xuất \"{m.Name}\""
-        });
-        await _context.SaveChangesAsync();
-        await _cacheInvalidator.InvalidateManufacturersAsync();
-        return Ok(new { status = "success", message = "Updated." });
-    }
-    [HttpDelete("manufacturers/{id:guid}"), Authorize(Policy = "manufacturers.delete")]
-    public async Task<IActionResult> DeleteManufacturer(Guid id)
-    {
-        var m = await _context.Manufacturers.FindAsync(id);
-        if (m == null) return NotFound(new { status = "error", message = "Not found." });
-        var mName = m.Name;
-        // Delete guard: manufacturer referenced by inventory/models/licenses cannot be deleted.
-        if (await _context.Components.IgnoreQueryFilters().AnyAsync(c => c.ManufacturerId == id)
-            || await _context.Accessories.IgnoreQueryFilters().AnyAsync(a => a.ManufacturerId == id)
-            || await _context.Consumables.IgnoreQueryFilters().AnyAsync(x => x.ManufacturerId == id)
-            || await _context.Models.IgnoreQueryFilters().AnyAsync(m => m.ManufacturerId == id)
-            || await _context.Licenses.IgnoreQueryFilters().AnyAsync(l => l.ManufacturerId == id && l.DeletedAt == null))
-            return BadRequest(new { status = "error", message = "Nhà sản xuất đang được sản phẩm/model/bản quyền sử dụng — không thể xóa.", error_code = "MANUFACTURER_IN_USE" });
-        _context.Manufacturers.Remove(m); await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Manufacturer, ItemId = id, ActionType = ActionType.Delete, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Xóa nhà sản xuất \"{mName}\"" });
-        await _context.SaveChangesAsync();
-        await _cacheInvalidator.InvalidateManufacturersAsync();
-        return Ok(new { status = "success", message = "Deleted." });
-    }
+    // [Giai đoạn 2] Manufacturer CRUD extracted to ManufacturersController (standalone, MediatR) —
+    // routes unchanged: /api/v1/manufacturers...
 
     // === Suppliers ===
     [HttpGet("suppliers"), Authorize(Policy = "suppliers.view")]
