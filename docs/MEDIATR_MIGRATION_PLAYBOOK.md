@@ -158,6 +158,20 @@ không quên), **Manufacturer/Supplier** (không scoping; Manufacturer có Code 
 **Models** (log dùng Log(entry) thin + LogMeta lớn), StatusLabels/Depreciations (chỉ GET —
 chỉ cần Query, không Command).
 
+**Ghi chú thực tế từ Location (migrate 2026-09-01):**
+- Section KHÔNG có OutputCache/ICacheInvalidator → command KHÔNG implement
+  `ICacheInvalidatingCommand` (chỉ ILoggableCommand). Section có cache thì làm cả 2 marker
+  (như Category).
+- Phát hiện bug cũ khi audit (VD Location.Create thiếu company-scoping + toàn bộ validation):
+  migrate VERBATIM + comment `// TODO SECURITY BUG-xx: ... see BACKLOG.md` NGAY TRONG handler
+  (không chỉ ghi backlog) + đăng ký backlog với mức độ phù hợp (BUG-G = SECURITY/HIGH vì
+  cross-company creation). Điều tra nhanh dữ liệu thật (đếm row cross-company qua SQL read-only)
+  và báo cáo kết quả trong report của section.
+- GetById mới: áp dụng company-scoping theo MAJORITY của chính section đó (Location: 3/4 path
+  đã scoped → GetById scoped-404; KHÔNG lấy path đang sai làm chuẩn).
+- Entity có nav collection khởi tạo non-null (VD `Location.Children = new()`) → GetById trả
+  entity sẽ serialize `children: []` — chấp nhận được cho endpoint MỚI (không có parity constraint).
+
 ## 7. Cạm bẫy đã gặp ở pilot (đừng té lại)
 
 1. `MapFailure` static → CS0120 (NotFound/BadRequest là instance).

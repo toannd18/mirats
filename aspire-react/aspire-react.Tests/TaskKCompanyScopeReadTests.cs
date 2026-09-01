@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using aspire_react.Server.Application.Departments.Queries;
+using aspire_react.Server.Application.Locations.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Authorization;
@@ -74,12 +75,10 @@ public class TaskKCompanyScopeReadTests
     private static GetDepartmentByIdQueryHandler BuildGetDepartmentHandler(AppDbContext db, TestHelpers.FakeScope scope)
         => new(db, scope);
 
-    private static AdminController BuildAdminController(AppDbContext db, Guid actorId, TestHelpers.FakeScope scope)
-    {
-        var controller = new AdminController(db, scope, new TestHelpers.NullCacheInvalidator(), TestHelpers.CreateActionLogService(db));
-        AttachUser(controller, actorId);
-        return controller;
-    }
+    // [Giai đoạn 2] Locations migrated to MediatR: list scoping tests now drive the Query handler
+    // directly (scoping rules live in the handlers; the controller is a thin Send() mapping).
+    private static ListLocationsQueryHandler BuildListLocationsHandler(AppDbContext db, TestHelpers.FakeScope scope)
+        => new(db, scope);
 
     private static AssetsController BuildAssetsController(AppDbContext db, Guid actorId, TestHelpers.FakeScope scope)
     {
@@ -305,10 +304,9 @@ public class TaskKCompanyScopeReadTests
         await db.SaveChangesAsync();
 
         // No companyId query param â†’ scope still forced to CT-A.
-        var controller = BuildAdminController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        var result = await controller.GetLocations(null);
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var names = TestHelpers.ReadDataStringArray(ok.Value, "name");
+        var handler = BuildListLocationsHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
+        var list = await handler.Handle(new ListLocationsQuery(null), CancellationToken.None);
+        var names = list.Select(x => x.Name).ToList();
         Assert.Contains("LOC-A", names);
         Assert.Contains("LOC-F", names);
         Assert.DoesNotContain("LOC-B", names);
@@ -323,10 +321,9 @@ public class TaskKCompanyScopeReadTests
         db.Locations.AddRange(new Location { Name = "LOC-A", CompanyId = ctA }, new Location { Name = "LOC-B", CompanyId = ctB });
         await db.SaveChangesAsync();
 
-        var controller = BuildAdminController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        var result = await controller.GetLocations(ctB); // asks for CT-B but scope forces CT-A
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var names = TestHelpers.ReadDataStringArray(ok.Value, "name");
+        var handler = BuildListLocationsHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
+        var list = await handler.Handle(new ListLocationsQuery(ctB), CancellationToken.None); // asks for CT-B but scope forces CT-A
+        var names = list.Select(x => x.Name).ToList();
         Assert.DoesNotContain("LOC-B", names);
         Assert.Contains("LOC-A", names);
     }
@@ -340,10 +337,9 @@ public class TaskKCompanyScopeReadTests
         db.Locations.AddRange(new Location { Name = "LOC-A", CompanyId = ctA }, new Location { Name = "LOC-B", CompanyId = ctB });
         await db.SaveChangesAsync();
 
-        var controller = BuildAdminController(db, actor.Id, new TestHelpers.FakeScope { Super = true });
-        var result = await controller.GetLocations(null);
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var names = TestHelpers.ReadDataStringArray(ok.Value, "name");
+        var handler = BuildListLocationsHandler(db, new TestHelpers.FakeScope { Super = true });
+        var list = await handler.Handle(new ListLocationsQuery(null), CancellationToken.None);
+        var names = list.Select(x => x.Name).ToList();
         Assert.Contains("LOC-A", names);
         Assert.Contains("LOC-B", names);
     }

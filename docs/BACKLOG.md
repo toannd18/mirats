@@ -48,3 +48,28 @@
   `UpdateCategoryCommandHandler` (đối chiếu `x.Id != request.Id`), message/error_code đồng bộ với
   Create; là THAY ĐỔI HÀNH VI (rename trùng từ 2xx → 400) — cần duyệt riêng lúc fix.
 - **Lưu ý verify:** parity old==new đã xác nhận ở Giai đoạn 2 (cả 2 phía cho phép rename trùng).
+
+---
+
+## BUG-G — Location.Create KHÔNG có company-scoping và không có validation nào (SECURITY/HIGH)
+
+- **Trạng thái:** OPEN — phát hiện 2026-09-01 trong Giai đoạn 2 (audit Location trước khi migrate)
+- **Mức độ: SECURITY/HIGH** (khác MEDIUM của BUG-E/F): regular user (không phải superuser) có thể
+  tạo Location cho **company BẤT KỲ** (cross-company creation) — vi phạm trực tiếp company-isolation
+  (nguyên tắc cứng nhất của dự án, convention Task L2: "Create out-of-scope → 400 COMPANY_MISMATCH");
+  ngoài ra không có empty-name/dup-name check (location name rỗng cũng tạo được).
+- **Vị trí:** hành vi CÓ TỪ TRƯỚC trong `AdminController.CreateLocation` (bind cả entity
+  `Location l` + `Add + Save` ngay, không check gì); hành vi di chuyển verbatim vào
+  `aspire-react.Application/Locations/Commands/CreateLocationCommand.cs` (đúng nguyên tắc parity —
+  KHÔNG phải do migrate tạo ra) kèm comment `// TODO SECURITY BUG-G` ngay trong handler.
+- **Scoping hiện tại của section:** GetAll/Update/Delete CÓ scope (filtered/404); CHỈ Create
+  thiếu hoàn toàn (3/4 path đã đúng, 1 path sai). GetById MỚI áp dụng scoped-404 theo quyết định
+  đã duyệt (không lấy Create sai làm chuẩn).
+- **Impact assessment (2026-09-01, read-only SQL):** tổng 1 location trong DB (QA fixture
+  "QA AUD Loc"), 0 user/asset tham chiếu, **0 cross-company sign** → chưa có dữ liệu thật bị ảnh
+  hưởng → giữ ở backlog chờ; nếu sau này phát hiện dữ liệu thật bị tạo sai company → chuyển xử lý
+  ưu tiên riêng.
+- **Fix sketch (khi thực hiện — là THAY ĐỔI HÀNH VI, cần duyệt riêng):** thêm
+  `ICompanyScopeService.GetCurrentUserCompanyIdAsync()` check vào `CreateLocationCommandHandler`
+  (mismatch → 400 COMPANY_MISMATCH, message đồng bộ Department/Asset pattern), quyết định có thêm
+  empty-name check hay không.

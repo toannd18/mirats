@@ -18,13 +18,11 @@ namespace aspire_react.Server.Web.Controllers;
 public class AdminController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly ICompanyScopeService _companyScope;
     private readonly ICacheInvalidator _cacheInvalidator;
     private readonly IActionLogService _actionLogService;
-    public AdminController(AppDbContext context, ICompanyScopeService companyScope, ICacheInvalidator cacheInvalidator, IActionLogService actionLogService)
+    public AdminController(AppDbContext context, ICacheInvalidator cacheInvalidator, IActionLogService actionLogService)
     {
         _context = context;
-        _companyScope = companyScope;
         _cacheInvalidator = cacheInvalidator;
         _actionLogService = actionLogService;
     }
@@ -280,92 +278,8 @@ public class AdminController : ControllerBase
     }
 
     // === Locations ===
-    [HttpGet("locations"), Authorize(Policy = "locations.view")]
-    public async Task<IActionResult> GetLocations([FromQuery] Guid? companyId)
-    {
-        // [Task U] Company-scoping: FORCE scope to the acting user's company (or floater) for a
-        // regular user — never trust the optional `companyId` query param (omitting it used to
-        // reveal every company's locations). Superuser may optionally filter by `companyId`.
-        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        var query = _context.Locations.AsNoTracking().AsQueryable();
-        if (userCompanyId.HasValue)
-            query = query.Where(l => l.CompanyId == null || l.CompanyId == userCompanyId.Value);
-        else if (companyId.HasValue)
-            query = query.Where(l => l.CompanyId == companyId.Value);
-        var list = await query.OrderBy(l => l.Name)
-            .Select(l => new { l.Id, l.Name, l.ParentId, l.CompanyId, l.ManagerId, l.Address, l.City, l.State, l.Country, l.Zip }).ToListAsync();
-        return Ok(new { status = "success", data = list });
-    }
-    [HttpPost("locations"), Authorize(Policy = "locations.create")]
-    public async Task<IActionResult> CreateLocation(Location l)
-    {
-        _context.Locations.Add(l); await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Location, ItemId = l.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = l.CompanyId, Note = $"Tạo địa điểm \"{l.Name}\"" });
-        await _context.SaveChangesAsync();
-        return Ok(new { status = "success", data = new { l.Id } });
-    }
-    [HttpPut("locations/{id:guid}"), Authorize(Policy = "locations.edit")]
-    public async Task<IActionResult> UpdateLocation(Guid id, [FromBody] Location updated)
-    {
-        var l = await _context.Locations.FindAsync(id);
-        if (l == null) return NotFound(new { status = "error", message = "Not found." });
-
-        // Company scoping: a regular user may only edit locations of their own company (or floater).
-        var userCompanyIdUpdate = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (userCompanyIdUpdate.HasValue && l.CompanyId.HasValue && l.CompanyId.Value != userCompanyIdUpdate.Value)
-            return NotFound(new { status = "error", message = "Not found." });
-
-        // Task M2 patch semantics: only fields explicitly sent are applied (absent → keep current).
-        var before = new { l.Name, l.ParentId, l.CompanyId, l.ManagerId, l.Address, l.City, l.State, l.Country, l.Zip };
-        if (!string.IsNullOrWhiteSpace(updated.Name)) l.Name = updated.Name;
-        if (updated.ParentId is not null) l.ParentId = updated.ParentId;
-        if (updated.CompanyId is not null) l.CompanyId = updated.CompanyId;
-        if (updated.ManagerId is not null) l.ManagerId = updated.ManagerId;
-        if (updated.Address is not null) l.Address = updated.Address;
-        if (updated.City is not null) l.City = updated.City;
-        if (updated.State is not null) l.State = updated.State;
-        if (updated.Country is not null) l.Country = updated.Country;
-        if (updated.Zip is not null) l.Zip = updated.Zip;
-        await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry
-        {
-            ItemType = ItemType.Location,
-            ItemId = id,
-            ActionType = ActionType.Update,
-            CreatedBy = GetCurrentUserId(),
-            CompanyId = l.CompanyId,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = l.Name }, parentId = new { old = before.ParentId, @new = l.ParentId }, companyId = new { old = before.CompanyId, @new = l.CompanyId }, managerId = new { old = before.ManagerId, @new = l.ManagerId }, address = new { old = before.Address, @new = l.Address }, city = new { old = before.City, @new = l.City }, state = new { old = before.State, @new = l.State }, country = new { old = before.Country, @new = l.Country }, zip = new { old = before.Zip, @new = l.Zip } } }),
-            Note = $"Cập nhật địa điểm \"{l.Name}\""
-        });
-        await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Updated." });
-    }
-    [HttpDelete("locations/{id:guid}"), Authorize(Policy = "locations.delete")]
-    public async Task<IActionResult> DeleteLocation(Guid id)
-    {
-        var l = await _context.Locations.FindAsync(id);
-        if (l == null) return NotFound(new { status = "error", message = "Not found." });
-
-        // Company scoping: a regular user may only delete locations of their own company (or floater).
-        var userCompanyIdDelete = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (userCompanyIdDelete.HasValue && l.CompanyId.HasValue && l.CompanyId.Value != userCompanyIdDelete.Value)
-            return NotFound(new { status = "error", message = "Not found." });
-
-        var hasChildren = await _context.Locations.AnyAsync(x => x.ParentId == id);
-        if (hasChildren) return BadRequest(new { status = "error", message = "Không thể xóa địa điểm có địa điểm con." });
-        // Delete guard: a location referenced by inventory/users cannot be deleted.
-        if (await _context.Components.IgnoreQueryFilters().AnyAsync(c => c.LocationId == id)
-            || await _context.Assets.IgnoreQueryFilters().AnyAsync(a => a.LocationId == id)
-            || await _context.Consumables.IgnoreQueryFilters().AnyAsync(x => x.LocationId == id)
-            || await _context.Accessories.IgnoreQueryFilters().AnyAsync(a => a.LocationId == id)
-            || await _context.Users.AnyAsync(u => u.LocationId == id))
-            return BadRequest(new { status = "error", message = "Địa điểm đang được tài sản/vật tư/phụ kiện/người dùng sử dụng — không thể xóa.", error_code = "LOCATION_IN_USE" });
-        var lName = l.Name;
-        _context.Locations.Remove(l); await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Location, ItemId = id, ActionType = ActionType.Delete, CreatedBy = GetCurrentUserId(), CompanyId = l.CompanyId, Note = $"Xóa địa điểm \"{lName}\"" });
-        await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Deleted." });
-    }
+    // [Giai đoạn 2] Location CRUD extracted to LocationsController (standalone, MediatR) —
+    // routes unchanged: /api/v1/locations... Create's missing company-scoping = BUG-G (BACKLOG.md).
 
     // === Status Labels ===
     [HttpGet("statuslabels"), Authorize(Policy = "statuslabels.view")]
