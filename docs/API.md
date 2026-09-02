@@ -145,7 +145,6 @@ Tất cả endpoint yêu cầu header `Authorization: Bearer <token>` trừ các
 | Manufacturers | `GET/POST` `/api/v1/manufacturers`, `GET/PUT/DELETE` `/api/v1/manufacturers/{id}` |
 | Suppliers | `GET` `/api/v1/suppliers` |
 | Locations | `GET/POST` `/api/v1/locations`, `GET/PUT/DELETE` `/api/v1/locations/{id}` |
-| Status Labels | `GET/POST` `/api/v1/statuslabels`, `GET/PUT/DELETE` `/api/v1/statuslabels/{id}` |
 | Depreciations | `GET` `/api/v1/depreciations` |
 
 ## Custom Fields

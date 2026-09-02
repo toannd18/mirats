@@ -110,7 +110,7 @@ IsLowStock = Remaining <= item.MinAmt
 ## Database Schema (13+ tables)
 
 - `companies`, `users`, `permission_groups`, `user_permissions`, `group_permissions`, `user_groups`
-- `assets`, `models`, `categories`, `manufacturers`, `suppliers`, `locations`, `status_labels`, `depreciations`
+- `assets`, `models`, `categories`, `manufacturers`, `suppliers`, `locations`, `depreciations` (`status_labels` đã xóa 2026-09-02 — dead feature, xem BACKLOG)
 - `assignments`, `action_logs`
 - `consumables`, `consumable_checkouts`, `components`, `component_assignments`, `accessories`, `accessory_checkouts`
 - `licenses`, `license_seats`

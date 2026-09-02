@@ -35,14 +35,9 @@ public class AdminController : ControllerBase
     // routes unchanged: /api/v1/locations... Create's missing company-scoping = BUG-G (BACKLOG.md).
 
     // === Status Labels ===
-    // [Giai đoạn 2-cleanup PENDING] GET-only endpoint — slated for full feature removal
-    // (entity + table + this endpoint) in the follow-up commit (0 rows, 0 FK, 0 usage).
-    [HttpGet("statuslabels"), Authorize(Policy = "statuslabels.view")]
-    public async Task<IActionResult> GetStatusLabels()
-    {
-        var list = await _context.StatusLabels.AsNoTracking().OrderBy(s => s.Name).ToListAsync();
-        return Ok(new { status = "success", data = list });
-    }
+    // [Giai đoạn 2-cleanup] REMOVED — StatusLabels feature deleted entirely (entity + table +
+    // this GET endpoint). Audit 2026-09-01: 0 rows, 0 FK, 0 frontend usage, 0 business logic.
+    // Asset status = AssetStatus enum (unrelated system), untouched.
 
     // === Depreciations ===
     // T-CLEAN1: trước đây chỉ [Authorize] trần (review #33 BACKEND_ARCHITECTURE_REVIEW_2026-08-15) —

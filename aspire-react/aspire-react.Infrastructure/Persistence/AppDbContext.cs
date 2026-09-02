@@ -34,7 +34,8 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<SystemInfo> SystemInfos => Set<SystemInfo>();
     public DbSet<SystemPosition> SystemPositions => Set<SystemPosition>();
     public DbSet<Location> Locations => Set<Location>();
-    public DbSet<StatusLabel> StatusLabels => Set<StatusLabel>();
+    // [Giai đoạn 2-cleanup] StatusLabel entity + status_labels table REMOVED (feature was
+    // dead: 0 rows, 0 FK, 0 frontend usage, 0 business logic — audit 2026-09-01).
     public DbSet<Depreciation> Depreciations => Set<Depreciation>();
     public DbSet<Assignment> Assignments => Set<Assignment>();
     public DbSet<ActionLog> ActionLogs => Set<ActionLog>();
@@ -374,13 +375,8 @@ public class AppDbContext : DbContext, IApplicationDbContext
             entity.HasOne(e => e.Manager).WithMany().HasForeignKey(e => e.ManagerId).OnDelete(DeleteBehavior.SetNull);
         });
 
-        modelBuilder.Entity<StatusLabel>(entity =>
-        {
-            entity.ToTable("status_labels");
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
-            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
-        });
+        // [Giai đoạn 2-cleanup] StatusLabel entity + status_labels table REMOVED (feature was
+        // dead: 0 rows, 0 FK, 0 frontend usage, 0 business logic — audit 2026-09-01).
 
         modelBuilder.Entity<Depreciation>(entity =>
         {

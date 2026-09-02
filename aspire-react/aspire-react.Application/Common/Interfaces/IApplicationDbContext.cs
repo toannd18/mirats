@@ -37,7 +37,6 @@ public interface IApplicationDbContext
     DbSet<SystemInfo> SystemInfos { get; }
     DbSet<SystemPosition> SystemPositions { get; }
     DbSet<Location> Locations { get; }
-    DbSet<StatusLabel> StatusLabels { get; }
     DbSet<Depreciation> Depreciations { get; }
     DbSet<Assignment> Assignments { get; }
     DbSet<ActionLog> ActionLogs { get; }

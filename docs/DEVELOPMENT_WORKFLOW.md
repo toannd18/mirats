@@ -207,7 +207,7 @@
 
 ### Ghi chú ST6a — Delete-guard CustomField (2026-08-14)
 
-- **Audit dứt điểm Depreciation/StatusLabel**: cả 2 chỉ có `GET` read-only (`GET /depreciations`, `GET /statuslabels`), **không có** endpoint Create/Update/Delete → **không có rủi ro mất dữ liệu** → không cần guard. Không nằm trong phạm vi ST6a.
+- **Audit dứt điểm Depreciation/StatusLabel**: cả 2 chỉ có `GET` read-only (`GET /depreciations`, `GET /statuslabels`), **không có** endpoint Create/Update/Delete → **không có rủi ro mất dữ liệu** → không cần guard. Không nằm trong phạm vi ST6a. *(Cập nhật 2026-09-02: StatusLabels đã bị XÓA hẳn khỏi hệ thống — entity/bảng `status_labels`/endpoint, dead feature 0 rows/0 FK/0 usage; Depreciation giữ nguyên.)*
 - **CustomField** (`DELETE /custom-fields/{id}`): thêm guard chặn field đang được `CustomFieldFieldset` tham chiếu (`CustomFieldFieldsets.AnyAsync(fieldId)` → `400 CUSTOM_FIELD_IN_USE`) — FK `FieldId → CustomField` là `OnDelete(Cascade)` nên xóa sẽ cascade mất pivot rows field↔fieldset (bug class F7). Verify 2 chiều thật: không link → 200 + xóa + Delete log; có link → 400 + field/pivot nguyên + không log.
 - Test: `CustomFieldDeleteGuardTests` (2 test). Sửa pre-existing test break: constructor `ConsumablesController`/`ComponentsController` đã thêm `ICompanyScopeService` từ ST1 nhưng `ConsumableTests`/`CategoryAndComponentTests` chưa cập nhật → bổ sung `new SuperUserScope()` (10 site).
 

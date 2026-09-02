@@ -21,8 +21,10 @@
 | List endpoint có `[OutputCache]`? | Giữ nguyên attribute trên controller action; cache invalidation phải chạy SAU khi command thành công (xem §5 lưu ý) | — |
 
 Bảng phân loại đã audit sẵn (2026-09-01): Categories/Manufacturers/Suppliers/Locations/Models/
-StatusLabels/Depreciations là **sections của AdminController** (không phải controller riêng) —
+Depreciations là **sections của AdminController** (không phải controller riêng) —
 migrate theo pattern "section extraction" (xem §6). Departments = standalone ✔ (pilot này).
+*(Cập nhật 2026-09-02: StatusLabels KHÔNG migrate — đã bị XÓA hẳn khỏi hệ thống vì dead feature
+(0 rows/0 FK/0 usage); Category/Location/Manufacturer/Supplier/Models đã migrate xong.)*
 
 ## 1. Cấu trúc file tạo mới (namespace `aspire_react.Server.Application.<Feature>`)
 
@@ -153,10 +155,10 @@ Quy trình section-extraction đã chạy thực tế trên Category:
     `ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))` — ActionLogBehavior
     BeginTransaction sẽ throw trên InMemory nếu thiếu (CategoryAndComponentTests đã từng thiếu).
 
-Các section còn lại áp dụng: **Location** (có company-scoping một phần + has-children guard —
-không quên), **Manufacturer/Supplier** (không scoping; Manufacturer có Code 2-5 ký tự rule),
-**Models** (log dùng Log(entry) thin + LogMeta lớn), StatusLabels/Depreciations (chỉ GET —
-chỉ cần Query, không Command).
+Các section còn lại áp dụng: **Location** ✔ (migrate xong 2026-09-01), **Manufacturer/Supplier** ✔
+(migrate xong — không scoping; Manufacturer/Supplier có Code 2-5 ký tự rule), **Models** ✔ (migrate
+xong — log thin + LogMeta ×9 qua response; TODO BUG-H trong handler), **Depreciations** (chỉ GET —
+chỉ cần Query, không Command). *(StatusLabels: ĐÃ XÓA hẳn 2026-09-02 — dead feature, không migrate.)*
 
 **Ghi chú thực tế từ Location (migrate 2026-09-01):**
 - Section KHÔNG có OutputCache/ICacheInvalidator → command KHÔNG implement
