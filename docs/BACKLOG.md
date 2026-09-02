@@ -80,6 +80,35 @@
 
 ---
 
+## BUG-I — CustomFields Create/Update: thiếu dup-Slug ở Update (→ 500 DB index) + FULL-PUT ×8 + không empty-Name check (MEDIUM)
+
+- **Trạng thái:** OPEN — phát hiện 2026-09-01/02 trong Giai đoạn 3 (audit + parity verification
+  trên binary cũ); di chuyển verbatim vào
+  `aspire-react.Application/CustomFields/Commands/` kèm comment `// TODO BUG-I` in-code.
+- **Mức độ: MEDIUM** (nghiệp vụ — CustomField không có CompanyId, không isolation risk như BUG-G)
+- **3 thành phần — độ tin cậy KHÁC NHAU (ghi rõ để đánh giá lại khi fix):**
+  1. **Update FULL-PUT ×8** — tất cả field gán vô điều kiện; payload thiếu field → bị clear/null
+     (Name=null → DB NOT NULL violation → 500). *Độ tin cậy: suy luận từ đọc code (chưa reproduce
+     chủ động — payload realistic luôn gửi đủ field nên chưa trigger).*
+  2. **Update KHÔNG có dup-Slug check** (Create có) → rename sang slug đã tồn tại → **DB unique
+     index violation → raw 500 body rỗng**. ✅ **CONFIRMED VIA REPRODUCTION** — xảy ra chắc chắn
+     với BẤT KỲ user nào rename field trùng slug, không cần điều kiện đặc biệt (khác BUG-D cần
+     concurrency); reproduce bằng parity script trên binary cũ (baseline step-5 → 500 body rỗng,
+     2 lần độc lập).
+  3. **Create/Update không empty-Name/Slug check** — name/slug rỗng tạo được. *Độ tin cậy: suy
+     luận từ đọc code (chưa chủ động reproduce).*
+- **Vị trí gốc:** `CustomFieldsController.Update/Create` (HEAD trước migrate); di chuyển verbatim
+  vào `aspire-react.Application/CustomFields/Commands/UpdateCustomFieldCommand.cs` +
+  `CreateCustomFieldCommand.cs` kèm comment `// TODO BUG-I` in-code.
+- **Impact:** user rename field trùng slug nhận 500 thay vì 400 sạch; payload thiếu field âm thầm
+  mất dữ liệu; slug trùng phá tính duy nhất mà Create đã cam kết.
+- **Fix sketch (khi thực hiện — THAY ĐỔI HÀNH VI, cần duyệt riêng):** thêm dup-Slug check vào
+  Update (đối chiếu `x.Id != request.Id` → 400 "A field with this slug already exists." — thay 500);
+  empty-Name/Slug soft-fail; FULL-PUT → nullable patch hoặc giữ nguyên tùy quyết định (BUG-E
+  precedent). Ưu tiên #2 trước (confirmed, user-facing 500).
+
+---
+
 ## BUG-G — Location.Create KHÔNG có company-scoping và không có validation nào (SECURITY/HIGH)
 
 - **Trạng thái:** OPEN — phát hiện 2026-09-01 trong Giai đoạn 2 (audit Location trước khi migrate)

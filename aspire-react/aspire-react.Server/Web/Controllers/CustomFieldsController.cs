@@ -1,26 +1,28 @@
-using System.Text.Json;
 using System.Security.Claims;
-using aspire_react.Server.Domain.Entities;
-using aspire_react.Server.Domain.Enums;
-using aspire_react.Server.Domain.Interfaces;
-using aspire_react.Server.Infrastructure.Persistence;
-using aspire_react.Server.Infrastructure.Services;
+using aspire_react.Server.Application.CustomFields.Commands;
+using aspire_react.Server.Application.CustomFields.Queries;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Web.Controllers;
 
+/// <summary>
+/// [Giai đoạn 3] CustomFields migrated to MediatR — controller giữ nguyên route
+/// /api/v1/custom-fields..., per-action policies (KHÔNG có class-level [Authorize] — verbatim),
+/// CreatedAtAction trong Create giữ nguyên. Commands: Create/Update/Delete implement
+/// ILoggableCommand (thin log → enrichment 2a); KHÔNG ICacheInvalidatingCommand (no output-cache).
+/// ⚠️ Create/Update giữ nguyên hành vi cũ: không empty-name check, Update FULL-PUT ×8 +
+/// không dup-Slug (BUG-I — docs/BACKLOG.md), verbatim.
+/// </summary>
 [ApiController]
 [Route("api/v1/custom-fields")]
 public class CustomFieldsController : ControllerBase
 {
-    private readonly AppDbContext _context;
-    private readonly IActionLogService _actionLogService;
-    public CustomFieldsController(AppDbContext context, IActionLogService actionLogService)
+    private readonly IMediator _mediator;
+    public CustomFieldsController(IMediator mediator)
     {
-        _context = context;
-        _actionLogService = actionLogService;
+        _mediator = mediator;
     }
 
     private Guid GetCurrentUserId()
@@ -35,7 +37,7 @@ public class CustomFieldsController : ControllerBase
     [Authorize(Policy = "customfields.view")]
     public async Task<IActionResult> GetFields()
     {
-        var fields = await _context.CustomFields.AsNoTracking().OrderBy(f => f.Name).ToListAsync();
+        var fields = await _mediator.Send(new ListCustomFieldsQuery());
         return Ok(new { status = "success", data = fields });
     }
 
@@ -43,7 +45,7 @@ public class CustomFieldsController : ControllerBase
     [Authorize(Policy = "customfields.view")]
     public async Task<IActionResult> GetField(Guid id)
     {
-        var f = await _context.CustomFields.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+        var f = await _mediator.Send(new GetCustomFieldByIdQuery(id));
         if (f == null) return NotFound(new { status = "error", message = "Custom field not found." });
         return Ok(new { status = "success", data = f });
     }
@@ -52,49 +54,28 @@ public class CustomFieldsController : ControllerBase
     [Authorize(Policy = "customfields.create")]
     public async Task<IActionResult> Create([FromBody] CreateCustomFieldRequest r)
     {
-        var exists = await _context.CustomFields.AnyAsync(f => f.Slug == r.Slug);
-        if (exists) return BadRequest(new { status = "error", message = "A field with this slug already exists." });
+        var result = await _mediator.Send(new CreateCustomFieldCommand(
+            r.Name, r.Slug, r.Format, r.Element, r.FieldValues, r.FieldEncrypted, r.HelpText, r.IsUnique,
+            GetCurrentUserId()));
 
-        var field = new CustomField
-        {
-            Name = r.Name,
-            Slug = r.Slug,
-            Format = r.Format,
-            Element = r.Element,
-            FieldValues = r.FieldValues,
-            FieldEncrypted = r.FieldEncrypted,
-            HelpText = r.HelpText,
-            IsUnique = r.IsUnique
-        };
-        _context.CustomFields.Add(field);
-        await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.CustomField, ItemId = field.Id, ActionType = ActionType.Create, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Tạo trường tùy chỉnh \"{field.Name}\"" });
-        await _context.SaveChangesAsync();
-        return CreatedAtAction(nameof(GetField), new { id = field.Id }, new { status = "success", message = "Custom field created.", data = new { field.Id, field.Name } });
+        if (!result.Success)
+            return MapFailure(result);
+
+        return CreatedAtAction(nameof(GetField), new { id = result.CustomFieldId },
+            new { status = "success", message = result.Message, data = new { Id = result.CustomFieldId, Name = result.Name } });
     }
 
     [HttpPut("{id:guid}")]
     [Authorize(Policy = "customfields.edit")]
     public async Task<IActionResult> Update(Guid id, [FromBody] CreateCustomFieldRequest r)
     {
-        var field = await _context.CustomFields.FindAsync(id);
-        if (field == null) return NotFound(new { status = "error", message = "Custom field not found." });
-        var before = new { field.Name, field.Slug, field.Format, field.Element, field.FieldValues, field.FieldEncrypted, field.HelpText, field.IsUnique };
-        field.Name = r.Name; field.Slug = r.Slug; field.Format = r.Format; field.Element = r.Element;
-        field.FieldValues = r.FieldValues; field.FieldEncrypted = r.FieldEncrypted;
-        field.HelpText = r.HelpText; field.IsUnique = r.IsUnique;
-        await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry
-        {
-            ItemType = ItemType.CustomField,
-            ItemId = id,
-            ActionType = ActionType.Update,
-            CreatedBy = GetCurrentUserId(),
-            CompanyId = null,
-            LogMeta = JsonSerializer.Serialize(new { changes = new { name = new { old = before.Name, @new = field.Name }, slug = new { old = before.Slug, @new = field.Slug }, format = new { old = before.Format, @new = field.Format }, element = new { old = before.Element, @new = field.Element }, fieldValues = new { old = before.FieldValues, @new = field.FieldValues }, fieldEncrypted = new { old = before.FieldEncrypted, @new = field.FieldEncrypted }, helpText = new { old = before.HelpText, @new = field.HelpText }, isUnique = new { old = before.IsUnique, @new = field.IsUnique } } }),
-            Note = $"Cập nhật trường tùy chỉnh \"{field.Name}\""
-        });
-        await _context.SaveChangesAsync();
+        var result = await _mediator.Send(new UpdateCustomFieldCommand(
+            id, r.Name, r.Slug, r.Format, r.Element, r.FieldValues, r.FieldEncrypted, r.HelpText, r.IsUnique,
+            GetCurrentUserId()));
+
+        if (!result.Success)
+            return MapFailure(result);
+
         return Ok(new { status = "success", message = "Custom field updated." });
     }
 
@@ -102,23 +83,31 @@ public class CustomFieldsController : ControllerBase
     [Authorize(Policy = "customfields.delete")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        var field = await _context.CustomFields.FindAsync(id);
-        if (field == null) return NotFound(new { status = "error", message = "Custom field not found." });
+        var result = await _mediator.Send(new DeleteCustomFieldCommand(id, GetCurrentUserId()));
 
-        // Delete guard (ST6a): a field still linked to any fieldset cannot be deleted — its
-        // CustomFieldFieldset pivot rows (FieldId → CustomField, OnDelete(Cascade)) would be
-        // silently cascade-deleted, destroying the field↔fieldset relationship history.
-        if (await _context.CustomFieldFieldsets.AnyAsync(cf => cf.FieldId == id))
-            return BadRequest(new { status = "error", message = "Trường tùy chỉnh đang được fieldset sử dụng — không thể xóa.", error_code = "CUSTOM_FIELD_IN_USE" });
+        if (!result.Success)
+            return MapFailure(result);
 
-        var fName = field.Name;
-        _context.CustomFields.Remove(field);
-        await _context.SaveChangesAsync();
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.CustomField, ItemId = id, ActionType = ActionType.Delete, CreatedBy = GetCurrentUserId(), CompanyId = null, Note = $"Xóa trường tùy chỉnh \"{fName}\"" });
-        await _context.SaveChangesAsync();
         return Ok(new { status = "success", message = "Custom field deleted." });
+    }
+
+    /// <summary>
+    /// Maps a CustomFieldResult failure to the EXACT same HTTP bodies as the pre-migration
+    /// controller: NOT_FOUND → 404 without error_code; null ErrorCode (dup-slug Create rule) →
+    /// 400 WITHOUT error_code (old body had none); CUSTOM_FIELD_IN_USE → 400 WITH error_code.
+    /// </summary>
+    private IActionResult MapFailure(CustomFieldResult result)
+    {
+        if (result.ErrorCode == "NOT_FOUND")
+            return NotFound(new { status = "error", message = result.Message });
+
+        object body = result.ErrorCode is null
+            ? new { status = "error", message = result.Message }
+            : new { status = "error", message = result.Message, error_code = result.ErrorCode };
+        return BadRequest(body);
     }
 }
 
+/// <summary>Request DTO for POST and PUT /api/v1/custom-fields — verbatim field set from the pre-migration CreateCustomFieldRequest record (Update reused the SAME record — full-PUT semantics, see BUG-I).</summary>
 public record CreateCustomFieldRequest(string Name, string Slug, string Format, string? Element,
     string? FieldValues, bool FieldEncrypted, string? HelpText, bool IsUnique);

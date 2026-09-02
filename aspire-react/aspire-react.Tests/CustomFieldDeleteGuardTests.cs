@@ -1,12 +1,13 @@
 using System.Security.Claims;
+using aspire_react.Server.Application.Common.Behaviors;
+using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.CustomFields.Commands;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Persistence;
 using aspire_react.Server.Infrastructure.Services;
-using aspire_react.Server.Web.Controllers;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -16,6 +17,8 @@ namespace aspire_react.Tests;
 /// ST6a â€” Delete guard cho CustomField: field Ä‘ang Ä‘Æ°á»£c CustomFieldFieldset tham chiáº¿u
 /// (FK FieldId â†’ CustomField, OnDelete(Cascade)) khÃ´ng Ä‘Æ°á»£c xÃ³a â€” náº¿u khÃ´ng, pivot rows
 /// fieldâ†”fieldset sáº½ bá»‹ cascade xÃ³a sáº¡ch (bug class F7). Field khÃ´ng liÃªn káº¿t xÃ³a bÃ¬nh thÆ°á»ng.
+/// [Giai đoạn 3] CustomFields migrated to MediatR — delete tests now drive the command through
+/// the REAL ActionLogBehavior chain so the log assertions stay meaningful.
 /// </summary>
 public class CustomFieldDeleteGuardTests
 {
@@ -32,6 +35,7 @@ public class CustomFieldDeleteGuardTests
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(name)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new AppDbContext(options, new SuperUserScope());
     }
@@ -50,20 +54,12 @@ public class CustomFieldDeleteGuardTests
         return user.Id;
     }
 
-    private static async Task<CustomFieldsController> CreateControllerAsync(AppDbContext ctx, Guid localUserId)
+    private static (DeleteCustomFieldCommandHandler Handler, ActionLogBehavior<DeleteCustomFieldCommand, CustomFieldResult> LogBehavior) CreateDeletePipeline(AppDbContext ctx, Guid localUserId)
     {
-        var httpContext = new DefaultHttpContext
-        {
-            User = new ClaimsPrincipal(new ClaimsIdentity(new[]
-            {
-                new Claim("local_user_id", localUserId.ToString())
-            }, "Test"))
-        };
-        var controller = new CustomFieldsController(ctx, TestHelpers.CreateActionLogService(ctx))
-        {
-            ControllerContext = new ControllerContext { HttpContext = httpContext }
-        };
-        return controller;
+        var handler = new DeleteCustomFieldCommandHandler(ctx);
+        var logBehavior = new ActionLogBehavior<DeleteCustomFieldCommand, CustomFieldResult>(
+            TestHelpers.CreateActionLogService(ctx, localUserId), ctx);
+        return (handler, logBehavior);
     }
 
     private static readonly System.Text.Json.JsonSerializerOptions WebJson = new(System.Text.Json.JsonSerializerDefaults.Web);
@@ -94,12 +90,13 @@ public class CustomFieldDeleteGuardTests
         });
         await ctx.SaveChangesAsync();
 
-        var controller = await CreateControllerAsync(ctx, adminId);
+        // [Giai đoạn 3] Guard rule lives in DeleteCustomFieldCommandHandler — drive it directly
+        // (blocked → no log written by ActionLogBehavior either, asserted below).
+        var result = await new DeleteCustomFieldCommandHandler(ctx)
+            .Handle(new DeleteCustomFieldCommand(field.Id, adminId), CancellationToken.None);
 
-        var result = await controller.Delete(field.Id);
-
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Equal("CUSTOM_FIELD_IN_USE", ReadErrorCode(bad.Value));
+        Assert.False(result.Success);
+        Assert.Equal("CUSTOM_FIELD_IN_USE", result.ErrorCode);
         // Data intact â€” field + pivot row both survive.
         Assert.True(await ctx.CustomFields.AnyAsync(f => f.Id == field.Id));
         Assert.True(await ctx.CustomFieldFieldsets.AnyAsync(cf => cf.FieldId == field.Id));
@@ -117,11 +114,12 @@ public class CustomFieldDeleteGuardTests
         ctx.CustomFields.Add(field);
         await ctx.SaveChangesAsync();
 
-        var controller = await CreateControllerAsync(ctx, adminId);
+        // [Giai đoạn 3] Drive through the REAL ActionLogBehavior chain (log written by behavior).
+        var (handler, logBehavior) = CreateDeletePipeline(ctx, adminId);
+        var cmd = new DeleteCustomFieldCommand(field.Id, adminId);
+        var result = await logBehavior.Handle(cmd, ct => handler.Handle(cmd, ct), CancellationToken.None);
 
-        var result = await controller.Delete(field.Id);
-
-        Assert.IsType<OkObjectResult>(result);
+        Assert.True(result.Success);
         Assert.False(await ctx.CustomFields.AnyAsync(f => f.Id == field.Id));
         var log = await ctx.ActionLogs.SingleAsync(l => l.ItemType == ItemType.CustomField && l.ActionType == ActionType.Delete);
         Assert.Equal(adminId, log.CreatedBy);
