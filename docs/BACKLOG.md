@@ -102,3 +102,34 @@
   `ICompanyScopeService.GetCurrentUserCompanyIdAsync()` check vào `CreateLocationCommandHandler`
   (mismatch → 400 COMPANY_MISMATCH, message đồng bộ Department/Asset pattern), quyết định có thêm
   empty-name check hay không.
+
+---
+
+## INFRA-1 — Điều tra hạ tầng dev: Docker Desktop/WSL2 mất engine ×3 + file-loss/revert anomalies
+
+- **Trạng thái:** OPEN — điều tra lần 1 hoàn tất 2026-09-02 (kết quả dưới); reopen khi tái diễn
+- **Triệu chứng đã xảy ra (3 lần Docker + 2 lần file):**
+  1-3. Docker Desktop engine/daemon mất đột ngột (containers Exited 255, npipe biến mất,
+  `docker exec` connection reset) — lần 3 trong phiên Giai đoạn 2; volumes + dữ liệu NGUYÊN VẸN
+  cả 3 lần (Aspire volumes persistent); engine lên lại <1 phút sau khi start Docker Desktop.
+  a. 31 file (docs + PNG) mất khỏi working tree giữa phiên Giai đoạn 1 (git restore khôi phục
+  100% từ index) — KHÔNG có thao tác git nào giải thích được.
+  b. AdminController revert về HEAD giữa phiên Models (các edit Models-turn biến mất) — nguyên
+  nhân không xác định, phát hiện qua state-audit; viết lại deterministic + verify.
+- **Điều tra lần 1 (2026-09-02) — kết quả:**
+  - Docker Desktop 29.6.2, backend = WSL2 distro `docker-desktop` (v2); AutoStart=False;
+    Windows Event Logs (Application/System, 7 ngày) KHÔNG có bất kỳ error nào của
+    Docker/WSL/vmcompute → daemon chết KHÔNG để lại trace ở mức Windows Event (đặc trưng
+    WSL2 VM abort âm thầm).
+  - Docker host logs (`%LOCALAPPDATA%\Docker\log\host\`) có init.log/monitor.log rotate dày
+    (~3-5 phút/lần) → backend churn; cần đọc sâu trong điều tra lần 2 nếu tái diễn.
+  - git reflog 25 entry: 100% là commit/amend/reset có chủ đích của agent → mất file/revert
+    KHÔNG phải do git; khả năng cao tác nhân ngoài (process khác trên máy, sync/AV, sự cố
+    NTFS) — chưa có smoking gun.
+- **Đánh giá:** 3 lần Docker = CÙNG LỚP sự cố hệ thống (WSL2/Docker Desktop instability) — không
+  phải ngẫu nhiên rời rạc; 2 vụ file anomaly chưa rõ nguyên nhân (không cùng cơ chế với Docker —
+  file nằm trên NTFS working tree, không trong WSL).
+- **Khuyến nghị:** (1) `wsl --update` + cập nhật Docker Desktop; (2) cân nhắc bật AutoStart và
+  rà `.wslconfig` (memory/CPU); (3) giữ quy trình `git status` audit sau mỗi batch (đã áp dụng);
+  (4) nếu tái diễn lần 4+ → đọc sâu Docker host logs + Windows Reliability Monitor + cân nhắc
+  reinstall WSL2.
