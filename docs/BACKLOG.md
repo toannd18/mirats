@@ -51,6 +51,35 @@
 
 ---
 
+## BUG-H — AssetModel Create/Update thiếu toàn bộ validation + FK không kiểm tra tồn tại + client tự set Id (MEDIUM)
+
+- **Trạng thái:** OPEN — phát hiện 2026-09-01 trong Giai đoạn 2 (audit Models trước khi migrate)
+- **Mức độ: MEDIUM** (nghiệp vụ — reference data, KHÔNG có company-isolation risk như BUG-G)
+- **Vị trí:** hành vi CÓ TỪ TRƯỚC trong `AdminController.CreateModel` / `UpdateModel` (HEAD trước
+  migrate Models); di chuyển verbatim vào `aspire-react.Application/Models/Commands/` kèm comment
+  `// TODO BUG-H` in-code.
+- **Các thành phần riêng biệt của bug (ghi tách bạch để đánh giá lại khi fix):**
+  1. **Client có thể tự set Id qua entity binding** — `CreateModel([FromBody] AssetModel m)` cho
+     phép JSON chứa `"id": "<guid>"` → tạo model với PK do client chọn → trùng PK đã tồn tại =
+     **PK violation → 500** (cùng bug-class với BUG-C/D: race/constraint chưa được xử lý sạch).
+     ⚠️ Khác bản chất với "thiếu dup-check" (BUG-F): đây là lỗi chấp nhận PK từ client.
+     *Cập nhật sau migrate (Giai đoạn 2): DTO hóa `CreateModelRequest` (không có field Id) đã TỰ
+     LOẠI BỎ quirk này ở endpoint API — client gửi id sẽ bị bỏ qua (server tự sinh). Phần còn lại
+     của BUG-H dưới đây vẫn OPEN.*
+  2. **Không có bất kỳ validation nào**: không empty-name check, không dup-check Name (Create lẫn
+     Update đều không có — khác Manufacturer/Supplier có dup cả 2 chiều), cho phép tạo vô số model
+     trùng tên.
+  3. **4 field FK không kiểm tra tồn tại**: ManufacturerId / CategoryId / DepreciationId /
+     FieldsetId nhận GUID tùy ý từ client — GUID sai → FK violation → **500** tại SaveChanges
+     (thay vì 400 sạch).
+- **Impact:** dữ liệu models bẩn (name rỗng/trùng), 500 thay vì 400 cho input sai, trải nghiệm
+  người dùng + tính nhất quán dữ liệu tham chiếu.
+- **Fix sketch (khi thực hiện — THAY ĐỔI HÀNH VI, cần duyệt riêng):** FluentValidation hoặc
+  soft-fail cho empty-name + dup-check Name; kiểm tra tồn tại 4 FK trước khi save (400
+  RESOURCE_NOT_FOUND); quyết định message/error_code đồng bộ phong cách section.
+
+---
+
 ## BUG-G — Location.Create KHÔNG có company-scoping và không có validation nào (SECURITY/HIGH)
 
 - **Trạng thái:** OPEN — phát hiện 2026-09-01 trong Giai đoạn 2 (audit Location trước khi migrate)
