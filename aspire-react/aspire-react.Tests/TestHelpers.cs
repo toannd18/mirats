@@ -224,9 +224,11 @@ public static class TestHelpers
     {
         var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
         services.AddSingleton<IApplicationDbContext>(db);
+        services.AddSingleton<AppDbContext>(db); // concrete: IComponentAllocationService ctor cần AppDbContext
         services.AddSingleton<ICompanyScopeService>(scope ?? (ICompanyScopeService)new SuperUserScope());
         services.AddSingleton<IActionLogService>(CreateActionLogService(db, actorId));
         services.AddSingleton<ICacheTagEvictor>(new NullCacheTagEvictor());
+        services.AddSingleton<IComponentAllocationService, ComponentAllocationService>();
         services.AddLogging();
         services.AddApplicationServices();
         return services.BuildServiceProvider().GetRequiredService<MediatR.IMediator>();

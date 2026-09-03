@@ -68,7 +68,7 @@ public class TaskM1PatchSafetyTests
         };
         ctx.Components.Add(component); await ctx.SaveChangesAsync();
 
-        var controller = new ComponentsController(ctx, new ComponentAllocationService(ctx, new TestHelpers.SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), SuperScope, TestHelpers.CreateActionLogService(ctx));
+        var controller = new ComponentsController(TestHelpers.BuildMediator(ctx, SuperScope, ActorId));
         AttachUser(controller, ActorId);
 
         var result = await controller.Update(component.Id, new UpdateComponentRequest(Name: "New Name"));
@@ -101,7 +101,7 @@ public class TaskM1PatchSafetyTests
         };
         ctx.Components.Add(component); await ctx.SaveChangesAsync();
 
-        var controller = new ComponentsController(ctx, new ComponentAllocationService(ctx, new TestHelpers.SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), SuperScope, TestHelpers.CreateActionLogService(ctx));
+        var controller = new ComponentsController(TestHelpers.BuildMediator(ctx, SuperScope, ActorId));
         AttachUser(controller, ActorId);
 
         // Payload only carries Name (SupplierId/OrderNumber etc. absent → serialized null).

@@ -84,7 +84,7 @@ public class CategoryAndComponentTests
     public async Task CreateComponent_WithoutCategory_RejectedWithCategoryRequired()
     {
         await using var ctx = CreateContext(nameof(CreateComponent_WithoutCategory_RejectedWithCategoryRequired));
-        var controller = WithUser(new ComponentsController(ctx, new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), UserId);
+        var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
 
         var request = new CreateComponentRequest(
             Name: "RAM 16GB", Serial: null, Qty: 5, MinAmt: 1,
@@ -107,7 +107,7 @@ public class CategoryAndComponentTests
         ctx.Categories.Add(assetCategory);
         await ctx.SaveChangesAsync();
 
-        var controller = WithUser(new ComponentsController(ctx, new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), UserId);
+        var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
         var request = new CreateComponentRequest(
             Name: "RAM 16GB", Serial: null, Qty: 5, MinAmt: 1,
             CategoryId: assetCategory.Id, LocationId: null, CompanyId: null,
@@ -190,7 +190,7 @@ public class CategoryAndComponentTests
         ctx.Categories.Add(category);
         await ctx.SaveChangesAsync();
 
-        var controller = WithUser(new ComponentsController(ctx, new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), UserId);
+        var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
         var request = new CreateComponentRequest(
             Name: "RAM 16GB", Serial: null, Qty: 5, MinAmt: 1,
             CategoryId: category.Id, LocationId: null, CompanyId: null,
@@ -211,7 +211,7 @@ public class CategoryAndComponentTests
         ctx.Categories.Add(category);
         await ctx.SaveChangesAsync();
 
-        var controller = WithUser(new ComponentsController(ctx, new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), UserId);
+        var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
         var request = new CreateComponentRequest(
             Name: "RAM 16GB", Serial: null, Qty: 5, MinAmt: 1,
             CategoryId: category.Id, LocationId: null, CompanyId: Guid.NewGuid(),
@@ -242,7 +242,7 @@ public class CategoryAndComponentTests
         ctx.Categories.Add(otherCategory);
         await ctx.SaveChangesAsync();
 
-        var controller = WithUser(new ComponentsController(ctx, new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), UserId);
+        var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
         // Client tries to change the CategoryId â†’ FIELD_LOCKED.
         var result = await controller.Update(component.Id, new UpdateComponentRequest(Name: "Äá»•i tÃªn", CategoryId: otherCategory.Id));
 
@@ -262,7 +262,7 @@ public class CategoryAndComponentTests
         ctx.Components.Add(component);
         await ctx.SaveChangesAsync();
 
-        var controller = WithUser(new ComponentsController(ctx, new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), UserId);
+        var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
         // Same CategoryId/CompanyId as current â†’ allowed; Qty is always ignored.
         var result = await controller.Update(component.Id, new UpdateComponentRequest(
             Name: "RAM 32GB", MinAmt: 2, CategoryId: category.Id, CompanyId: company.Id, Qty: 999));
@@ -290,7 +290,7 @@ public class CategoryAndComponentTests
         ctx.ActionLogs.Add(new ActionLog { ItemType = ItemType.Component, ItemId = component.Id, ActionType = ActionType.Checkout, CreatedBy = UserId });
         await ctx.SaveChangesAsync();
 
-        var controller = WithUser(new ComponentsController(ctx, new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), UserId);
+        var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
         var result = await controller.Delete(component.Id);
 
         var bad = Assert.IsType<BadRequestObjectResult>(result);
@@ -310,7 +310,7 @@ public class CategoryAndComponentTests
         ctx.Components.Add(component);
         await ctx.SaveChangesAsync();
 
-        var controller = WithUser(new ComponentsController(ctx, new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), UserId);
+        var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
         var result = await controller.Delete(component.Id);
 
         Assert.IsType<OkObjectResult>(result);
@@ -333,7 +333,7 @@ public class CategoryAndComponentTests
             new Component { Name = "ChÆ°a xÃ¡c Ä‘á»‹nh", TrackingType = TrackingType.Bulk, Qty = 1, CategoryId = category.Id, CompanyId = null });
         await ctx.SaveChangesAsync();
 
-        var controller = WithUser(new ComponentsController(ctx, new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), new SuperUserScope(), TestHelpers.CreateActionLogService(ctx)), UserId);
+        var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
         var result = await controller.GetComponents(search: null, categoryId: null, companyId: null, locationId: null, uncategorized: false, uncompanied: true, page: 1, pageSize: 20);
 
         var ok = Assert.IsType<OkObjectResult>(result);

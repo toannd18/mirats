@@ -58,7 +58,7 @@ public class TaskL2CreateCompanyScopeTests
 
     private static ComponentsController BuildComponents(AppDbContext db, Guid actorId, TestHelpers.FakeScope scope)
     {
-        var c = new ComponentsController(db, new ComponentAllocationService(db, new TestHelpers.SuperUserScope(), TestHelpers.CreateActionLogService(db)), scope, TestHelpers.CreateActionLogService(db));
+        var c = new ComponentsController(TestHelpers.BuildMediator(db, scope, actorId));
         AttachUser(c, actorId);
         return c;
     }

@@ -89,8 +89,7 @@ public class TaskKCompanyScopeReadTests
 
     private static ComponentsController BuildComponentsController(AppDbContext db, Guid actorId, TestHelpers.FakeScope scope)
     {
-        var controller = new ComponentsController(db,
-            new ComponentAllocationService(db, new TestHelpers.SuperUserScope(), TestHelpers.CreateActionLogService(db)), scope, TestHelpers.CreateActionLogService(db));
+        var controller = new ComponentsController(TestHelpers.BuildMediator(db, scope, actorId));
         AttachUser(controller, actorId);
         return controller;
     }
