@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using System.Text.Json;
 using aspire_react.Server.Application.Groups.Commands;
+using aspire_react.Server.Application.Permissions.Queries;
+using aspire_react.Server.Domain.Authorization;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Authorization;
@@ -220,25 +222,20 @@ public class PermissionTests
     // ==================== 10. Permission catalog endpoint ====================
 
     [Fact]
-    public void GetPermissions_ReturnsCompleteGroupedCatalog()
+    public async Task GetPermissions_ReturnsCompleteGroupedCatalog()
     {
-        using var db = CreateContext(nameof(GetPermissions_ReturnsCompleteGroupedCatalog));
-        var controller = new PermissionsController(db);
+        await using var db = CreateContext(nameof(GetPermissions_ReturnsCompleteGroupedCatalog));
 
-        var result = controller.GetPermissions();
-        var ok = Assert.IsType<OkObjectResult>(result);
-        Assert.NotNull(ok.Value);
+        // [Giai đoạn 3] Permissions migrated to MediatR — drive ListPermissionsQuery directly
+        // (static catalog, no DB involved; the old controller was sync, the query is the substance).
+        var handler = new ListPermissionsQueryHandler();
+        var data = await handler.Handle(new ListPermissionsQuery(), CancellationToken.None);
 
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
-        var root = doc.RootElement;
-        Assert.Equal("success", root.GetProperty("status").GetString());
+        Assert.True(data.Count > 0);
 
-        var data = root.GetProperty("data");
-        Assert.True(data.GetArrayLength() > 0);
-
-        var codes = data.EnumerateArray()
-            .SelectMany(g => g.GetProperty("permissions").EnumerateArray()
-                .Select(p => p.GetProperty("code").GetString()!))
+        var codes = data
+            .SelectMany(g => g.Permissions
+                .Select(p => p.Code))
             .ToList();
 
         // The previously-missing policy is now present in the catalog.

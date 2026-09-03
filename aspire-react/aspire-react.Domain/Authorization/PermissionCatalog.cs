@@ -1,4 +1,4 @@
-namespace aspire_react.Server.Infrastructure.Authorization;
+namespace aspire_react.Server.Domain.Authorization;
 
 /// <summary>
 /// Định nghĩa một permission key (ví dụ "assets.view").

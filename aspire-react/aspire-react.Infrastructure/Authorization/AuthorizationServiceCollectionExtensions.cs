@@ -1,3 +1,4 @@
+using aspire_react.Server.Domain.Authorization;
 using Microsoft.AspNetCore.Authorization;
 
 namespace aspire_react.Server.Infrastructure.Authorization;

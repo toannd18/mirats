@@ -1,47 +1,42 @@
 using System.Security.Claims;
-using aspire_react.Server.Domain.Entities;
-using aspire_react.Server.Infrastructure.Authorization;
-using aspire_react.Server.Infrastructure.Persistence;
+using aspire_react.Server.Application.Permissions.Queries;
 using aspire_react.Server.Infrastructure.Services;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
-using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Web.Controllers;
 
+/// <summary>
+/// [Giai đoạn 3] Permissions migrated to MediatR — read-only permission-resolution controller
+/// (0 mutation, 0 ActionLog, no Commands → no markers). Routes unchanged: /api/v1/permissions...
+/// SECURITY-CRITICAL: /check is the path the frontend usePermission hook calls every session.
+/// Parity quirks kept verbatim: [OutputCache(RefData)] on catalog only; absent/empty
+/// local_user_id claim → Unauthorized() 401 fail-closed (SEC-FIX CLAIM-CLEANUP); user-null →
+/// empty dict + false/false (NOT 404); matrix values are INTs.
+/// </summary>
 [ApiController]
 [Route("api/v1/permissions")]
 public class PermissionsController : ControllerBase
 {
-    private readonly AppDbContext _context;
-
-    public PermissionsController(AppDbContext context)
+    private readonly IMediator _mediator;
+    public PermissionsController(IMediator mediator)
     {
-        _context = context;
+        _mediator = mediator;
     }
 
     /// <summary>
     /// Full permission catalog grouped by resource — single source of truth is
-    /// <see cref="PermissionCatalog"/>. Used by the frontend to render the
+    /// <see cref="PermissionCatalog"/> (Domain/Authorization). Used by the frontend to render the
     /// role (group) permission matrix without hardcoding permission keys.
     /// </summary>
     [HttpGet]
     [Authorize]
     [OutputCache(PolicyName = "RefData")] // Task P: static PermissionCatalog — identical for all authenticated users (NOT /check or /matrix)
-    public IActionResult GetPermissions()
+    public async Task<IActionResult> GetPermissions()
     {
-        var data = PermissionCatalog.All
-            .GroupBy(p => p.Resource)
-            .OrderBy(g => g.Key)
-            .Select(g => new
-            {
-                resource = g.Key,
-                permissions = g
-                    .OrderBy(p => p.Code)
-                    .Select(p => new { code = p.Code, action = p.Action, description = p.Description })
-            });
-
+        var data = await _mediator.Send(new ListPermissionsQuery());
         return Ok(new { status = "success", data });
     }
 
@@ -57,62 +52,12 @@ public class PermissionsController : ControllerBase
             || localUserId == Guid.Empty)
             return Unauthorized();
 
-        var user = await _context.Users
-            .Include(u => u.UserPermissions)
-            .Include(u => u.UserGroups).ThenInclude(ug => ug.Group).ThenInclude(g => g.GroupPermissions)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Id == localUserId);
-
-        if (user == null)
-        {
-            return Ok(new
-            {
-                status = "success",
-                data = new
-                {
-                    permissions = new Dictionary<string, int>(),
-                    isSuperUser = false,
-                    isAdmin = false
-                }
-            });
-        }
-
-        var permissions = new Dictionary<string, int>();
-
-        // Superuser (DB flag)
-        if (user.IsSuperUser)
-            permissions["superuser"] = 1;
-
-        // Superuser via Keycloak realm role (mirror PermissionHandler step 1)
-        var isRealmSuperUser = RealmAccessHelper.IsSuperUser(User);
-        if (isRealmSuperUser)
-            permissions["superuser"] = 1;
-
-        // User permissions
-        foreach (var up in user.UserPermissions)
-            permissions[up.PermissionKey] = (int)up.Value;
-
-        // Group permissions (only set if user doesn't have explicit deny)
-        foreach (var ug in user.UserGroups)
-        {
-            foreach (var gp in ug.Group.GroupPermissions)
-            {
-                if (!permissions.ContainsKey(gp.PermissionKey) || permissions[gp.PermissionKey] != -1)
-                {
-                    permissions[gp.PermissionKey] = (int)gp.Value;
-                }
-            }
-        }
+        var dto = await _mediator.Send(new CheckPermissionsQuery(localUserId, RealmAccessHelper.IsSuperUser(User)));
 
         return Ok(new
         {
             status = "success",
-            data = new
-            {
-                permissions,
-                isSuperUser = user.IsSuperUser || isRealmSuperUser,
-                isAdmin = permissions.ContainsKey("admin") && permissions["admin"] == 1
-            }
+            data = new { dto.Permissions, dto.IsSuperUser, dto.IsAdmin }
         });
     }
 
@@ -120,30 +65,7 @@ public class PermissionsController : ControllerBase
     [Authorize(Policy = "admin")]
     public async Task<IActionResult> GetPermissionMatrix()
     {
-        var users = await _context.Users
-            .Include(u => u.UserPermissions)
-            .Include(u => u.UserGroups).ThenInclude(ug => ug.Group).ThenInclude(g => g.GroupPermissions)
-            .AsNoTracking()
-            .OrderBy(u => u.Username)
-            .Select(u => new
-            {
-                u.Id,
-                u.Username,
-                u.Email,
-                u.FirstName,
-                u.LastName,
-                u.IsSuperUser,
-                UserPermissions = u.UserPermissions.Select(p => new { p.PermissionKey, Value = (int)p.Value }),
-                GroupPermissions = u.UserGroups.SelectMany(ug =>
-                    ug.Group.GroupPermissions.Select(gp => new
-                    {
-                        GroupName = ug.Group.Name,
-                        gp.PermissionKey,
-                        Value = (int)gp.Value
-                    }))
-            })
-            .ToListAsync();
-
+        var users = await _mediator.Send(new GetPermissionMatrixQuery());
         return Ok(new { status = "success", data = users });
     }
 }
