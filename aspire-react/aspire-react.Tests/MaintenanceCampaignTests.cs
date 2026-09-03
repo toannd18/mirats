@@ -1,4 +1,5 @@
 using System.Text.Json;
+using aspire_react.Server.Application.ActionLogs.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Persistence;
@@ -464,24 +465,28 @@ public class MaintenanceCampaignTests
         });
         await db.SaveChangesAsync();
 
-        var controller = new ActionLogsController(db, new TestHelpers.FakeScope { Super = true });
-        var result = await controller.GetBySystem(fx.System.Id, pageSize: 50);
-        var ok = Assert.IsType<OkObjectResult>(result);
+        // [Giai đoạn 3] ActionLogs migrated to MediatR — drive GetBySystemQueryHandler directly
+        // (real company-scope via TestHelpers.FakeScope superuser; same filter/paging substance).
+        var handler = new GetBySystemQueryHandler(db, new TestHelpers.FakeScope { Super = true });
+        var page = await handler.Handle(
+            new GetBySystemQuery(fx.System.Id, PageSize: 50), CancellationToken.None);
 
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value, WebJson));
-        var rows = doc.RootElement.GetProperty("data").EnumerateArray().ToList();
-        var itemTypes = rows.Select(r => r.GetProperty("itemType").GetString()!).ToList();
+        Assert.NotNull(page);
+        var rows = page!.Items;
+
+        var itemTypes = rows.Select(r => r.ItemType).ToList();
 
         Assert.Contains("MaintenanceCampaign", itemTypes);
         Assert.Contains("Asset", itemTypes);
         // Both campaign events present (Create + Complete).
-        var campaignRows = rows.Where(r => r.GetProperty("itemType").GetString() == "MaintenanceCampaign").ToList();
+        var campaignRows = rows.Where(r => r.ItemType == "MaintenanceCampaign").ToList();
         Assert.Equal(2, campaignRows.Count);
-        Assert.All(campaignRows, r => Assert.Equal(fx.System.Id, r.GetProperty("targetSystemInfoId").GetGuid()));
+        Assert.All(campaignRows, r => Assert.Equal(fx.System.Id, r.TargetSystemInfoId));
         // Campaign display name resolved from the campaign table.
-        Assert.Contains(campaignRows, r => r.GetProperty("itemName").GetString() is not null);
+        Assert.Contains(campaignRows, r => r.ItemName is not null);
         // Noise (other system) excluded.
         Assert.Equal(3, rows.Count);
+        Assert.Equal(3, page.Total);
     }
 
     // ==================== MC-7c: applicable pairs (phạm vi vị trí) ====================
