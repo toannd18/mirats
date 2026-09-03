@@ -7,8 +7,10 @@ using aspire_react.Server.Infrastructure.Caching;
 using aspire_react.Server.Infrastructure.Persistence;
 using aspire_react.Server.Infrastructure.Services;
 using MediatR;
+using aspire_react.Server.Application;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace aspire_react.Tests;
 
@@ -206,6 +208,28 @@ public static class TestHelpers
     {
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(value, WebJson));
         return doc.RootElement.GetProperty("data").GetArrayLength();
+    }
+
+    /// <summary>
+    /// [Giai đoạn 3] Real MediatR pipeline for tests whose controllers moved to constructor-injected
+    /// IMediator: wires the Application assembly (handlers + Validation/ActionLog/CacheInvalidation
+    /// behaviors) against the test's InMemory context + FakeScope. Read-only queries write no log;
+    /// the ActionLogBehavior resolves an actor-less ActionLogService (Guid.Empty) unless actorId given.
+    /// Lets adapted tests keep their JSON-shape assertions while the controller becomes a thin Send() map.
+    /// </summary>
+    public static MediatR.IMediator BuildMediator(
+        AppDbContext db,
+        ICompanyScopeService? scope = null,
+        Guid? actorId = null)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddSingleton<IApplicationDbContext>(db);
+        services.AddSingleton<ICompanyScopeService>(scope ?? (ICompanyScopeService)new SuperUserScope());
+        services.AddSingleton<IActionLogService>(CreateActionLogService(db, actorId));
+        services.AddSingleton<ICacheTagEvictor>(new NullCacheTagEvictor());
+        services.AddLogging();
+        services.AddApplicationServices();
+        return services.BuildServiceProvider().GetRequiredService<MediatR.IMediator>();
     }
 }
 

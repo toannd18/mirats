@@ -145,7 +145,7 @@ public class SystemDetailTests
         var assetA = await SeedAssetAsync(ctx, posA, "AST-001");
         var assetB = await SeedAssetAsync(ctx, posB, "AST-002");
 
-        var controller = new SystemsController(ctx, new CompanyScopeFake { Super = true });
+        var controller = new SystemsController(TestHelpers.BuildMediator(ctx, new CompanyScopeFake { Super = true }));
         var result = await controller.GetAssets(sys.Id);
 
         var data = OkData(result);
@@ -167,7 +167,7 @@ public class SystemDetailTests
         await SeedAssetAsync(ctx, posA, "AST-001");
         await SeedAssetAsync(ctx, posB, "AST-002");
 
-        var controller = new SystemsController(ctx, new CompanyScopeFake { Super = true });
+        var controller = new SystemsController(TestHelpers.BuildMediator(ctx, new CompanyScopeFake { Super = true }));
         var result = await controller.GetAssets(sys.Id, systemPositionId: posA.Id);
 
         var arr = OkData(result).EnumerateArray().ToList();
@@ -182,7 +182,7 @@ public class SystemDetailTests
         await using var ctx = CreateContext(nameof(GetAssets_EmptyWhenNoAssets));
         var (sys, _, _) = await SeedSystemAsync(ctx);
 
-        var controller = new SystemsController(ctx, new CompanyScopeFake { Super = true });
+        var controller = new SystemsController(TestHelpers.BuildMediator(ctx, new CompanyScopeFake { Super = true }));
         var result = await controller.GetAssets(sys.Id);
 
         Assert.Empty(OkData(result).EnumerateArray());
@@ -204,7 +204,7 @@ public class SystemDetailTests
         // DELIBERATE convention (NOT a bug): system-level resources return 404 (hide existence of a
         // system whose code/name is company-sensitive), unlike single maintenance records which
         // return 403. Same convention as SystemInfoController.Get + ActionLogsController.GetBySystem.
-        var controller = new SystemsController(ctx, new CompanyScopeFake { CompanyId = Guid.NewGuid() });
+        var controller = new SystemsController(TestHelpers.BuildMediator(ctx, new CompanyScopeFake { CompanyId = Guid.NewGuid() }));
         var result = await controller.GetAssets(sys.Id);
         Assert.IsType<NotFoundObjectResult>(result);
     }
@@ -222,7 +222,7 @@ public class SystemDetailTests
         await SeedAssetAsync(ctx, pos, "AST-001");
 
         // Superuser bypasses the company gate entirely — sees the system (and its assets) of ANY company.
-        var controller = new SystemsController(ctx, new CompanyScopeFake { Super = true });
+        var controller = new SystemsController(TestHelpers.BuildMediator(ctx, new CompanyScopeFake { Super = true }));
         var result = await controller.GetAssets(sys.Id);
         Assert.Single(OkData(result).EnumerateArray());
     }
@@ -239,7 +239,7 @@ public class SystemDetailTests
         await ctx.SaveChangesAsync();
         await SeedAssetAsync(ctx, pos, "AST-001");
 
-        var controller = new SystemsController(ctx, new CompanyScopeFake { CompanyId = companyId });
+        var controller = new SystemsController(TestHelpers.BuildMediator(ctx, new CompanyScopeFake { CompanyId = companyId }));
         var result = await controller.GetAssets(sys.Id);
         Assert.Single(OkData(result).EnumerateArray());
     }
@@ -262,7 +262,7 @@ public class SystemDetailTests
         await ctx.SaveChangesAsync();
         await SeedAccessoryCheckoutAsync(ctx, otherPos);
 
-        var controller = new SystemsController(ctx, new CompanyScopeFake { Super = true });
+        var controller = new SystemsController(TestHelpers.BuildMediator(ctx, new CompanyScopeFake { Super = true }));
         var result = await controller.GetAccessories(sys.Id);
 
         var arr = OkData(result).EnumerateArray().ToList();
@@ -285,7 +285,7 @@ public class SystemDetailTests
         await SeedAccessoryCheckoutAsync(ctx, posA);
         await SeedAccessoryCheckoutAsync(ctx, posB);
 
-        var controller = new SystemsController(ctx, new CompanyScopeFake { Super = true });
+        var controller = new SystemsController(TestHelpers.BuildMediator(ctx, new CompanyScopeFake { Super = true }));
         var result = await controller.GetAccessories(sys.Id, systemPositionId: posB.Id);
 
         var arr = OkData(result).EnumerateArray().ToList();
@@ -299,7 +299,7 @@ public class SystemDetailTests
         await using var ctx = CreateContext(nameof(GetAccessories_EmptyWhenNoCheckouts));
         var (sys, _, _) = await SeedSystemAsync(ctx);
 
-        var controller = new SystemsController(ctx, new CompanyScopeFake { Super = true });
+        var controller = new SystemsController(TestHelpers.BuildMediator(ctx, new CompanyScopeFake { Super = true }));
         var result = await controller.GetAccessories(sys.Id);
         Assert.Empty(OkData(result).EnumerateArray());
     }
@@ -316,7 +316,7 @@ public class SystemDetailTests
         await SeedAccessoryCheckoutAsync(ctx, pos);
 
         // Deliberate 404 convention for system-level resources (see GetAssets_CompanyScoped_..._ReturnsNotFound).
-        var controller = new SystemsController(ctx, new CompanyScopeFake { CompanyId = Guid.NewGuid() });
+        var controller = new SystemsController(TestHelpers.BuildMediator(ctx, new CompanyScopeFake { CompanyId = Guid.NewGuid() }));
         var result = await controller.GetAccessories(sys.Id);
         Assert.IsType<NotFoundObjectResult>(result);
     }
@@ -334,7 +334,7 @@ public class SystemDetailTests
         await SeedAccessoryCheckoutAsync(ctx, pos);
 
         // Same bypass as assets: the system belongs to another company but the Superuser sees it.
-        var controller = new SystemsController(ctx, new CompanyScopeFake { Super = true });
+        var controller = new SystemsController(TestHelpers.BuildMediator(ctx, new CompanyScopeFake { Super = true }));
         var result = await controller.GetAccessories(sys.Id);
         Assert.Single(OkData(result).EnumerateArray());
     }
