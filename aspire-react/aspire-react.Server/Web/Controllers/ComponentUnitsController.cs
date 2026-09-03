@@ -1,39 +1,46 @@
 using System.Security.Claims;
-using aspire_react.Server.Domain.Entities;
+using aspire_react.Server.Application.ComponentUnits.Commands;
+using aspire_react.Server.Application.ComponentUnits.Queries;
 using aspire_react.Server.Domain.Enums;
-using aspire_react.Server.Domain.Interfaces;
-using aspire_react.Server.Infrastructure.Persistence;
-using aspire_react.Server.Infrastructure.Services;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Web.Controllers;
 
+/// <summary>
+/// [Giai đoạn 3] ComponentUnits migrated to MediatR — serial-unit management (3 endpoints).
+/// Commands DELEGATE to IComponentAllocationService (interface moved to Domain/Interfaces) —
+/// the allocation/lock/ActionLog logic stays in the Infrastructure service untouched, so the
+/// FOR UPDATE concurrency semantics are preserved exactly.
+/// Error mapping verbatim: UpdateStatus failure → 400 with error_code; Delete failure →
+/// NOT_FOUND → 404, other → 400 with error_code.
+/// </summary>
 [ApiController]
 [Route("api/v1/component-units")]
 [Authorize]
 public class ComponentUnitsController : ControllerBase
 {
-    private readonly AppDbContext _context;
-    private readonly IComponentAllocationService _allocationService;
-    private readonly ICompanyScopeService _companyScope;
-
-    public ComponentUnitsController(AppDbContext context, IComponentAllocationService allocationService, ICompanyScopeService companyScope)
+    private readonly IMediator _mediator;
+    public ComponentUnitsController(IMediator mediator)
     {
-        _context = context;
-        _allocationService = allocationService;
-        _companyScope = companyScope;
+        _mediator = mediator;
     }
 
-    private Task<Guid?> GetUserCompanyIdAsync() => _companyScope.GetCurrentUserCompanyIdAsync();
+    private Guid GetCurrentUserId()
+    {
+        // [SEC-FIX CLAIM-CLEANUP, 2026-08-23] ONLY "local_user_id" (JIT-stamped). Keycloak
+        // sub/preferred_username are never a user identity source (bug-class 1). Absent → Guid.Empty.
+        if (Guid.TryParse(User.FindFirstValue("local_user_id"), out var local)) return local;
+        return Guid.Empty;
+    }
 
     /// <summary>Manually change a unit's status (e.g. mark Damaged/Disposed) with audit logging.</summary>
     [HttpPatch("{unitId:guid}")]
     [Authorize(Policy = "components.edit")]
     public async Task<IActionResult> UpdateStatus(Guid unitId, [FromBody] UpdateUnitStatusRequest r)
     {
-        var result = await _allocationService.SetUnitStatusAsync(unitId, r.Status, r.Note, GetCurrentUserId());
+        var result = await _mediator.Send(new UpdateComponentUnitStatusCommand(unitId, r.Status, r.Note, GetCurrentUserId()));
         if (!result.Success) return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         return Ok(new { status = "success", message = result.Message });
     }
@@ -48,7 +55,7 @@ public class ComponentUnitsController : ControllerBase
     {
         // Logic (soft-delete, allocation-history guard, Qty decrement, ActionLog, company-scoping)
         // lives in IComponentAllocationService.DeleteUnitAsync so every future caller is protected too.
-        var result = await _allocationService.DeleteUnitAsync(unitId, GetCurrentUserId());
+        var result = await _mediator.Send(new DeleteComponentUnitCommand(unitId, GetCurrentUserId()));
         if (!result.Success)
         {
             return result.ErrorCode switch
@@ -65,72 +72,12 @@ public class ComponentUnitsController : ControllerBase
     [Authorize(Policy = "components.view")]
     public async Task<IActionResult> GetActionLogs(Guid unitId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        // Company scoping: a serial unit's history is only visible to users of its component's company.
-        var userCompanyId = await GetUserCompanyIdAsync();
-        var visible = await _context.ComponentUnits.AsNoTracking()
-            .AnyAsync(u => u.Id == unitId && (userCompanyId == null || u.Component.CompanyId == null || u.Component.CompanyId == userCompanyId.Value));
-        if (!visible) return NotFound(new { status = "error", message = "ComponentUnit not found." });
+        var result = await _mediator.Send(new GetComponentUnitLogsQuery(unitId, page, pageSize));
+        if (result == null) return NotFound(new { status = "error", message = "ComponentUnit not found." });
 
-        var query = _context.ActionLogs.Include(l => l.Creator).AsNoTracking()
-            .Where(l => l.ItemType == ItemType.ComponentUnit && l.ItemId == unitId)
-            .OrderByDescending(l => l.ActionDate);
-
-        var total = await query.CountAsync();
-        var logs = await query.Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(l => new
-            {
-                l.Id,
-                ItemType = l.ItemType.ToString(),
-                l.ItemId,
-                ActionType = l.ActionType.ToString(),
-                ActionTypeValue = (int)l.ActionType,
-                TargetType = l.TargetType.HasValue ? l.TargetType.Value.ToString() : null,
-                l.TargetId,
-                CreatorName = l.Creator != null
-                    ? (l.Creator.FirstName + " " + l.Creator.LastName).Trim() != "" ? (l.Creator.FirstName + " " + l.Creator.LastName).Trim() : l.Creator.Username
-                    : null,
-                l.Note,
-                l.LogMeta,
-                l.ActionDate,
-                l.LocationName,
-                l.TargetSystemInfoName
-            }).ToListAsync();
-
-        var targetIds = logs.Where(x => x.TargetId.HasValue).Select(x => x.TargetId!.Value).Distinct().ToList();
-        var assetNames = targetIds.Count > 0
-            ? await _context.Assets.Where(a => targetIds.Contains(a.Id))
-                .Select(a => new { a.Id, Name = a.AssetTag + " - " + a.Name })
-                .ToDictionaryAsync(a => a.Id, a => a.Name)
-            : new Dictionary<Guid, string>();
-
-        var enriched = logs.Select(log => new
-        {
-            log.Id,
-            log.ItemType,
-            log.ItemId,
-            log.ActionType,
-            log.ActionTypeValue,
-            log.TargetType,
-            log.TargetId,
-            TargetName = log.TargetId.HasValue ? assetNames.GetValueOrDefault(log.TargetId.Value) : null,
-            log.CreatorName,
-            log.Note,
-            log.LogMeta,
-            log.ActionDate,
-            log.LocationName,
-            log.TargetSystemInfoName
-        }).ToList();
-
-        return Ok(new { status = "success", data = enriched, total });
-    }
-
-    private Guid GetCurrentUserId()
-    {
-        // [SEC-FIX CLAIM-CLEANUP, 2026-08-23] ONLY "local_user_id" (JIT-stamped). Keycloak
-        // sub/preferred_username are never a user identity source (bug-class 1). Absent → Guid.Empty.
-        if (Guid.TryParse(User.FindFirstValue("local_user_id"), out var local)) return local;
-        return Guid.Empty;
+        return Ok(new { status = "success", data = result.Items, total = result.Total });
     }
 }
 
+/// <summary>Request DTO — verbatim from the pre-migration record.</summary>
 public record UpdateUnitStatusRequest(ComponentUnitStatus Status, string? Note = null);

@@ -7,37 +7,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Infrastructure.Services;
 
-/// <summary>Outcome of a component allocation/return/stock-in operation.</summary>
-public record ComponentOperationResult(bool Success, string Message, string? ErrorCode = null);
-
+/// <inheritdoc cref="IComponentAllocationService"/>
 /// <summary>
-/// Business rules for Component stock operations, branching on <see cref="TrackingType"/>:
-/// Bulk keeps the legacy quantity-pool behaviour; Serial tracks each physical unit individually.
-/// Every operation writes an ActionLog in the same SaveChanges call (atomic with the change).
-/// The controller wraps calls in an ambient transaction so the change + its audit log are atomic.
+/// [Giai đoạn 3] Interface + ComponentOperationResult extracted to Domain/Interfaces verbatim —
+/// this concrete implementation (FOR UPDATE transactions, allocation history rules, ActionLog
+/// writes) stays in Infrastructure untouched.
 /// </summary>
-public interface IComponentAllocationService
-{
-    Task<ComponentOperationResult> AllocateAsync(Guid componentId, Guid assetId, int quantity,
-        string? serialNo, string? note, Guid createdById, CancellationToken ct = default);
-
-    Task<ComponentOperationResult> ReturnAsync(Guid componentId, Guid? assetId, int quantity,
-        string? serialNo, string? note, Guid createdById, CancellationToken ct = default);
-
-    Task<ComponentOperationResult> StockInAsync(Guid componentId, IReadOnlyList<string> serialNumbers,
-        string? note, Guid createdById, CancellationToken ct = default);
-
-    Task<ComponentOperationResult> SetUnitStatusAsync(Guid unitId, ComponentUnitStatus status,
-        string? note, Guid createdById, CancellationToken ct = default);
-
-    /// <summary>
-    /// Soft-deletes a serial unit that has NEVER been checked out (allocation history must stay
-    /// intact — such units must be disposed instead). Decrements the parent component's Qty and
-    /// writes an ActionLog, all in the same SaveChanges. Enforces company-scoping for the acting user.
-    /// </summary>
-    Task<ComponentOperationResult> DeleteUnitAsync(Guid unitId, Guid createdById, CancellationToken ct = default);
-}
-
 public class ComponentAllocationService : IComponentAllocationService
 {
     private readonly AppDbContext _context;
