@@ -183,7 +183,7 @@ public class TaskM1PatchSafetyTests
     private static ConsumablesController BuildConsumables(AppDbContext ctx)
     {
         var actionLog = TestHelpers.CreateActionLogService(ctx, ActorId);
-        var c = new ConsumablesController(ctx, actionLog, new ConsumableAllocationService(ctx, actionLog, SuperScope), SuperScope);
+        var c = new ConsumablesController(TestHelpers.BuildMediator(ctx, SuperScope));
         AttachUser(c, ActorId);
         return c;
     }

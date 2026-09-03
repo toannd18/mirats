@@ -229,6 +229,7 @@ public static class TestHelpers
         services.AddSingleton<IActionLogService>(CreateActionLogService(db, actorId));
         services.AddSingleton<ICacheTagEvictor>(new NullCacheTagEvictor());
         services.AddSingleton<IComponentAllocationService, ComponentAllocationService>();
+        services.AddSingleton<IConsumableAllocationService, ConsumableAllocationService>();
         services.AddLogging();
         services.AddApplicationServices();
         return services.BuildServiceProvider().GetRequiredService<MediatR.IMediator>();

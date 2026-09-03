@@ -92,8 +92,7 @@ public class ConsumableTests
                 new Claim("local_user_id", localUserId.ToString())
             }, "Test"))
         };
-        var controller = new ConsumablesController(ctx, actionLogService,
-            new ConsumableAllocationService(ctx, actionLogService, new SuperUserScope()), new SuperUserScope())
+        var controller = new ConsumablesController(TestHelpers.BuildMediator(ctx))
         {
             ControllerContext = new ControllerContext { HttpContext = httpContext }
         };

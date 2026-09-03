@@ -97,8 +97,7 @@ public class TaskKCompanyScopeReadTests
     private static ConsumablesController BuildConsumablesController(AppDbContext db, Guid actorId, TestHelpers.FakeScope scope)
     {
         var actionLogService = TestHelpers.CreateActionLogService(db, actorId);
-        var controller = new ConsumablesController(db, actionLogService,
-            new ConsumableAllocationService(db, actionLogService, new TestHelpers.SuperUserScope()), scope);
+        var controller = new ConsumablesController(TestHelpers.BuildMediator(db, scope, actorId));
         AttachUser(controller, actorId);
         return controller;
     }

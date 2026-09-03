@@ -7,22 +7,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Infrastructure.Services;
 
-/// <summary>Outcome of a consumable checkout operation.</summary>
-public record ConsumableCheckoutResult(bool Success, string Message, string? ErrorCode = null, Guid? CheckoutId = null);
-
+/// <inheritdoc cref="IConsumableAllocationService"/>
 /// <summary>
-/// Business rules for Consumable checkout — mirrors the Accessory/License standard:
-/// target must be a User, must exist, and (when the consumable is company-scoped) must belong
-/// to the same company. Every checkout writes a complete ActionLog (target user + company) via
-/// the centralized <see cref="IActionLogService"/> in the same SaveChanges the controller
-/// commits inside its ambient transaction.
+/// [Giai đoạn 3] Interface + ConsumableCheckoutResult extracted to Domain/Interfaces verbatim —
+/// this concrete implementation (transactional checkout logic) stays in Infrastructure untouched.
 /// </summary>
-public interface IConsumableAllocationService
-{
-    Task<ConsumableCheckoutResult> CheckoutAsync(Guid consumableId, Guid? userId, int quantity,
-        string? note, Guid createdById, CancellationToken ct = default);
-}
-
 public class ConsumableAllocationService : IConsumableAllocationService
 {
     private readonly AppDbContext _context;
