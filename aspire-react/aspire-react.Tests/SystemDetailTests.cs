@@ -1,4 +1,5 @@
 using System.Text.Json;
+using aspire_react.Server.Application.SystemInfos.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -121,15 +122,18 @@ public class SystemDetailTests
         await using var ctx = CreateContext(nameof(GetSystemInfo_ReturnsProjection_NotRawEntity));
         var (sys, _, _) = await SeedSystemAsync(ctx);
 
-        var controller = new SystemInfoController(ctx, new CompanyScopeFake { Super = true }, TestHelpers.CreateActionLogService(ctx));
-        var result = await controller.Get(sys.Id);
+        // [Giai đoạn 3] Permissions migrated — drive GetSystemInfoByIdQueryHandler directly
+        // (projection-not-raw-entity regression: the DTO has no cyclic SystemInfo back-reference).
+        var handler = new GetSystemInfoByIdQueryHandler(ctx, new CompanyScopeFake { Super = true });
+        var dto = await handler.Handle(new GetSystemInfoByIdQuery(sys.Id), CancellationToken.None);
 
-        var data = OkData(result);
-        Assert.Equal(sys.Id, data.GetProperty("id").GetGuid());
-        Assert.Equal("SYS-001-COR", data.GetProperty("code").GetString());
-        Assert.Equal(2, data.GetProperty("positions").GetArrayLength());
-        Assert.False(data.TryGetProperty("positions", out var _) && data.GetProperty("positions")[0].TryGetProperty("systemInfo", out var _),
-            "The projection must not embed the cyclic SystemInfo navigation back-reference.");
+        Assert.NotNull(dto);
+        Assert.Equal(sys.Id, dto!.Id);
+        Assert.Equal("SYS-001-COR", dto.Code);
+        Assert.Equal(2, dto.Positions.Count);
+        // The projection must not embed the cyclic SystemInfo navigation back-reference:
+        // DTO carries SystemInfoName (a string), never a SystemInfo object.
+        Assert.All(dto.Positions, p => Assert.Equal(sys.Name, p.SystemInfoName));
     }
     // ==================== ASSETS ====================
 

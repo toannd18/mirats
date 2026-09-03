@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using aspire_react.Server.Application.SystemInfos.Commands;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Persistence;
@@ -63,35 +64,25 @@ public class MaintenancePositionGuardTests
         return (sys.Id, posRef.Id, posFree.Id, sysFree.Id, posFreeSys.Id);
     }
 
-    private static SystemInfoController Ctx(AppDbContext db, bool super, Guid? companyId)
-    {
-        var controller = new SystemInfoController(
-            db, new TestHelpers.FakeScope { Super = super, CompanyId = companyId }, TestHelpers.CreateActionLogService(db));
-        // SystemInfoController.GetCurrentUserId() đọc claim "local_user_id" từ HttpContext —
-        // cần set ControllerContext cho các hành động ghi ActionLog (Create/Delete).
-        var userId = Guid.NewGuid();
-        controller.ControllerContext = new ControllerContext
-        {
-            HttpContext = new DefaultHttpContext
-            {
-                User = new ClaimsPrincipal(new ClaimsIdentity(
-                    new[] { new Claim("local_user_id", userId.ToString()) }, "Test"))
-            }
-        };
-        return controller;
-    }
+    // [Giai đoạn 3] SystemInfo migrated to MediatR — guard tests drive the delete handlers
+    // directly (real company-scope FakeScope; same MC-7a substance).
+    private static DeleteSystemPositionCommandHandler DeletePosHandler(AppDbContext db, bool super, Guid? companyId)
+        => new(db, new TestHelpers.FakeScope { Super = super, CompanyId = companyId });
+
+    private static DeleteSystemInfoCommandHandler DeleteSysHandler(AppDbContext db, bool super, Guid? companyId)
+        => new(db, new TestHelpers.FakeScope { Super = super, CompanyId = companyId });
 
     [Fact]
     public async Task DeletePosition_ReferencedByChecklistItem_BlockedWithClear400()
     {
         await using var db = TestHelpers.CreateContext(nameof(DeletePosition_ReferencedByChecklistItem_BlockedWithClear400));
         var (sysId, posRefId, _, _, _) = await SeedAsync(db);
-        var controller = Ctx(db, true, null);
 
-        var result = await controller.DeletePosition(sysId, posRefId);
+        var result = await DeletePosHandler(db, true, null)
+            .Handle(new DeleteSystemPositionCommand(sysId, posRefId, Guid.NewGuid()), CancellationToken.None);
 
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Equal("POSITION_IN_USE_BY_CHECKLIST", ErrorCode(result));
+        Assert.False(result.Success);
+        Assert.Equal("POSITION_IN_USE_BY_CHECKLIST", result.ErrorCode);
         // Row vẫn còn — không bị xóa.
         Assert.True(await db.SystemPositions.AnyAsync(p => p.Id == posRefId));
     }
@@ -101,11 +92,11 @@ public class MaintenancePositionGuardTests
     {
         await using var db = TestHelpers.CreateContext(nameof(DeleteSystem_ParentOfReferencedPosition_BlockedWithClear400));
         var (sysId, _, _, _, _) = await SeedAsync(db);
-        var controller = Ctx(db, true, null);
 
-        var result = await controller.Delete(sysId);
+        var result = await DeleteSysHandler(db, true, null)
+            .Handle(new DeleteSystemInfoCommand(sysId, Guid.NewGuid()), CancellationToken.None);
 
-        Assert.Equal("POSITION_IN_USE_BY_CHECKLIST", ErrorCode(result));
+        Assert.Equal("POSITION_IN_USE_BY_CHECKLIST", result.ErrorCode);
         Assert.True(await db.SystemInfos.AnyAsync(s => s.Id == sysId));
     }
 
@@ -114,11 +105,11 @@ public class MaintenancePositionGuardTests
     {
         await using var db = TestHelpers.CreateContext(nameof(DeletePosition_Unreferenced_Allowed));
         var (sysId, _, posFreeId, _, _) = await SeedAsync(db);
-        var controller = Ctx(db, true, null);
 
-        var result = await controller.DeletePosition(sysId, posFreeId);
+        var result = await DeletePosHandler(db, true, null)
+            .Handle(new DeleteSystemPositionCommand(sysId, posFreeId, Guid.NewGuid()), CancellationToken.None);
 
-        Assert.IsType<OkObjectResult>(result);
+        Assert.True(result.Success);
         Assert.False(await db.SystemPositions.AnyAsync(p => p.Id == posFreeId));
     }
 
@@ -127,11 +118,11 @@ public class MaintenancePositionGuardTests
     {
         await using var db = TestHelpers.CreateContext(nameof(DeleteSystem_WithoutAnyItemReference_Allowed));
         var (_, _, _, sysFreeId, posFreeSysId) = await SeedAsync(db);
-        var controller = Ctx(db, true, null);
 
-        var result = await controller.Delete(sysFreeId);
+        var result = await DeleteSysHandler(db, true, null)
+            .Handle(new DeleteSystemInfoCommand(sysFreeId, Guid.NewGuid()), CancellationToken.None);
 
-        Assert.IsType<OkObjectResult>(result);
+        Assert.True(result.Success);
         Assert.False(await db.SystemInfos.AnyAsync(s => s.Id == sysFreeId));
         Assert.False(await db.SystemPositions.AnyAsync(p => p.Id == posFreeSysId)); // cascade positions
     }
