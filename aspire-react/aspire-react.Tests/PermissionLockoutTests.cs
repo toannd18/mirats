@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using System.Text.Json;
+using aspire_react.Server.Application.Groups.Commands;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
+using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Authorization;
 using aspire_react.Server.Infrastructure.Persistence;
 using aspire_react.Server.Infrastructure.Services;
@@ -24,6 +26,7 @@ public class PermissionLockoutTests
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(name)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new AppDbContext(options);
     }
@@ -65,16 +68,8 @@ public class PermissionLockoutTests
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"));
     }
 
-    private static GroupsController CreateGroupsController(AppDbContext db, ClaimsPrincipal principal)
-    {
-        var httpContext = new DefaultHttpContext { User = principal };
-        var controller = new GroupsController(
-            db,
-            new ActionLogService(db, new HttpContextAccessor { HttpContext = httpContext }),
-            new PermissionLockoutGuard(db));
-        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
-        return controller;
-    }
+    // [Giai đoạn 3] Groups migrated to MediatR — the two controller-level tests below now drive the
+    // command handlers directly (real PermissionLockoutGuard + real ActionLogBehavior chain).
 
     private static UsersController CreateUsersController(AppDbContext db, ClaimsPrincipal principal)
     {
@@ -423,13 +418,15 @@ public class PermissionLockoutTests
         var group = await SeedAdminGroupAsync(db);
         var admin = await AddUserAsync(db, "admin1", group.Id);
 
-        var principal = CreatePrincipal(admin.Id);
-        var controller = CreateGroupsController(db, principal);
+        // [Giai đoạn 3] Drive UpdateGroupPermissionsCommandHandler directly — REAL guard wired in,
+        // non-realm-superuser actor (the self-lockout path cannot trigger for realm superusers).
+        var handler = new UpdateGroupPermissionsCommandHandler(db, new PermissionLockoutGuard(db));
+        var result = await handler.Handle(
+            new UpdateGroupPermissionsCommand(group.Id, new List<GroupPermissionEntry>(), admin.Id, ActorIsRealmSuperUser: false),
+            CancellationToken.None);
 
-        // Gỡ toàn bộ permission (kể cả admin) khỏi group duy nhất của admin → 400 SELF_LOCKOUT
-        var result = await controller.UpdateGroupPermissions(group.Id, new List<PermissionEntry>());
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Contains("SELF_LOCKOUT", JsonSerializer.Serialize(bad.Value));
+        Assert.False(result.Success);
+        Assert.Equal("SELF_LOCKOUT", result.ErrorCode);
         Assert.Equal(2, await db.GroupPermissions.CountAsync(gp => gp.GroupId == group.Id));
     }
 
@@ -439,11 +436,14 @@ public class PermissionLockoutTests
         await using var db = CreateContext(nameof(CreateGroup_LogsActionLog));
         var admin = await AddUserAsync(db, "admin1");
 
-        var principal = CreatePrincipal(admin.Id);
-        var controller = CreateGroupsController(db, principal);
+        // [Giai đoạn 3] Drive through the REAL ActionLogBehavior chain (log written by behavior).
+        var handler = new CreateGroupCommandHandler(db);
+        var behavior = new aspire_react.Server.Application.Common.Behaviors.ActionLogBehavior<
+            CreateGroupCommand, GroupResult>(TestHelpers.CreateActionLogService(db, admin.Id), db);
+        var cmd = new CreateGroupCommand("New Group", null, admin.Id);
+        var result = await behavior.Handle(cmd, ct => handler.Handle(cmd, ct), CancellationToken.None);
 
-        var result = await controller.CreateGroup(new CreateGroupRequest("New Group", null));
-        Assert.IsType<CreatedAtActionResult>(result);
+        Assert.True(result.Success);
 
         var log = await db.ActionLogs.SingleOrDefaultAsync(l =>
             l.ItemType == ItemType.PermissionGroup && l.ActionType == ActionType.Create);

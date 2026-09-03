@@ -55,7 +55,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddTransient<ICompanyScopeService, CompanyScopeService>();
 
         // Anti self-lockout guard for permission-management operations. Scoped because it uses AppDbContext.
+        // [Giai đoạn 3] Interface registration added for Application handlers (Groups) — the concrete
+        // registration stays for UsersController which still injects the concrete class.
         services.AddScoped<PermissionLockoutGuard>();
+        services.AddScoped<aspire_react.Server.Domain.Interfaces.IPermissionLockoutGuard, PermissionLockoutGuard>();
 
         return services;
     }

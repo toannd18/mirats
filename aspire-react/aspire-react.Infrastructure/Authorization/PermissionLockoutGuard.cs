@@ -1,27 +1,18 @@
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
+using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Infrastructure.Authorization;
 
+/// <inheritdoc cref="IPermissionLockoutGuard"/>
 /// <summary>
-/// Permission draft used by <see cref="PermissionLockoutGuard.WouldGroupPermissionEditLockoutAsync"/>.
+/// [Giai đoạn 3] Interface extracted to Domain/Interfaces/IPermissionLockoutGuard.cs (with
+/// GroupPermissionDraft) so Application handlers consume the guard through the contract;
+/// this concrete implementation (and its AppDbContext wiring) stays in Infrastructure.
 /// </summary>
-public record GroupPermissionDraft(string PermissionKey, PermissionValue Value);
-
-/// <summary>
-/// Ngăn "self-lockout": một Admin (KHÔNG phải Superuser) tự gỡ khả năng quản lý phân quyền
-/// (<c>admin</c> / <c>users.edit</c>) của chính mình — qua gán nhóm cho user hoặc sửa permission
-/// của nhóm — khi họ là người cuối cùng còn giữ khả năng đó, khiến hệ thống không còn ai
-/// có thể sửa được phân quyền nữa.
-/// <para>
-/// Nguyên tắc (đúng yêu cầu): guard chỉ kích hoạt khi <b>target == actor</b> (user đang thao tác
-/// tự gỡ quyền của chính họ). Không chỉ bảo vệ Superuser — Admin thường cũng được bảo vệ nếu
-/// họ là người duy nhất còn quyền quản trị. Superuser (flag DB hoặc realm role) luôn được phép.
-/// </para>
-/// </summary>
-public class PermissionLockoutGuard
+public class PermissionLockoutGuard : IPermissionLockoutGuard
 {
     /// <summary>
     /// Chỉ `admin` được tính là "khả năng quản lý phân quyền".

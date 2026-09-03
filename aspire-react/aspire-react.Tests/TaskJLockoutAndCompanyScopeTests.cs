@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using aspire_react.Server.Application.Groups.Commands;
 using aspire_react.Server.Application.Users.Commands;
 using aspire_react.Server.Application.Users.Validators;
 using aspire_react.Server.Domain.Entities;
@@ -102,16 +103,8 @@ public class TaskJLockoutAndCompanyScopeTests
         return controller;
     }
 
-    private static GroupsController BuildGroupsController(AppDbContext db, ClaimsPrincipal principal)
-    {
-        var httpContext = new DefaultHttpContext { User = principal };
-        var controller = new GroupsController(
-            db,
-            new ActionLogService(db, new HttpContextAccessor { HttpContext = httpContext }),
-            new PermissionLockoutGuard(db));
-        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
-        return controller;
-    }
+    // [Giai đoạn 3] Groups migrated to MediatR — the two controller-level DeleteGroup tests below
+    // now drive DeleteGroupCommandHandler directly (real PermissionLockoutGuard wired in).
 
     private static UpdateUserCommand ValidUpdate(Guid id, bool isSuperUser)
         => new()
@@ -292,12 +285,14 @@ public class TaskJLockoutAndCompanyScopeTests
         var group = await SeedAdminGroupAsync(db);
         var admin = await AddUserAsync(db, "admin1", groupId: group.Id);
 
-        var principal = CreatePrincipal(admin.Id);
-        var controller = BuildGroupsController(db, principal);
+        // [Giai đoạn 3] Handler-level with the REAL guard — non-realm-superuser actor.
+        var handler = new DeleteGroupCommandHandler(db, new PermissionLockoutGuard(db));
+        var result = await handler.Handle(
+            new DeleteGroupCommand(group.Id, admin.Id, ActorIsRealmSuperUser: false),
+            CancellationToken.None);
 
-        var result = await controller.DeleteGroup(group.Id);
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Contains("SELF_LOCKOUT", JsonSerializer.Serialize(bad.Value));
+        Assert.False(result.Success);
+        Assert.Equal("SELF_LOCKOUT", result.ErrorCode);
 
         Assert.NotNull(await db.PermissionGroups.FindAsync(group.Id)); // không bị xóa
     }
@@ -311,11 +306,13 @@ public class TaskJLockoutAndCompanyScopeTests
         var adminA = await AddUserAsync(db, "adminA", groupId: groupA.Id);
         await AddUserAsync(db, "adminB", groupId: groupB.Id);
 
-        var principal = CreatePrincipal(adminA.Id);
-        var controller = BuildGroupsController(db, principal);
+        // [Giai đoạn 3] adminB (another group) still holds management capability → delete allowed.
+        var handler = new DeleteGroupCommandHandler(db, new PermissionLockoutGuard(db));
+        var result = await handler.Handle(
+            new DeleteGroupCommand(groupA.Id, adminA.Id, ActorIsRealmSuperUser: false),
+            CancellationToken.None);
 
-        var result = await controller.DeleteGroup(groupA.Id);
-        Assert.IsType<OkObjectResult>(result);
+        Assert.True(result.Success);
         Assert.Null(await db.PermissionGroups.FindAsync(groupA.Id)); // đã xóa
     }
 

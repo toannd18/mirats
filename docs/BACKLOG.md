@@ -161,6 +161,33 @@
 
 ---
 
+## BUG-K — Groups Create/Update: không có dup-Name check, không empty-Name check (MEDIUM)
+
+- **Trạng thái:** OPEN — phát hiện 2026-09-03 trong Giai đoạn 3 (audit Groups + parity verification
+  trên binary cũ); di chuyển verbatim vào `aspire-react.Application/Groups/Commands/` kèm comment
+  `// TODO BUG-K` in-code.
+- **Mức độ: MEDIUM** (user-facing — GroupListPage quản trị group là UI thật, khác BUG-J zero-impact;
+  không phải SECURITY — PermissionGroup không có CompanyId, không isolation risk)
+- **Các thành phần — độ tin cậy:**
+  1. **Create không dup-Name check** ✅ **CONFIRMED VIA REPRODUCTION** — POST 2 group cùng tên →
+     cả 2 đều 201 (baseline bắt được trên binary cũ; post parity 2xx). Hệ quả: danh sách group trùng
+     tên, phân quyền theo tên gây hiểu nhầm.
+  2. **Create không empty-Name check** — *suy luận từ đọc code (Create bind Name trực tiếp, không
+     check gì — cùng code path với #1 nên xác suất rất cao)*; nhóm tên rỗng tạo được.
+  3. **Update rename không dup-Name check** — *suy luận từ đọc code* (Update chỉ check
+     SYSTEM_GROUP_LOCKED, không check trùng tên nhóm khác).
+- **Vị trí gốc:** `GroupsController.CreateGroup/UpdateGroup` (HEAD trước migrate); di chuyển verbatim
+  vào `aspire-react.Application/Groups/Commands/CreateGroupCommand.cs` + `UpdateGroupCommand.cs`.
+- **Fix sketch (khi thực hiện — THAY ĐỔI HÀNH VI, cần duyệt riêng):** dup-Name check
+  (case-insensitive? quyết định khi fix) → 400 "A group with this name already exists."; empty-Name
+  soft-fail. Ưu tiên #1 (confirmed, user-facing).
+- **Convention inconsistency (ghi nhận kèm — LOW priority, KHÔNG fix trong migration):** controller
+  này dùng `errorCode` (camelCase) trong error bodies thay vì `error_code` (snake_case) như mọi
+  controller khác; `GET /groups` trả `Permissions[].Value` là số int thay vì string enum. Cả 2 giữ
+  nguyên verbatim vì parity — nếu sau này thống nhất convention phải sửa đồng bộ frontend.
+
+---
+
 ## INFRA-1 — Điều tra hạ tầng dev: Docker Desktop/WSL2 mất engine ×3 + file-loss/revert anomalies
 
 - **Trạng thái:** OPEN — điều tra lần 1 hoàn tất 2026-09-02 (kết quả dưới); reopen khi tái diễn

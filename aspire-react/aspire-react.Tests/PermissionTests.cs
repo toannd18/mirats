@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using aspire_react.Server.Application.Groups.Commands;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Authorization;
@@ -262,21 +263,27 @@ public class PermissionTests
         db.PermissionGroups.AddRange(systemGroup, normalGroup);
         await db.SaveChangesAsync();
 
-        var controller = new GroupsController(
-            db,
-            new ActionLogService(db, new HttpContextAccessor()),
-            new PermissionLockoutGuard(db));
+        // [Giai đoạn 3] Groups migrated to MediatR — drive the command handlers directly
+        // (same substance: SYSTEM_GROUP_LOCKED blocks rename/delete; normal group deletable).
+        var updateHandler = new UpdateGroupCommandHandler(db);
+        var deleteHandler = new DeleteGroupCommandHandler(db, new PermissionLockoutGuard(db));
 
-        // Rename system group → 400 SYSTEM_GROUP_LOCKED
-        var renameResult = await controller.UpdateGroup(systemGroup.Id, new UpdateGroupRequest("Hacked", null));
-        var renameBad = Assert.IsType<BadRequestObjectResult>(renameResult);
-        Assert.Contains("SYSTEM_GROUP_LOCKED", JsonSerializer.Serialize(renameBad.Value));
+        // Rename system group → SYSTEM_GROUP_LOCKED
+        var renameResult = await updateHandler.Handle(
+            new UpdateGroupCommand(systemGroup.Id, "Hacked", null, Guid.NewGuid()), CancellationToken.None);
+        Assert.False(renameResult.Success);
+        Assert.Equal("SYSTEM_GROUP_LOCKED", renameResult.ErrorCode);
         Assert.Equal("Superuser", (await db.PermissionGroups.FindAsync(systemGroup.Id))!.Name);
 
-        // Delete system group → 400
-        Assert.IsType<BadRequestObjectResult>(await controller.DeleteGroup(systemGroup.Id));
+        // Delete system group → SYSTEM_GROUP_LOCKED
+        var deleteResult = await deleteHandler.Handle(
+            new DeleteGroupCommand(systemGroup.Id, Guid.NewGuid(), ActorIsRealmSuperUser: false), CancellationToken.None);
+        Assert.False(deleteResult.Success);
+        Assert.Equal("SYSTEM_GROUP_LOCKED", deleteResult.ErrorCode);
 
-        // Normal group is still deletable → 200
-        Assert.IsType<OkObjectResult>(await controller.DeleteGroup(normalGroup.Id));
+        // Normal group is still deletable
+        var normalDelete = await deleteHandler.Handle(
+            new DeleteGroupCommand(normalGroup.Id, Guid.NewGuid(), ActorIsRealmSuperUser: false), CancellationToken.None);
+        Assert.True(normalDelete.Success);
     }
 }
