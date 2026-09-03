@@ -1,25 +1,10 @@
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
+using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Infrastructure.Services;
-
-/// <summary>
-/// Company-visibility filter for a bounded list of materialized action-logs (Task S1). Extracted from
-/// the identical private methods previously duplicated in <c>ReportsController</c> and
-/// <c>DashboardController</c> (both had a byte-for-byte copy). Centralizing it means a company-scoping
-/// bug fix applies in exactly one place instead of two that could drift apart.
-/// </summary>
-public interface IActionLogVisibilityService
-{
-    /// <summary>
-    /// Filters a bounded list of materialized action-logs down to those whose item belongs to the
-    /// given user's company (or is company-less / floater). Resolves item companies in batched
-    /// queries (one round-trip per item type) to avoid an N+1 per log row.
-    /// </summary>
-    Task<List<ActionLog>> FilterVisibleLogsAsync(IReadOnlyList<ActionLog> logs, Guid userCompanyId);
-}
 
 /// <inheritdoc cref="IActionLogVisibilityService"/>
 public class ActionLogVisibilityService : IActionLogVisibilityService
