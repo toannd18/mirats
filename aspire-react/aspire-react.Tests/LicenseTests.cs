@@ -49,7 +49,7 @@ public class LicenseTests
     }
 
     private static LicensesController CreateController(AppDbContext ctx, bool super, Guid? companyId = null)
-        => new(ctx, new FakeCurrentUser(), new FakeScope { Super = super, CompanyId = companyId }, TestHelpers.CreateActionLogService(ctx));
+        => new(TestHelpers.BuildMediator(ctx, new FakeScope { Super = super, CompanyId = companyId }));
 
     private static string ReadErrorCode(object? value)
     {

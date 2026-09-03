@@ -146,7 +146,7 @@ public class TaskM1PatchSafetyTests
     {
         await using var ctx = CreateContext(nameof(License_PartialUpdate_OnlyName_PreservesOtherFields));
         var l = await SeedLicenseAsync(ctx);
-        var controller = new LicensesController(ctx, new TestHelpers.FakeCurrentUser(), SuperScope, TestHelpers.CreateActionLogService(ctx));
+        var controller = new LicensesController(TestHelpers.BuildMediator(ctx, SuperScope, ActorId));
         AttachUser(controller, ActorId);
 
         var result = await controller.Update(l.Id, new UpdateLicenseRequest(Name: "New License"));
@@ -168,7 +168,7 @@ public class TaskM1PatchSafetyTests
     {
         await using var ctx = CreateContext(nameof(License_ChangeCompany_FieldLocked));
         var l = await SeedLicenseAsync(ctx);
-        var controller = new LicensesController(ctx, new TestHelpers.FakeCurrentUser(), SuperScope, TestHelpers.CreateActionLogService(ctx));
+        var controller = new LicensesController(TestHelpers.BuildMediator(ctx, SuperScope, ActorId));
         AttachUser(controller, ActorId);
 
         var result = await controller.Update(l.Id, new UpdateLicenseRequest(CompanyId: Guid.NewGuid()));
