@@ -1,9 +1,6 @@
-﻿using System.Security.Claims;
+using aspire_react.Server.Application.Companies.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Infrastructure.Persistence;
-using aspire_react.Server.Web.Controllers;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -11,8 +8,10 @@ namespace aspire_react.Tests;
 
 /// <summary>
 /// Task V â€” Company-scoping cho GET /companies (cÃ¹ng lá»›p lá»—i Ä‘Ã£ fix á»Ÿ Departments.GetAll Task K /
-/// GetLocations Task U): user thÆ°á»ng CHá»ˆ tháº¥y subtree cÃ´ng ty cá»§a mÃ¬nh; Superuser (hoáº·c user thÆ°á»ng
+/// GetLocations Task U): user thÆ°á»�ng CHá»ˆ tháº¥y subtree cÃ´ng ty cá»§a mÃ¬nh; Superuser (hoáº·c user thÆ°á»�ng
 /// khÃ´ng cÃ³ cÃ´ng ty) tháº¥y toÃ n bá»™ cÃ¢y. Verify qua controller trá»±c tiáº¿p trÃªn EF InMemory.
+/// [Giai đoạn 3] Companies migrated to MediatR — tests now drive ListCompaniesQueryHandler directly
+/// with FakeScope (same scope substance; the controller is a thin Send() map).
 /// </summary>
 public class CompanyTreeScopeTests
 {
@@ -25,43 +24,22 @@ public class CompanyTreeScopeTests
         return new AppDbContext(options, new TestHelpers.SuperUserScope());
     }
 
-    private static ClaimsPrincipal Principal(Guid id)
-        => new(new ClaimsIdentity(new[] { new Claim("local_user_id", id.ToString()) }, "Test"));
+    private static ListCompaniesQueryHandler Build(AppDbContext db, TestHelpers.FakeScope scope)
+        => new(db, scope);
 
-    private static CompaniesController Build(AppDbContext db, TestHelpers.FakeScope scope)
+    private static List<string> FlattenNames(IReadOnlyList<CompanyTreeNodeDto> roots)
     {
-        var c = new CompaniesController(db, scope, new TestHelpers.NullCacheInvalidator(), TestHelpers.CreateActionLogService(db));
-        c.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = Principal(Guid.NewGuid()) } };
-        return c;
-    }
-
-    private static readonly System.Text.Json.JsonSerializerOptions WebJson = new(System.Text.Json.JsonSerializerDefaults.Web);
-
-    private static List<string> FlattenNames(List<object> roots)
-    {
-        using var doc = System.Text.Json.JsonDocument.Parse(
-            System.Text.Json.JsonSerializer.Serialize(roots, WebJson));
         var names = new List<string>();
-        void Walk(System.Text.Json.JsonElement nodes)
+        void Walk(IEnumerable<CompanyTreeNodeDto> nodes)
         {
-            foreach (var n in nodes.EnumerateArray())
+            foreach (var n in nodes)
             {
-                names.Add(n.GetProperty("name").GetString() ?? string.Empty);
-                if (n.TryGetProperty("children", out var children) && children.ValueKind == System.Text.Json.JsonValueKind.Array)
-                    Walk(children);
+                names.Add(n.Name);
+                Walk(n.Children);
             }
         }
-        Walk(doc.RootElement);
+        Walk(roots);
         return names;
-    }
-
-    private static List<object> GetData(object? resultValue)
-    {
-        using var doc = System.Text.Json.JsonDocument.Parse(
-            System.Text.Json.JsonSerializer.Serialize(resultValue, WebJson));
-        return doc.RootElement.GetProperty("data").EnumerateArray()
-            .Select(n => (object)n.Clone())
-            .ToList();
     }
 
     [Fact]
@@ -74,9 +52,8 @@ public class CompanyTreeScopeTests
             new Company { Name = "Child B", ParentId = parent.Id });
         await db.SaveChangesAsync();
 
-        var c = Build(db, new TestHelpers.FakeScope { Super = true });
-        var result = (OkObjectResult)await c.GetAll();
-        var roots = GetData(result.Value);
+        var roots = await Build(db, new TestHelpers.FakeScope { Super = true })
+            .Handle(new ListCompaniesQuery(), CancellationToken.None);
         var names = FlattenNames(roots);
         Assert.Equal(3, names.Count);
         Assert.Contains("Parent Co", names);
@@ -96,9 +73,8 @@ public class CompanyTreeScopeTests
         await db.SaveChangesAsync();
 
         // User belongs to Child A â†’ sees only Child A + its descendants, NOT Parent or Child B.
-        var c = Build(db, new TestHelpers.FakeScope { Super = false, CompanyId = childA.Id });
-        var result = (OkObjectResult)await c.GetAll();
-        var roots = GetData(result.Value);
+        var roots = await Build(db, new TestHelpers.FakeScope { Super = false, CompanyId = childA.Id })
+            .Handle(new ListCompaniesQuery(), CancellationToken.None);
         var names = FlattenNames(roots);
 
         Assert.Equal(2, names.Count);
@@ -120,9 +96,8 @@ public class CompanyTreeScopeTests
             new Company { Name = "Child A", ParentId = parent.Id });
         await db.SaveChangesAsync();
 
-        var c = Build(db, new TestHelpers.FakeScope { Super = false, CompanyId = null });
-        var result = (OkObjectResult)await c.GetAll();
-        var names = FlattenNames(GetData(result.Value));
+        var names = FlattenNames(await Build(db, new TestHelpers.FakeScope { Super = false, CompanyId = null })
+            .Handle(new ListCompaniesQuery(), CancellationToken.None));
         Assert.Equal(2, names.Count);
     }
 }

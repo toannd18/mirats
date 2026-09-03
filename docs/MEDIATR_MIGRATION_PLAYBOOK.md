@@ -186,3 +186,33 @@ chỉ cần Query, không Command). *(StatusLabels: ĐÃ XÓA hẳn 2026-09-02 �
 6. Script verify: `GET /action-logs` trả envelope `{status,data[]}` — filter phải vào `.data`.
 7. Restore/restart stack: container name Postgres ĐỔI mỗi lần chạy AppHost — resolve bằng
    `docker ps` trước khi query DB.
+
+## 8. Quy tắc fixture test guard — BẮT BUỘC (bài học INCIDENT-1, 2026-09-03)
+
+**Bối cảnh:** trong audit Companies, agent dùng company MIRAT có sẵn (dev-seed, tên nghe như
+production) làm fixture cho DELETE guard với giả định KHÔNG kiểm chứng "MIRAT có users/assets".
+Guard 10-blockers chạy ĐÚNG (0 references) → cho qua → **xóa thật một company seed**. Recovery
+được (recreate qua API), nhưng để lại 14 ActionLog rows mang CompanyId cũ không resolve được
+(giữ nguyên — audit log toàn vẹn). Chi tiết: `docs/BACKLOG.md` INCIDENT-1.
+
+**QUY TẮC CỨNG — áp dụng cho mọi guard test (IN_USE / COMPANY_IN_USE / FIELD_LOCKED / tương tự)
+từ đây về sau:**
+
+```
+BẮT BUỘC (fixture-first, fresh-in-run):
+  1. CREATE entity cần test guard MỚI HOÀN TOÀN qua API trong chính lượt test
+  2. CREATE + LINK referencing rows qua API (không SQL tay, không dùng row có sẵn)
+  3. Test guard → verify 400 + error_code + body verbatim
+  4. CLEANUP theo thứ tự ngược (con → cha) — xác nhận bằng list/count sau cleanup
+TUYỆT ĐỐI CẤM:
+  ❌ Dùng bất kỳ entity CÓ SẴN trong DB làm đối tượng test guard
+     (dù trông giống fixture, dù tên nghe như QA/test: QAAA/QAAB/QCR-CO/MIRAT-style,
+      dù "chắc chắn không ai dùng" — giả định không kiểm chứng = rủi ro xóa thật)
+  ❌ CREATE qua SQL tay thay vì API (parity path phải là đường đi thật của client)
+```
+
+**Lý do nguyên tắc (không chỉ là sợ xóa nhầm):** (1) guard fixture phải đi qua CÙNG đường đi
+validation mà client thật đi (API); (2) entity có sẵn có thể có references mà audit nhanh không
+thấy (plain columns không FK, soft-deleted rows, IgnoreQueryFilters); (3) entity tự tạo trong run
+→ quyền sở hữu + cleanup rõ ràng, không phụ thuộc trạng thái DB trước đó; (4) nếu guard test cần
+fixture "đang được tham chiếu" — TỰ tạo tham chiếu đó trong run, không mượn của dữ liệu cũ.

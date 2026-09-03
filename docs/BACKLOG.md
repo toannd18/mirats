@@ -134,6 +134,33 @@
 
 ---
 
+## INCIDENT-1 (LOW, RESOLVED): Xóa nhầm company MIRAT (dev-seed) trong lúc audit Companies guard do dùng entity có sẵn làm fixture thay vì tạo mới
+
+- **Trạng thái:** RESOLVED — xảy ra 2026-09-03 trong Giai đoạn 3 (audit Companies trước khi migrate),
+  recovery hoàn tất cùng phiên; không phải BUG (không phải lỗi code — guard 10-blockers chạy ĐÚNG,
+  lỗi là quy trình testing của agent)
+- **Chuỗi sự kiện:** baseline run-1 dùng company MIRAT có sẵn làm fixture cho DELETE guard với giả
+  định "MIRAT có users/assets" KHÔNG kiểm chứng (mọi user seed đều company-less; assets thuộc
+  company QCR/QA khác) → guard 10-blockers verified 0 references (đúng logic) → cho qua → DELETE
+  thành công thật. Phát hiện ở run-2 (POST dup-code với code=MIRAT → 2xx bất thường; guard → 405
+  do id rỗng).
+- **Recovery:** recreate qua API ngay trong phiên — ID mới `aefe9209-1890-449d-b4a2-1db18df6f033`
+  (name "Công ty Quản lý bay miền Trung" UTF-8 chuẩn, code MIRAT, root) — 0 FK references tại thời
+  điểm xóa (chính là lý do guard cho qua) → không orphan dữ liệu nghiệp vụ nào.
+- **Hệ quả còn lại:** 14 ActionLog rows mang CompanyId/ItemId cũ (`088d28b7-8268-44f0-892b-c111ea53a9bd`)
+  không resolve được — 12 rows = 6 cặp Create+Delete log của component fixture đã xóa từ 2026-09-01
+  (history đã đóng) + 2 rows = Create (2026-08-28, seed-era) và Delete log của chính MIRAT cũ.
+  **Giữ nguyên, KHÔNG sửa** (audit log là append-only history — sửa log = vi phạm tính toàn vẹn
+  audit). Xác minh bằng dynamic scan toàn bộ cột `CompanyId` trong DB qua `information_schema`:
+  12 references, 0 ở bảng nào khác.
+- **Phạm vi:** dev-only (Aspire local stack, seed data) — không ảnh hưởng production/demo.
+- **Quy trình sửa từ đây về sau (áp dụng ngay, xem playbook §8):** fixture test guard BẮT BUỘC
+  tạo mới hoàn toàn qua API trong chính lượt test (create → link reference → test guard → cleanup
+  ngược thứ tự) — TUYỆT ĐỐI không dùng entity có sẵn trong DB (dù trông giống fixture, dù tên
+  nghe như QA/test) làm đối tượng test guard.
+
+---
+
 ## INFRA-1 — Điều tra hạ tầng dev: Docker Desktop/WSL2 mất engine ×3 + file-loss/revert anomalies
 
 - **Trạng thái:** OPEN — điều tra lần 1 hoàn tất 2026-09-02 (kết quả dưới); reopen khi tái diễn
