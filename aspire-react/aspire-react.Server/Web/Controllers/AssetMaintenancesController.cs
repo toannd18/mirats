@@ -1,24 +1,24 @@
 using aspire_react.Server.Application.AssetMaintenances.Commands;
 using aspire_react.Server.Application.AssetMaintenances.Queries;
-using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Persistence;
-using aspire_react.Server.Infrastructure.Services;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Web.Controllers;
 
 [ApiController]
 [Route("api/v1")]
 /// <summary>
-/// [Giai đoạn 3 — Rất nặng] AssetMaintenances MediatR migration (subtask A: reads).
-/// Reads (asset-scoped list / aggregated list / detail) là thin mapping qua Queries;
-/// writes (Create/Update/Delete/Close/Inspect/Reopen) GIỮ NGUYÊN inline cho subtask B/C/D.
-/// Parity trap (a): reads out-of-scope → Forbid() 403, Update → 404 — giữ nguyên từng endpoint.
+/// [Giai đoạn 3 — Rất nặng] AssetMaintenances MediatR migration — HOÀN TẤT (subtasks A–D).
+/// Toàn bộ 9 endpoint là thin IMediator.Send mapping: reads (subtask A: asset-scoped list /
+/// aggregated list / detail), Create 2-routes→1-command (B), Update+Delete (C),
+/// Close/Inspect/Reopen (D). Guard order/scope bodies verbatim trong handlers.
+/// Parity trap (a): reads + Close/Inspect out-of-scope → Forbid() 403, Update → 404 — giữ nguyên.
+/// Fields _context/_companyScope/_actionLogService không còn dùng nhưng GIỮ ctor signature
+/// (tests + DI construct với đủ 5 tham số; giữ là chi phí zero, xóa là churn tests).
 /// </summary>
 public class AssetMaintenancesController : ControllerBase
 {
@@ -38,12 +38,6 @@ public class AssetMaintenancesController : ControllerBase
     }
 
     private Guid GetCurrentUserId() => _currentUserService.GetLocalUserId();
-
-    /// <summary>
-    /// Returns the current user's company scope: null = Superuser/no restriction (sees all).
-    /// Regular users get their CompanyId — used to enforce company-scoped visibility.
-    /// </summary>
-    private Task<Guid?> GetUserCompanyIdAsync() => _companyScope.GetCurrentUserCompanyIdAsync();
 
     // ==================== LIST (asset-scoped — used by the Asset detail card) ====================
     // [Subtask A] Thin MediatR mapping over ListAssetMaintenancesQuery (scope + shape verbatim
@@ -236,7 +230,10 @@ public class AssetMaintenancesController : ControllerBase
     }
 
     // ==================== CLOSE / REOPEN (audit-trail lock) ====================
-    // Closing is the natural completion step of the workflow: anyone who may edit the record
+    // [Subtask D] Thin MediatR mapping over Close/Inspect/ReopenMaintenanceCommand. Guard order +
+    // freeze semantics verbatim trong handler. Scope 403 Forbid verbatim (trap (a): reads AND
+    // Close/Inspect dùng 403, chỉ Update dùng 404 — KHÔNG thống nhất); Reopen superuser-gate TRƯỚC
+    // lookup. Closing is the natural completion step of the workflow: anyone who may edit the record
     // (same company or Superuser) may close it, but only once CompletionDate is set. After close
     // the record is frozen (PUT rejects ALL fields with MAINTENANCE_CLOSED). Reopening is a
     // Superuser-only action that "breaks" the audit protection — it keeps ClosedAt/ClosedById as
@@ -246,40 +243,18 @@ public class AssetMaintenancesController : ControllerBase
     [Authorize(Policy = "assets.edit")]
     public async Task<IActionResult> Close(Guid id)
     {
-        var m = await _context.AssetMaintenances.FirstOrDefaultAsync(x => x.Id == id && x.DeletedAt == null);
-        if (m == null) return NotFound(new { status = "error", message = "Maintenance not found." });
+        var result = await _mediator.Send(new CloseMaintenanceCommand(id, GetCurrentUserId()));
 
-        // Same edit rights as Update: a regular user may close records of their own company
-        // (floater records are manageable by everyone).
-        var userCompanyId = await GetUserCompanyIdAsync();
-        if (userCompanyId.HasValue && m.CompanyId != userCompanyId.Value && m.CompanyId != Guid.Empty)
-            return Forbid();
-
-        if (m.IsClosed)
-            return BadRequest(new { status = "error", message = "Bản ghi đã đóng.", error_code = "MAINTENANCE_ALREADY_CLOSED" });
-        if (m.CompletionDate == null)
-            return BadRequest(new { status = "error", message = "Cần nhập Ngày hoàn thành trước khi đóng bảo trì.", error_code = "MAINTENANCE_NOT_COMPLETED_YET" });
-        // Inspection is an independent pre-close approval step — a completed-but-not-yet-inspected
-        // record cannot be closed (workflow: Hoàn thành → Kiểm tra → Đóng).
-        if (m.InspectedById == null)
-            return BadRequest(new { status = "error", message = "Cần kiểm tra trước khi đóng bảo trì.", error_code = "MAINTENANCE_NOT_INSPECTED_YET" });
-
-        m.IsClosed = true;
-        m.ClosedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
-        m.ClosedById = GetCurrentUserId();
-        m.UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
-
-        _actionLogService.Log(new ActionLogEntry
+        if (!result.Success)
         {
-            ItemType = ItemType.AssetMaintenance,
-            ItemId = id,
-            ActionType = ActionType.Close,
-            CreatedBy = GetCurrentUserId(),
-            CompanyId = m.CompanyId,
-            Note = $"Đóng bảo trì \"{m.Title}\""
-        });
-        await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Đã đóng bảo trì.", data = new { m.Id, m.IsClosed, m.ClosedAt, m.ClosedById } });
+            if (result.ErrorCode == "NOT_FOUND")
+                return NotFound(new { status = "error", message = result.Message });
+            if (result.ErrorCode == "FORBIDDEN")
+                return Forbid();
+            return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        }
+
+        return Ok(new { status = "success", message = result.Message, data = new { result.MaintenanceId, result.IsClosed, result.ClosedAt, result.ClosedById } });
     }
 
     // ==================== INSPECT (independent pre-close approval step) ====================
@@ -294,65 +269,36 @@ public class AssetMaintenancesController : ControllerBase
     [Authorize(Policy = "assets.edit")]
     public async Task<IActionResult> Inspect(Guid id)
     {
-        var m = await _context.AssetMaintenances.FirstOrDefaultAsync(x => x.Id == id && x.DeletedAt == null);
-        if (m == null) return NotFound(new { status = "error", message = "Maintenance not found." });
+        var result = await _mediator.Send(new InspectMaintenanceCommand(id, GetCurrentUserId()));
 
-        // Same edit rights as Close/Update: a regular user may inspect records of their own company
-        // (floater records are manageable by everyone).
-        var userCompanyId = await GetUserCompanyIdAsync();
-        if (userCompanyId.HasValue && m.CompanyId != userCompanyId.Value && m.CompanyId != Guid.Empty)
-            return Forbid();
-
-        if (m.IsClosed)
-            return BadRequest(new { status = "error", message = "Bản ghi đã đóng, không thể kiểm tra.", error_code = "MAINTENANCE_CLOSED" });
-        if (m.CompletionDate == null)
-            return BadRequest(new { status = "error", message = "Cần nhập Ngày hoàn thành trước khi kiểm tra bảo trì.", error_code = "MAINTENANCE_NOT_COMPLETED_YET" });
-
-        m.InspectedById = GetCurrentUserId();
-        m.InspectedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
-        m.UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
-
-        _actionLogService.Log(new ActionLogEntry
+        if (!result.Success)
         {
-            ItemType = ItemType.AssetMaintenance,
-            ItemId = id,
-            ActionType = ActionType.Inspect,
-            CreatedBy = GetCurrentUserId(),
-            CompanyId = m.CompanyId,
-            Note = $"Kiểm tra bảo trì \"{m.Title}\""
-        });
-        await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Đã đánh dấu đã kiểm tra.", data = new { m.Id, m.InspectedById, m.InspectedAt } });
+            if (result.ErrorCode == "NOT_FOUND")
+                return NotFound(new { status = "error", message = result.Message });
+            if (result.ErrorCode == "FORBIDDEN")
+                return Forbid();
+            return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        }
+
+        return Ok(new { status = "success", message = result.Message, data = new { result.MaintenanceId, result.InspectedById, result.InspectedAt } });
     }
 
     [HttpPost("maintenances/{id:guid}/reopen")]
     [Authorize]
     public async Task<IActionResult> Reopen(Guid id)
     {
-        // Reopen breaks the audit lock — Superuser only (consistent with delete rights).
-        if (!_companyScope.IsSuperUser())
-            return Forbid();
+        var result = await _mediator.Send(new ReopenMaintenanceCommand(id, GetCurrentUserId()));
 
-        var m = await _context.AssetMaintenances.FirstOrDefaultAsync(x => x.Id == id && x.DeletedAt == null);
-        if (m == null) return NotFound(new { status = "error", message = "Maintenance not found." });
-        if (!m.IsClosed)
-            return BadRequest(new { status = "error", message = "Bản ghi chưa đóng.", error_code = "MAINTENANCE_NOT_CLOSED" });
-
-        m.IsClosed = false;
-        // Keep ClosedAt/ClosedById — they record the most recent close (each cycle is audited in ActionLog).
-        m.UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
-
-        _actionLogService.Log(new ActionLogEntry
+        if (!result.Success)
         {
-            ItemType = ItemType.AssetMaintenance,
-            ItemId = id,
-            ActionType = ActionType.Reopen,
-            CreatedBy = GetCurrentUserId(),
-            CompanyId = m.CompanyId,
-            Note = $"Mở lại bảo trì \"{m.Title}\" (superuser)"
-        });
-        await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Đã mở lại bảo trì.", data = new { m.Id, m.IsClosed, m.ClosedAt, m.ClosedById } });
+            if (result.ErrorCode == "NOT_FOUND")
+                return NotFound(new { status = "error", message = result.Message });
+            if (result.ErrorCode == "FORBIDDEN")
+                return Forbid();
+            return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        }
+
+        return Ok(new { status = "success", message = result.Message, data = new { result.MaintenanceId, result.IsClosed, result.ClosedAt, result.ClosedById } });
     }
 
     // ==================== Assignee helpers (moved to Application in subtask C) ====================
