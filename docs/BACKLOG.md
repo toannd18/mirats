@@ -263,3 +263,25 @@
   `SaveChanges` join vào, behavior stage log + save + commit 1 lần → data+log atomic, đúng
   playbook §4); quyết định giữ note/LogMeta nào trong 2 bản hiện tại (controller bản tiếng
   Việt vs handler bản tiếng Anh + LogMeta chi tiết).
+
+---
+
+## INFRA-2 — 6 file PNG evidence (root) phát hiện mất khỏi working tree, không rõ thời điểm (ghi riêng, KHÔNG gộp vào INFRA-1)
+
+- **Trạng thái:** RESOLVED (file) / OPEN (nguyên nhân) — phát hiện trong subtask A (Giai đoạn 3,
+  nhóm Rất nặng), khôi phục 100% từ git blob ngay trong phiên (`git checkout HEAD --`,
+  verify size + `git status` sạch)
+- **Hiện tượng:** 6 file PNG ở repo root (`mc8_template_builder_nested.png`,
+  `mc8b_after_expand.png`, `mc8b_after_form.png`, `qa7d_campaign_3of3.png`,
+  `qa7d_campaign_detail.png`, `qa7d_template_builder.png` — evidence QA đợt MC-7d/MC-8/MC-9,
+  commit `4c08d9b` ngày 2026-08-29) ở trạng thái `" D"` (mất khỏi working tree, chưa stage),
+  `Test-Path` xác nhận vật lý không còn, `git diff HEAD` = N bytes → 0.
+- **Vì sao TÁCH RIÊNG khỏi INFRA-1:** 2 vụ INFRA-1 trước (31-file loss, AdminController revert)
+  có timeline rõ ràng — xảy ra GIỮA lúc agent đang thao tác, có thể liên hệ với Docker sập
+  cùng thời điểm. Vụ này KHÔNG xác định được thời điểm xóa (đã tồn tại ở `git status` đầu
+  tiên của phiên, trước mọi sửa code — có thể tiền-phiên: dọn tay, session agent khác, hoặc
+  tác nhân ngoài). Gộp chung khi thiếu bằng chứng nhân quả sẽ làm loãng độ tin cậy của
+  chính record INFRA-1.
+- **Loại trừ nguyên nhân agent hiện tại:** toàn bộ lệnh destructive-capable trong phiên chỉ gồm
+  `Remove-Item` target `apphost.log` trong thư mục temp + `git add/commit` với path liệt kê
+  tường minh (.cs + BACKLOG.md); không `git clean/checkout/restore/rm`, không script quét ảnh.
