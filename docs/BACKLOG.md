@@ -236,6 +236,12 @@
   rà `.wslconfig` (memory/CPU); (3) giữ quy trình `git status` audit sau mỗi batch (đã áp dụng);
   (4) nếu tái diễn lần 4+ → đọc sâu Docker host logs + Windows Reliability Monitor + cân nhắc
   reinstall WSL2.
+- **Tái diễn lần 4 (2026-09-04, subtask B post-verify):** engine mất đột ngột giữa phiên —
+  `docker version` chỉ còn Client (không Server section), `docker ps` rỗng, AppHost + API chết
+  theo; volumes/dữ liệu nguyên vẹn; `Docker Desktop.exe` start lại → engine lên trong ~1 phút
+  (đúng pattern 3 lần trước). Docker Desktop vẫn 29.6.2 / 4.84.0 — khuyến nghị (1)(2) vẫn chưa
+  thực hiện. Lần 4 cùng lớp WSL2-instability, KHÔNG kèm file anomaly (xác nhận tách bạch với
+  INFRA-2: tree sạch sau restart).
 
 ---
 
