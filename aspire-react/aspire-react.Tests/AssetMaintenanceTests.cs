@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.AssetMaintenances.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -98,7 +99,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(CreateMaintenance_SnapshotsBothSystemLevels_AndContext));
         var (assetId, sysInfo, pos, loc, dept, user) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
 
         var result = await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Maintenance, "Bảo trì định kỳ", null, null,
@@ -126,7 +127,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(Snapshot_IsFrozen_AfterAssetMoves));
         var (assetId, sysInfo, pos, loc, dept, user) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Repair, "Sửa nguồn", null, null, DateTime.UtcNow, DateTime.UtcNow.AddDays(1), 50m, true));
 
@@ -153,7 +154,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(CreateMaintenance_IncidentReport_WorksLikeOthers));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
 
         var result = await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.IncidentReport, "Phát hiện sự cố", "chờ xử lý", null,
@@ -173,7 +174,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(CreateMaintenance_CompletionBeforeStart_Rejected));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
 
         var result = await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Repair, "Sửa", null, null,
@@ -188,7 +189,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(UpdateMaintenance_LockedStartDate_RejectedWithFieldLocked));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Maintenance, "Bảo trì", null, null, DateTime.UtcNow, null, null, false));
         var m = await ctx.AssetMaintenances.SingleAsync(x => x.AssetId == assetId);
@@ -204,7 +205,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(UpdateMaintenance_AllowsWhitelistFields));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Maintenance, "Bảo trì", null, null, DateTime.UtcNow, null, null, false));
         var m = await ctx.AssetMaintenances.SingleAsync(x => x.AssetId == assetId);
@@ -229,7 +230,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(DeleteMaintenance_NonSuperuser_Forbidden));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = false }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = false }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Maintenance, "Bảo trì", null, null, DateTime.UtcNow, null, null, false));
         var m = await ctx.AssetMaintenances.SingleAsync(x => x.AssetId == assetId);
@@ -246,7 +247,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(DeleteMaintenance_Superuser_Succeeds_AndLogsContent));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Repair, "Sửa nguồn", "hỏng nguồn", null, DateTime.UtcNow, null, 80m, false));
         var m = await ctx.AssetMaintenances.SingleAsync(x => x.AssetId == assetId);
@@ -297,7 +298,7 @@ public class AssetMaintenanceTests
         ctx.Companies.Add(company);
         await ctx.SaveChangesAsync();
         var assetId = await SeedAssetWithCompanyAsync(ctx, company.Id);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
 
         var result = await controller.CreateForAsset(new CreateAssetMaintenanceForAssetRequest(
             assetId, AssetMaintenanceType.Repair, "Sửa", null, null, DateTime.UtcNow, null, 10m, false));
@@ -320,13 +321,12 @@ public class AssetMaintenanceTests
         await SeedMaintenanceAsync(ctx, assetA, companyA.Id, "MAINT-A");
         await SeedMaintenanceAsync(ctx, assetB, companyB.Id, "MAINT-B");
 
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = false, CompanyId = companyA.Id }, TestHelpers.CreateActionLogService(ctx));
-        var result = await controller.GetAllMaintenances(assetId: null, page: 1, pageSize: 20);
+        // [Subtask A] Reads drive the Query handlers directly (scope lives in handlers).
+        var handler = new ListAllMaintenancesQueryHandler(ctx, new FakeScope { Super = false, CompanyId = companyA.Id });
+        var result = await handler.Handle(new ListAllMaintenancesQuery(null, null), CancellationToken.None);
 
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var (count, firstTitle) = ReadDataItems(ok.Value);
-        Assert.Equal(1, count);
-        Assert.Equal("MAINT-A", firstTitle);
+        Assert.Equal(1, result.Items.Count);
+        Assert.Equal("MAINT-A", result.Items[0].Title);
     }
 
 
@@ -341,10 +341,12 @@ public class AssetMaintenanceTests
         var assetB = await SeedAssetWithCompanyAsync(ctx, companyB.Id);
         var maintenanceId = await SeedMaintenanceAsync(ctx, assetB, companyB.Id, "MAINT-B");
 
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = false, CompanyId = companyA.Id }, TestHelpers.CreateActionLogService(ctx));
-        var result = await controller.GetMaintenance(maintenanceId);
+        // [Subtask A] Out-of-scope detail → FORBIDDEN (controller maps to Forbid() 403, verbatim).
+        var handler = new GetMaintenanceByIdQueryHandler(ctx, new FakeScope { Super = false, CompanyId = companyA.Id });
+        var result = await handler.Handle(new GetMaintenanceByIdQuery(maintenanceId), CancellationToken.None);
 
-        Assert.IsType<ForbidResult>(result);
+        Assert.Equal("FORBIDDEN", result.ErrorCode);
+        Assert.Null(result.Detail);
     }
 
     [Fact]
@@ -357,7 +359,7 @@ public class AssetMaintenanceTests
         await ctx.SaveChangesAsync();
         var assetB = await SeedAssetWithCompanyAsync(ctx, companyB.Id);
 
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = false, CompanyId = companyA.Id }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = false, CompanyId = companyA.Id }, TestHelpers.CreateActionLogService(ctx));
         var result = await controller.CreateForAsset(new CreateAssetMaintenanceForAssetRequest(
             assetB, AssetMaintenanceType.Repair, "Sửa", null, null, DateTime.UtcNow, null, null, false));
 
@@ -377,11 +379,10 @@ public class AssetMaintenanceTests
         await SeedMaintenanceAsync(ctx, assetA, companyA.Id, "MAINT-A");
         await SeedMaintenanceAsync(ctx, assetB, companyB.Id, "MAINT-B");
 
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
-        var result = await controller.GetAllMaintenances(assetId: null, page: 1, pageSize: 20);
+        var handler = new ListAllMaintenancesQueryHandler(ctx, new FakeScope { Super = true });
+        var result = await handler.Handle(new ListAllMaintenancesQuery(null, null), CancellationToken.None);
 
-        var ok = Assert.IsType<OkObjectResult>(result);
-        Assert.Equal(2, ReadDataItems(ok.Value).Count);
+        Assert.Equal(2, result.Items.Count);
     }
 
     [Fact]
@@ -393,7 +394,7 @@ public class AssetMaintenanceTests
         await ctx.SaveChangesAsync();
         var assetId = await SeedAssetWithCompanyAsync(ctx, company.Id);
         var maintenanceId = await SeedMaintenanceAsync(ctx, assetId, company.Id, "MAINT-A");
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
 
         // CompanyId is not part of the update DTO — a client cannot change it.
         var result = await controller.Update(maintenanceId, new UpdateAssetMaintenanceRequest(Title: "Đổi tên"));
@@ -428,7 +429,7 @@ public class AssetMaintenanceTests
         var maintenanceId = await SeedMaintenanceAsync(ctx, assetId, company.Id, "MAINT-A");
         var (u1, u2, u3, u4, u5, u6) = await SeedSixUsersAsync(ctx, company.Id);
 
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         var result = await controller.Update(maintenanceId,
             new UpdateAssetMaintenanceRequest(AssigneeUserIds: new[] { u1, u2, u3, u4, u5, u6 }));
 
@@ -448,7 +449,7 @@ public class AssetMaintenanceTests
         var maintenanceId = await SeedMaintenanceAsync(ctx, assetId, company.Id, "MAINT-A");
         var (u1, u2, u3, u4, u5, _) = await SeedSixUsersAsync(ctx, company.Id);
 
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         var result = await controller.Update(maintenanceId,
             new UpdateAssetMaintenanceRequest(AssigneeUserIds: new[] { u1, u2, u3, u4, u5 }));
         Assert.IsType<OkObjectResult>(result);
@@ -458,12 +459,10 @@ public class AssetMaintenanceTests
         Assert.Equal(5, rows.Select(r => r.UserId).Distinct().Count());
 
         // The detail projection must expose the assignees (name + userId + assignedAt).
-        var detail = await controller.GetMaintenance(maintenanceId);
-        var dok = Assert.IsType<OkObjectResult>(detail);
-        using var doc = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(dok.Value,
-            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
-        var assignees = doc.RootElement.GetProperty("data").GetProperty("assignees");
-        Assert.Equal(5, assignees.GetArrayLength());
+        var detailHandler = new GetMaintenanceByIdQueryHandler(ctx, new FakeScope { Super = true });
+        var detailResult = await detailHandler.Handle(new GetMaintenanceByIdQuery(maintenanceId), CancellationToken.None);
+        Assert.Null(detailResult.ErrorCode);
+        Assert.Equal(5, detailResult.Detail!.Assignees.Count);
     }
 
     [Fact]
@@ -477,7 +476,7 @@ public class AssetMaintenanceTests
         var maintenanceId = await SeedMaintenanceAsync(ctx, assetId, company.Id, "MAINT-A");
 
         // Hoàn thành (CompletionDate set) but NOT inspected → close must be rejected.
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Update(maintenanceId, new UpdateAssetMaintenanceRequest(CompletionDate: DateTime.UtcNow));
 
         var result = await controller.Close(maintenanceId);
@@ -498,7 +497,7 @@ public class AssetMaintenanceTests
         await ctx.SaveChangesAsync();
         var assetId = await SeedAssetWithCompanyAsync(ctx, company.Id);
         var maintenanceId = await SeedMaintenanceAsync(ctx, assetId, company.Id, "MAINT-A");
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
 
         var result = await controller.Inspect(maintenanceId);
         var bad = Assert.IsType<BadRequestObjectResult>(result);
@@ -518,7 +517,7 @@ public class AssetMaintenanceTests
         var assetId = await SeedAssetWithCompanyAsync(ctx, company.Id);
         var maintenanceId = await SeedMaintenanceAsync(ctx, assetId, company.Id, "MAINT-A");
         var currentUser = new FakeCurrentUser();
-        var controller = new AssetMaintenancesController(ctx, currentUser, new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, currentUser, new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
 
         // Step 1 — Hoàn thành (set CompletionDate through the whitelist update).
         var upd = await controller.Update(maintenanceId, new UpdateAssetMaintenanceRequest(CompletionDate: DateTime.UtcNow));
@@ -559,7 +558,7 @@ public class AssetMaintenanceTests
         var assetId = await SeedAssetWithCompanyAsync(ctx, company.Id);
         var maintenanceId = await SeedMaintenanceAsync(ctx, assetId, company.Id, "MAINT-A");
         var (u1, _, _, _, _, _) = await SeedSixUsersAsync(ctx, company.Id);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
 
         await controller.Update(maintenanceId, new UpdateAssetMaintenanceRequest(CompletionDate: DateTime.UtcNow));
         await controller.Inspect(maintenanceId);
@@ -586,7 +585,7 @@ public class AssetMaintenanceTests
         await ctx.SaveChangesAsync();
 
         // A regular user of company A may not assign a company-B user to an A-scoped record.
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(),
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(),
             new FakeScope { Super = false, CompanyId = companyA.Id }, TestHelpers.CreateActionLogService(ctx));
         var result = await controller.Update(maintenanceId, new UpdateAssetMaintenanceRequest(AssigneeUserIds: new[] { userB.Id }));
         var bad = Assert.IsType<BadRequestObjectResult>(result);
@@ -608,7 +607,7 @@ public class AssetMaintenanceTests
         await ctx.SaveChangesAsync();
 
         // Superuser is not restricted by company for assignees.
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         var result = await controller.Update(maintenanceId, new UpdateAssetMaintenanceRequest(AssigneeUserIds: new[] { userB.Id }));
         Assert.IsType<OkObjectResult>(result);
         Assert.Single(await ctx.AssetMaintenanceAssignees.Where(a => a.MaintenanceId == maintenanceId).ToListAsync());
@@ -624,7 +623,7 @@ public class AssetMaintenanceTests
         var assetId = await SeedAssetWithCompanyAsync(ctx, company.Id);
         var (u1, u2, _, _, _, _) = await SeedSixUsersAsync(ctx, company.Id);
         var currentUser = new FakeCurrentUser();
-        var controller = new AssetMaintenancesController(ctx, currentUser, new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, currentUser, new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
 
         var result = await controller.CreateForAsset(new CreateAssetMaintenanceForAssetRequest(
             assetId, AssetMaintenanceType.Repair, "Sửa", null, null, DateTime.UtcNow, null, null, false, new[] { u1, u2 }));
@@ -635,13 +634,11 @@ public class AssetMaintenanceTests
 
         Assert.Equal(2, await ctx.AssetMaintenanceAssignees.CountAsync(a => a.MaintenanceId == id));
 
-        var detail = await controller.GetMaintenance(id);
-        var dok = Assert.IsType<OkObjectResult>(detail);
-        using var doc = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(dok.Value,
-            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
-        var assignees = doc.RootElement.GetProperty("data").GetProperty("assignees");
-        Assert.Equal(2, assignees.GetArrayLength());
-        Assert.Equal("Worker1 A", assignees[0].GetProperty("name").GetString());
+        var detailHandler = new GetMaintenanceByIdQueryHandler(ctx, new FakeScope { Super = true });
+        var detailResult = await detailHandler.Handle(new GetMaintenanceByIdQuery(id), CancellationToken.None);
+        Assert.Null(detailResult.ErrorCode);
+        Assert.Equal(2, detailResult.Detail!.Assignees.Count);
+        Assert.Equal("Worker1 A", detailResult.Detail.Assignees[0].Name);
     }
 
     // ==================== Close / Reopen (audit-trail lock) ====================
@@ -651,7 +648,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(CloseMaintenance_NotCompleted_RejectedWithNotCompletedYet));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Maintenance, "Bảo trì", null, null, DateTime.UtcNow, CompletionDate: null, null, false));
         var m = await ctx.AssetMaintenances.SingleAsync(x => x.AssetId == assetId);
@@ -670,7 +667,7 @@ public class AssetMaintenanceTests
         await using var ctx = CreateContext(nameof(CloseMaintenance_Completed_SetsClosedAndLogsClose));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
         var user = new FakeCurrentUser();
-        var controller = new AssetMaintenancesController(ctx, user, new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, user, new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Repair, "Sửa nguồn", null, null, DateTime.UtcNow, DateTime.UtcNow.AddDays(1), 50m, false));
         var m = await ctx.AssetMaintenances.SingleAsync(x => x.AssetId == assetId);
@@ -691,7 +688,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(UpdateMaintenance_ClosedRecord_RejectedWithClosed));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Maintenance, "Bảo trì", null, null, DateTime.UtcNow, DateTime.UtcNow.AddDays(1), null, false));
         var m = await ctx.AssetMaintenances.SingleAsync(x => x.AssetId == assetId);
@@ -710,14 +707,14 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(ReopenMaintenance_RegularUser_Forbidden));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Maintenance, "Bảo trì", null, null, DateTime.UtcNow, DateTime.UtcNow.AddDays(1), null, false));
         var m = await ctx.AssetMaintenances.SingleAsync(x => x.AssetId == assetId);
         await controller.Inspect(m.Id); // required pre-close step
         await controller.Close(m.Id);
 
-        var regular = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = false }, TestHelpers.CreateActionLogService(ctx));
+        var regular = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = false }, TestHelpers.CreateActionLogService(ctx));
         var result = await regular.Reopen(m.Id);
 
         Assert.IsType<ForbidResult>(result);
@@ -729,7 +726,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(ReopenMaintenance_Superuser_Succeeds_AndLogsReopen));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Maintenance, "Bảo trì", null, null, DateTime.UtcNow, DateTime.UtcNow.AddDays(1), null, false));
         var m = await ctx.AssetMaintenances.SingleAsync(x => x.AssetId == assetId);
@@ -751,7 +748,7 @@ public class AssetMaintenanceTests
     {
         await using var ctx = CreateContext(nameof(GetMaintenance_CurrentContext_ReflectsLiveAsset_NotSnapshot));
         var (assetId, sysInfo, pos, loc, dept, user) = await SeedAssetAsync(ctx);
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+        var controller = new AssetMaintenancesController(new TestHelpers.ThrowingMediator(), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
             AssetMaintenanceType.Maintenance, "Bảo trì", null, null, DateTime.UtcNow, DateTime.UtcNow.AddDays(1), null, false));
         var m = await ctx.AssetMaintenances.SingleAsync(x => x.AssetId == assetId);
@@ -783,63 +780,25 @@ public class AssetMaintenanceTests
         asset.CurrentAssignmentId = newAsgn.Id;
         await ctx.SaveChangesAsync();
 
-        var result = await controller.GetMaintenance(m.Id);
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var cc = ReadCurrentContext(ok.Value);
-        var snap = ReadSnapshotFields(ok.Value);
+        var detailHandler = new GetMaintenanceByIdQueryHandler(ctx, new FakeScope { Super = true });
+        var detailResult = await detailHandler.Handle(new GetMaintenanceByIdQuery(m.Id), CancellationToken.None);
+        Assert.Null(detailResult.ErrorCode);
+        var detail = detailResult.Detail!;
+        var cc = detail.CurrentContext;
 
         // Snapshot* stays frozen at creation time.
-        Assert.Equal(sysInfo.Id, snap.SysInfoId);
-        Assert.Equal(pos.Id, snap.PosId);
-        Assert.Equal(loc.Id, snap.LocId);
-        Assert.Equal(user.Id, snap.UserId);
-        Assert.Equal(dept.Id, snap.DeptId);
+        Assert.Equal(sysInfo.Id, detail.SnapshotSystemInfoId);
+        Assert.Equal(pos.Id, detail.SnapshotSystemPositionId);
+        Assert.Equal(loc.Id, detail.SnapshotLocationId);
+        Assert.Equal(user.Id, detail.SnapshotAssignedUserId);
+        Assert.Equal(dept.Id, detail.SnapshotDepartmentId);
         // currentContext reflects the LIVE state of the asset (computed on the fly).
-        Assert.Equal(newSys.Id, cc.SysInfoId);
-        Assert.Equal(newPos.Id, cc.PosId);
-        Assert.Equal(newLoc.Id, cc.LocId);
-        Assert.Equal(newUser.Id, cc.UserId);
-        Assert.Equal(newDept.Id, cc.DeptId);
+        Assert.Equal(newSys.Id, cc.SystemInfoId);
+        Assert.Equal(newPos.Id, cc.SystemPositionId);
+        Assert.Equal(newLoc.Id, cc.LocationId);
+        Assert.Equal(newUser.Id, cc.AssignedUserId);
+        Assert.Equal(newDept.Id, cc.DepartmentId);
     }
-
-    private static (int Count, string FirstTitle) ReadDataItems(object? value)
-    {
-        using var doc = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(value, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
-        var count = 0;
-        var firstTitle = string.Empty;
-        foreach (var item in doc.RootElement.GetProperty("data").EnumerateArray())
-        {
-            if (count == 0)
-                firstTitle = item.GetProperty("title").GetString() ?? string.Empty;
-            count++;
-        }
-        return (count, firstTitle);
-    }
-
-    private static (Guid? SysInfoId, Guid? PosId, Guid? LocId, Guid? UserId, Guid? DeptId) ReadCurrentContext(object? value)
-    {
-        using var doc = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(value, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
-        var cur = doc.RootElement.GetProperty("data").GetProperty("currentContext");
-        return (
-            ParseGuid(cur, "systemInfoId"), ParseGuid(cur, "systemPositionId"),
-            ParseGuid(cur, "locationId"), ParseGuid(cur, "assignedUserId"),
-            ParseGuid(cur, "departmentId"));
-    }
-
-    private static (Guid? SysInfoId, Guid? PosId, Guid? LocId, Guid? UserId, Guid? DeptId) ReadSnapshotFields(object? value)
-    {
-        using var doc = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(value, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
-        var data = doc.RootElement.GetProperty("data");
-        return (
-            ParseGuid(data, "snapshotSystemInfoId"), ParseGuid(data, "snapshotSystemPositionId"),
-            ParseGuid(data, "snapshotLocationId"), ParseGuid(data, "snapshotAssignedUserId"),
-            ParseGuid(data, "snapshotDepartmentId"));
-    }
-
-    private static Guid? ParseGuid(System.Text.Json.JsonElement el, string prop)
-        => el.TryGetProperty(prop, out var e) && e.ValueKind == System.Text.Json.JsonValueKind.String
-            ? Guid.Parse(e.GetString()!)
-            : (Guid?)null;
 
     private static string ReadErrorCode(object? value)
     {

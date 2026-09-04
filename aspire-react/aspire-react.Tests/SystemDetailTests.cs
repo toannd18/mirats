@@ -1,4 +1,5 @@
 using System.Text.Json;
+using aspire_react.Server.Application.AssetMaintenances.Queries;
 using aspire_react.Server.Application.SystemInfos.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -377,13 +378,13 @@ public class SystemDetailTests
         });
         await ctx.SaveChangesAsync();
 
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new CompanyScopeFake { Super = true }, TestHelpers.CreateActionLogService(ctx));
-        var result = await controller.GetAllMaintenances(assetId: null, systemInfoId: sysA.Id);
+        // [Subtask A] Reads drive the Query handler directly.
+        var handler = new ListAllMaintenancesQueryHandler(ctx, new CompanyScopeFake { Super = true });
+        var result = await handler.Handle(new ListAllMaintenancesQuery(null, sysA.Id), CancellationToken.None);
 
-        var arr = OkData(result).EnumerateArray().ToList();
-        Assert.Single(arr);
-        Assert.Equal("Bảo trì hệ thống A", arr[0].GetProperty("title").GetString());
-        Assert.Equal(sysA.Id, arr[0].GetProperty("snapshotSystemInfoId").GetGuid());
+        var item = Assert.Single(result.Items);
+        Assert.Equal("Bảo trì hệ thống A", item.Title);
+        Assert.Equal(sysA.Id, item.SnapshotSystemInfoId);
     }
 
     [Fact]
@@ -414,12 +415,11 @@ public class SystemDetailTests
         // The systemInfoId filter rides the SAME company gate as the plain list — proven by
         // GetAllMaintenances_Superuser_SeesAllCompanies (AssetMaintenanceTests): superuser →
         // GetCurrentUserCompanyIdAsync() returns null → the company filter branch is skipped.
-        var controller = new AssetMaintenancesController(ctx, new FakeCurrentUser(), new CompanyScopeFake { Super = true }, TestHelpers.CreateActionLogService(ctx));
-        var result = await controller.GetAllMaintenances(assetId: null, systemInfoId: sysB.Id);
+        var handler = new ListAllMaintenancesQueryHandler(ctx, new CompanyScopeFake { Super = true });
+        var result = await handler.Handle(new ListAllMaintenancesQuery(null, sysB.Id), CancellationToken.None);
 
-        var arr = OkData(result).EnumerateArray().ToList();
-        Assert.Single(arr);
-        Assert.Equal("Bảo trì công ty B", arr[0].GetProperty("title").GetString());
-        Assert.Equal(sysB.Id, arr[0].GetProperty("snapshotSystemInfoId").GetGuid());
+        var item = Assert.Single(result.Items);
+        Assert.Equal("Bảo trì công ty B", item.Title);
+        Assert.Equal(sysB.Id, item.SnapshotSystemInfoId);
     }
 }

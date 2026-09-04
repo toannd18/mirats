@@ -1,10 +1,12 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using aspire_react.Server.Application.AssetMaintenances.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Persistence;
 using aspire_react.Server.Infrastructure.Services;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,15 +15,23 @@ namespace aspire_react.Server.Web.Controllers;
 
 [ApiController]
 [Route("api/v1")]
+/// <summary>
+/// [Giai đoạn 3 — Rất nặng] AssetMaintenances MediatR migration (subtask A: reads).
+/// Reads (asset-scoped list / aggregated list / detail) là thin mapping qua Queries;
+/// writes (Create/Update/Delete/Close/Inspect/Reopen) GIỮ NGUYÊN inline cho subtask B/C/D.
+/// Parity trap (a): reads out-of-scope → Forbid() 403, Update → 404 — giữ nguyên từng endpoint.
+/// </summary>
 public class AssetMaintenancesController : ControllerBase
 {
+    private readonly IMediator _mediator;
     private readonly AppDbContext _context;
     private readonly ICurrentUserService _currentUserService;
     private readonly ICompanyScopeService _companyScope;
     private readonly IActionLogService _actionLogService;
 
-    public AssetMaintenancesController(AppDbContext context, ICurrentUserService currentUserService, ICompanyScopeService companyScope, IActionLogService actionLogService)
+    public AssetMaintenancesController(IMediator mediator, AppDbContext context, ICurrentUserService currentUserService, ICompanyScopeService companyScope, IActionLogService actionLogService)
     {
+        _mediator = mediator;
         _context = context;
         _currentUserService = currentUserService;
         _companyScope = companyScope;
@@ -37,177 +47,56 @@ public class AssetMaintenancesController : ControllerBase
     private Task<Guid?> GetUserCompanyIdAsync() => _companyScope.GetCurrentUserCompanyIdAsync();
 
     // ==================== LIST (asset-scoped — used by the Asset detail card) ====================
+    // [Subtask A] Thin MediatR mapping over ListAssetMaintenancesQuery (scope + shape verbatim
+    // trong handler; out-of-scope → Forbid() 403, verbatim trap (a)).
 
     [HttpGet("assets/{assetId:guid}/maintenances")]
     [Authorize(Policy = "assets.view")]
     public async Task<IActionResult> GetMaintenances(Guid assetId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        var userCompanyId = await GetUserCompanyIdAsync();
-        var asset = await _context.Assets.AsNoTracking()
-            .Select(a => new { a.Id, a.CompanyId })
-            .FirstOrDefaultAsync(a => a.Id == assetId);
-        if (asset == null)
+        var result = await _mediator.Send(new ListAssetMaintenancesQuery(assetId, page, pageSize));
+        if (result.ErrorCode == "NOT_FOUND")
             return NotFound(new { status = "error", message = "Asset not found." });
-        // Regular users may only view maintenances of assets in their own company (floater assets
-        // with no company are visible to everyone).
-        if (userCompanyId.HasValue && asset.CompanyId.HasValue && asset.CompanyId.Value != userCompanyId.Value)
+        if (result.ErrorCode == "FORBIDDEN")
             return Forbid();
 
-        var query = _context.AssetMaintenances.AsNoTracking()
-            .Include(m => m.Supplier)
-            .Include(m => m.Asset)
-            .Include(m => m.InspectedBy)
-            .Include(m => m.Assignees).ThenInclude(a => a.User)
-            .Where(m => m.AssetId == assetId && m.DeletedAt == null);
-
-        var total = await query.CountAsync();
-        var items = await query.OrderByDescending(m => m.StartDate).ThenByDescending(m => m.CreatedAt)
-            .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(m => new
-            {
-                m.Id,
-                Type = m.Type.ToString(),
-                m.Title,
-                m.Notes,
-                m.StartDate,
-                m.CompletionDate,
-                m.Cost,
-                m.IsWarranty,
-                m.CompanyId,
-                Supplier = m.Supplier == null ? null : new { m.Supplier.Id, m.Supplier.Name },
-                Asset = new { m.Asset.Id, m.Asset.AssetTag, m.Asset.Name },
-                m.SnapshotSystemInfoId,
-                m.SnapshotSystemInfoName,
-                m.SnapshotSystemPositionId,
-                m.SnapshotSystemPositionName,
-                m.SnapshotLocationId,
-                m.SnapshotLocationName,
-                m.SnapshotAssignedUserId,
-                m.SnapshotAssignedUserName,
-                m.SnapshotDepartmentId,
-                m.SnapshotDepartmentName,
-                m.InspectedById,
-                m.InspectedAt,
-                InspectedByName = m.InspectedBy != null
-                    ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() != "" ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() : m.InspectedBy.Username
-                    : null,
-                Assignees = m.Assignees.OrderBy(a => a.AssignedAt).Select(a => new
-                {
-                    a.UserId,
-                    Name = (a.User.FirstName + " " + a.User.LastName).Trim() != "" ? (a.User.FirstName + " " + a.User.LastName).Trim() : a.User.Username,
-                    a.AssignedAt
-                }),
-                m.CreatedAt,
-                m.UpdatedAt
-            }).ToListAsync();
-
-        return Ok(new { status = "success", data = items, pagination = new { page, pageSize, totalItems = total, totalPages = (int)Math.Ceiling((double)total / pageSize), hasNextPage = page * pageSize < total, hasPreviousPage = page > 1 } });
+        return Ok(new { status = "success", data = result.Items, pagination = new { page, pageSize, totalItems = result.Total, totalPages = (int)Math.Ceiling((double)result.Total / pageSize), hasNextPage = page * pageSize < result.Total, hasPreviousPage = page > 1 } });
     }
 
     // ==================== LIST (aggregated — used by /maintenances page; company-scoped) ====================
+    // [Subtask A] Thin MediatR mapping over ListAllMaintenancesQuery (filters + scope verbatim).
 
     [HttpGet("maintenances")]
     [Authorize(Policy = "assets.view")]
     public async Task<IActionResult> GetAllMaintenances([FromQuery] Guid? assetId, [FromQuery] Guid? systemInfoId = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        var userCompanyId = await GetUserCompanyIdAsync();
+        var result = await _mediator.Send(new ListAllMaintenancesQuery(assetId, systemInfoId, page, pageSize));
 
-        var query = _context.AssetMaintenances.AsNoTracking()
-            .Include(m => m.Supplier)
-            .Include(m => m.Asset)
-            .Include(m => m.Asset.Company)
-            .Include(m => m.InspectedBy)
-            .Include(m => m.Assignees).ThenInclude(a => a.User)
-            .Where(m => m.DeletedAt == null);
-        if (assetId.HasValue)
-            query = query.Where(m => m.AssetId == assetId.Value);
-        // System-scoped filter (SystemDetailPage Maintenance tab): the maintenance record belongs to
-        // the system the asset was in AT CREATION TIME (immutable SnapshotSystemInfoId). This keeps
-        // the historical view correct even if the asset has been re-parented since.
-        if (systemInfoId.HasValue)
-            query = query.Where(m => m.SnapshotSystemInfoId == systemInfoId.Value);
-        // Regular users only see records of their own company (floater records with no company
-        // are visible to everyone); Superuser sees all.
-        if (userCompanyId.HasValue)
-            query = query.Where(m => m.CompanyId == userCompanyId.Value || m.CompanyId == Guid.Empty);
-
-        var total = await query.CountAsync();
-        var items = await query.OrderByDescending(m => m.StartDate).ThenByDescending(m => m.CreatedAt)
-            .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(m => new
-            {
-                m.Id,
-                Type = m.Type.ToString(),
-                m.Title,
-                m.Notes,
-                m.StartDate,
-                m.CompletionDate,
-                m.Cost,
-                m.IsWarranty,
-                m.IsClosed,
-                m.CompanyId,
-                Supplier = m.Supplier == null ? null : new { m.Supplier.Id, m.Supplier.Name },
-                Asset = new { m.Asset.Id, m.Asset.AssetTag, m.Asset.Name, CompanyName = m.Asset.Company != null ? m.Asset.Company.Name : (string?)null },
-                m.SnapshotSystemInfoId,
-                m.SnapshotSystemInfoName,
-                m.SnapshotSystemPositionId,
-                m.SnapshotSystemPositionName,
-                m.SnapshotLocationId,
-                m.SnapshotLocationName,
-                m.SnapshotAssignedUserId,
-                m.SnapshotAssignedUserName,
-                m.SnapshotDepartmentId,
-                m.SnapshotDepartmentName,
-                m.InspectedById,
-                m.InspectedAt,
-                InspectedByName = m.InspectedBy != null
-                    ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() != "" ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() : m.InspectedBy.Username
-                    : null,
-                Assignees = m.Assignees.OrderBy(a => a.AssignedAt).Select(a => new
-                {
-                    a.UserId,
-                    Name = (a.User.FirstName + " " + a.User.LastName).Trim() != "" ? (a.User.FirstName + " " + a.User.LastName).Trim() : a.User.Username,
-                    a.AssignedAt
-                }),
-                m.CreatedAt,
-                m.UpdatedAt
-            }).ToListAsync();
-
-        return Ok(new { status = "success", data = items, pagination = new { page, pageSize, totalItems = total, totalPages = (int)Math.Ceiling((double)total / pageSize), hasNextPage = page * pageSize < total, hasPreviousPage = page > 1 } });
+        return Ok(new { status = "success", data = result.Items, pagination = new { page, pageSize, totalItems = result.Total, totalPages = (int)Math.Ceiling((double)result.Total / pageSize), hasNextPage = page * pageSize < result.Total, hasPreviousPage = page > 1 } });
     }
 
     // ==================== DETAIL ====================
+    // [Subtask A] Thin MediatR mapping over GetMaintenanceByIdQuery (scope + currentContext
+    // verbatim trong handler; out-of-scope → Forbid() 403, verbatim trap (a)).
 
     [HttpGet("maintenances/{id:guid}")]
     [Authorize(Policy = "assets.view")]
     public async Task<IActionResult> GetMaintenance(Guid id)
     {
-        var m = await _context.AssetMaintenances.AsNoTracking()
-            .Include(x => x.Supplier)
-            .Include(x => x.Asset.SystemPosition).ThenInclude(sp => sp.SystemInfo)
-            .Include(x => x.Asset.Location)
-            .Include(x => x.Asset.CurrentAssignment)
-            .Include(x => x.InspectedBy)
-            .Include(x => x.Assignees).ThenInclude(a => a.User)
-            .FirstOrDefaultAsync(x => x.Id == id && x.DeletedAt == null);
-        if (m == null) return NotFound(new { status = "error", message = "Maintenance not found." });
-
-        // 403 (not 404): the record exists but the regular user's company cannot view it.
-        var userCompanyId = await GetUserCompanyIdAsync();
-        if (userCompanyId.HasValue && m.CompanyId != userCompanyId.Value && m.CompanyId != Guid.Empty)
+        var result = await _mediator.Send(new GetMaintenanceByIdQuery(id));
+        if (result.ErrorCode == "NOT_FOUND")
+            return NotFound(new { status = "error", message = "Maintenance not found." });
+        if (result.ErrorCode == "FORBIDDEN")
             return Forbid();
 
-        // LIVE context of the asset RIGHT NOW (computed on the fly, never stored) so viewers can
-        // compare "how it was during maintenance" (Snapshot*) vs "how it is today".
-        var cur = await BuildSnapshotAsync(m.Asset, CancellationToken.None);
-
+        var m = result.Detail!;
         return Ok(new
         {
             status = "success",
             data = new
             {
                 m.Id,
-                Type = m.Type.ToString(),
+                m.Type,
                 m.Title,
                 m.Notes,
                 m.StartDate,
@@ -232,29 +121,27 @@ public class AssetMaintenancesController : ControllerBase
                 m.SnapshotDepartmentName,
                 m.InspectedById,
                 m.InspectedAt,
-                InspectedByName = m.InspectedBy != null
-                ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() != "" ? (m.InspectedBy.FirstName + " " + m.InspectedBy.LastName).Trim() : m.InspectedBy.Username
-                : null,
-                Assignees = m.Assignees.OrderBy(a => a.AssignedAt).Select(a => new
+                InspectedByName = m.InspectedByName,
+                Assignees = m.Assignees.Select(a => new
                 {
                     a.UserId,
-                    Name = (a.User.FirstName + " " + a.User.LastName).Trim() != "" ? (a.User.FirstName + " " + a.User.LastName).Trim() : a.User.Username,
+                    a.Name,
                     a.AssignedAt
                 }),
                 m.CreatedAt,
                 m.UpdatedAt,
                 currentContext = new
                 {
-                    systemInfoId = cur.SysInfoId,
-                    systemInfoName = cur.SysInfoName,
-                    systemPositionId = cur.PosId,
-                    systemPositionName = cur.PosName,
-                    locationId = cur.LocId,
-                    locationName = cur.LocName,
-                    assignedUserId = cur.UserId,
-                    assignedUserName = cur.UserName,
-                    departmentId = cur.DeptId,
-                    departmentName = cur.DeptName
+                    systemInfoId = m.CurrentContext.SystemInfoId,
+                    systemInfoName = m.CurrentContext.SystemInfoName,
+                    systemPositionId = m.CurrentContext.SystemPositionId,
+                    systemPositionName = m.CurrentContext.SystemPositionName,
+                    locationId = m.CurrentContext.LocationId,
+                    locationName = m.CurrentContext.LocationName,
+                    assignedUserId = m.CurrentContext.AssignedUserId,
+                    assignedUserName = m.CurrentContext.AssignedUserName,
+                    departmentId = m.CurrentContext.DepartmentId,
+                    departmentName = m.CurrentContext.DepartmentName
                 }
             }
         });
