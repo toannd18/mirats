@@ -1,5 +1,3 @@
-using System.Text.Encodings.Web;
-using System.Text.Json;
 using aspire_react.Server.Application.AssetMaintenances.Commands;
 using aspire_react.Server.Application.AssetMaintenances.Queries;
 using aspire_react.Server.Domain.Entities;
@@ -193,125 +191,48 @@ public class AssetMaintenancesController : ControllerBase
     }
 
     // ==================== UPDATE (whitelist; snapshot fields are locked) ====================
+    // [Subtask C] Thin MediatR mapping over UpdateMaintenanceCommand. Guard order + whitelist +
+    // FIELD_LOCKED(StartDate) + MAINTENANCE_CLOSED verbatim trong handler. Scope 404 (S1,
+    // hide-existence — verbatim trap (a), KHÔNG đổi thành 403 như reads).
 
     [HttpPut("maintenances/{id:guid}")]
     [Authorize(Policy = "assets.edit")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateAssetMaintenanceRequest r)
     {
-        var m = await _context.AssetMaintenances.FirstOrDefaultAsync(x => x.Id == id && x.DeletedAt == null);
-        if (m == null) return NotFound(new { status = "error", message = "Maintenance not found." });
+        var result = await _mediator.Send(new UpdateMaintenanceCommand(
+            id, r.Title, r.Notes, r.Type, r.SupplierId, r.CompletionDate, r.Cost,
+            r.IsWarranty, r.AssigneeUserIds, r.StartDate, GetCurrentUserId()));
 
-        // [SEC-FIX S1, 2026-08-23] Company scoping — same rule as Close/Inspect/Create/Detail in this
-        // controller: a regular user may only edit records of their own company (floater records with
-        // CompanyId == Guid.Empty are manageable by everyone); Superuser bypasses. Previously Update
-        // had NO scope check at all (verified empirically: a user from company A could edit a record
-        // of company B by id, including replacing its assignees). Out-of-scope → 404 (hide existence).
-        var userCompanyId = await GetUserCompanyIdAsync();
-        if (userCompanyId.HasValue && m.CompanyId != userCompanyId.Value && m.CompanyId != Guid.Empty)
-            return NotFound(new { status = "error", message = "Maintenance not found." });
-
-        // Absolute lock: a closed record is immutable (audit-trail protection) — reject ALL fields.
-        if (m.IsClosed)
-            return BadRequest(new { status = "error", message = "Bản ghi đã đóng, không thể chỉnh sửa.", error_code = "MAINTENANCE_CLOSED" });
-
-        // Locked fields — AssetId (from route), snapshot fields (never sent in DTO), StartDate:
-        // reject when a DIFFERENT value is supplied so the user understands history is immutable.
-        if (r.StartDate.HasValue && r.StartDate.Value != m.StartDate)
-            return BadRequest(new { status = "error", message = "Không thể thay đổi (field đã khóa): startDate.", error_code = "FIELD_LOCKED" });
-
-        if (r.CompletionDate.HasValue && r.CompletionDate.Value < m.StartDate)
-            return BadRequest(new { status = "error", message = "Ngày hoàn thành không được trước ngày bắt đầu.", error_code = "COMPLETION_BEFORE_START" });
-        if (r.Cost.HasValue && r.Cost.Value < 0)
-            return BadRequest(new { status = "error", message = "Chi phí không được âm.", error_code = "INVALID_COST" });
-        if (r.SupplierId.HasValue && !await _context.Suppliers.AnyAsync(s => s.Id == r.SupplierId.Value))
-            return BadRequest(new { status = "error", message = "Nhà cung cấp không hợp lệ.", error_code = "INVALID_SUPPLIER" });
-
-        // Whitelist: Title, Notes, Type, SupplierId, CompletionDate, Cost, IsWarranty
-        if (!string.IsNullOrWhiteSpace(r.Title)) m.Title = r.Title.Trim();
-        m.Notes = r.Notes ?? m.Notes;
-        if (r.Type.HasValue) m.Type = r.Type.Value;
-        m.SupplierId = r.SupplierId;
-        m.CompletionDate = r.CompletionDate.HasValue ? DateTime.SpecifyKind(r.CompletionDate.Value, DateTimeKind.Unspecified) : null;
-        m.Cost = r.Cost;
-        if (r.IsWarranty.HasValue) m.IsWarranty = r.IsWarranty.Value;
-        m.UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
-
-        // Assignee list (replace-all, max 5, company-scoped). It may STILL be edited after the record
-        // has been inspected — only the CLOSE step freezes it (the IsClosed guard above rejects any
-        // edit on a closed record, which includes the assignee list).
-        if (r.AssigneeUserIds != null)
+        if (!result.Success)
         {
-            var assigneeError = await ValidateAssigneesAsync(r.AssigneeUserIds, m.CompanyId);
-            if (assigneeError != null) return assigneeError;
-            await ReplaceAssigneesAsync(id, r.AssigneeUserIds);
+            if (result.ErrorCode == "NOT_FOUND")
+                return NotFound(new { status = "error", message = result.Message });
+            return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
 
-        _actionLogService.Log(new ActionLogEntry
-        {
-            ItemType = ItemType.AssetMaintenance,
-            ItemId = id,
-            ActionType = ActionType.Update,
-            CreatedBy = GetCurrentUserId(),
-            CompanyId = m.CompanyId,
-            Note = $"Cập nhật bảo trì \"{m.Title}\""
-        });
-        await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Đã cập nhật bảo trì." });
+        return Ok(new { status = "success", message = result.Message });
     }
 
     // ==================== DELETE (Superuser only + ActionLog with deleted content) ====================
+    // [Subtask C] Thin MediatR mapping over DeleteMaintenanceCommand (soft-delete + full-content
+    // LogMeta với UnsafeRelaxedJsonEscaping verbatim trong handler; superuser-gate TRƯỚC lookup).
 
     [HttpDelete("maintenances/{id:guid}")]
     [Authorize(Policy = "assets.edit")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        // Only Superuser may delete maintenance records (history/audit data).
-        if (!_companyScope.IsSuperUser())
-            return Forbid();
+        var result = await _mediator.Send(new DeleteMaintenanceCommand(id, GetCurrentUserId()));
 
-        var m = await _context.AssetMaintenances.FirstOrDefaultAsync(x => x.Id == id && x.DeletedAt == null);
-        if (m == null) return NotFound(new { status = "error", message = "Maintenance not found." });
+        if (!result.Success)
+        {
+            if (result.ErrorCode == "NOT_FOUND")
+                return NotFound(new { status = "error", message = result.Message });
+            if (result.ErrorCode == "FORBIDDEN")
+                return Forbid();
+            return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        }
 
-        m.DeletedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
-        m.UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
-
-        // Log the deletion with the FULL record content (incl. snapshot) so the audit trail
-        // keeps enough to reconstruct what was removed.
-        var meta = JsonSerializer.Serialize(new
-        {
-            title = m.Title,
-            type = m.Type.ToString(),
-            startDate = m.StartDate,
-            completionDate = m.CompletionDate,
-            cost = m.Cost,
-            supplierId = m.SupplierId,
-            snapshotSystemInfoId = m.SnapshotSystemInfoId,
-            snapshotSystemInfoName = m.SnapshotSystemInfoName,
-            snapshotSystemPositionId = m.SnapshotSystemPositionId,
-            snapshotSystemPositionName = m.SnapshotSystemPositionName,
-            snapshotLocationId = m.SnapshotLocationId,
-            snapshotLocationName = m.SnapshotLocationName,
-            snapshotAssignedUserId = m.SnapshotAssignedUserId,
-            snapshotAssignedUserName = m.SnapshotAssignedUserName,
-            snapshotDepartmentId = m.SnapshotDepartmentId,
-            snapshotDepartmentName = m.SnapshotDepartmentName
-        }, new JsonSerializerOptions
-        {
-            // Keep Vietnamese/diacritics readable inside the audit trail.
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-        });
-        _actionLogService.Log(new ActionLogEntry
-        {
-            ItemType = ItemType.AssetMaintenance,
-            ItemId = id,
-            ActionType = ActionType.Delete,
-            CreatedBy = GetCurrentUserId(),
-            CompanyId = m.CompanyId,
-            Note = $"Xóa bảo trì \"{m.Title}\" (superuser)",
-            LogMeta = meta
-        });
-        await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Đã xóa bảo trì." });
+        return Ok(new { status = "success", message = result.Message });
     }
 
     // ==================== CLOSE / REOPEN (audit-trail lock) ====================
@@ -434,61 +355,10 @@ public class AssetMaintenancesController : ControllerBase
         return Ok(new { status = "success", message = "Đã mở lại bảo trì.", data = new { m.Id, m.IsClosed, m.ClosedAt, m.ClosedById } });
     }
 
-    // ==================== Assignee helpers ====================
-
-    /// <summary>
-    /// Validates the assignee list: distinct, max 5, all users must exist, and (for regular users
-    /// operating on a company-scoped record) every assignee must belong to the SAME company as the
-    /// maintenance record. Superuser and floater records (CompanyId == Guid.Empty) are unrestricted.
-    /// Returns null when valid, otherwise a 400 result to return to the caller.
-    /// </summary>
-    private async Task<IActionResult?> ValidateAssigneesAsync(Guid[]? assigneeUserIds, Guid maintenanceCompanyId)
-    {
-        if (assigneeUserIds == null || assigneeUserIds.Length == 0) return null;
-
-        var distinct = assigneeUserIds.Distinct().ToArray();
-        if (distinct.Length > 5)
-            return BadRequest(new { status = "error", message = "Tối đa 5 người phụ trách cho một bản ghi bảo trì.", error_code = "MAX_5_ASSIGNEES" });
-
-        var users = await _context.Users.AsNoTracking()
-            .Where(u => distinct.Contains(u.Id))
-            .Select(u => new { u.Id, u.CompanyId })
-            .ToListAsync();
-        if (users.Count != distinct.Length)
-            return BadRequest(new { status = "error", message = "Có người phụ trách không tồn tại trong hệ thống.", error_code = "INVALID_ASSIGNEE" });
-
-        // Company isolation (same principle as the user picker in other modules): a regular user may
-        // only assign users of the SAME company as the record. Superuser (userCompanyId == null) and
-        // floater records (Guid.Empty, manageable by everyone) skip the check.
-        var userCompanyId = await GetUserCompanyIdAsync();
-        if (userCompanyId.HasValue && maintenanceCompanyId != Guid.Empty
-            && users.Any(u => u.CompanyId != maintenanceCompanyId))
-            return BadRequest(new { status = "error", message = "Người phụ trách phải thuộc cùng công ty với bản ghi bảo trì.", error_code = "ASSIGNEE_COMPANY_MISMATCH" });
-
-        return null;
-    }
-
-    /// <summary>Replaces the whole assignee list (remove-all + insert distinct users).</summary>
-    private async Task ReplaceAssigneesAsync(Guid maintenanceId, Guid[]? assigneeUserIds)
-    {
-        var existing = await _context.AssetMaintenanceAssignees
-            .Where(a => a.MaintenanceId == maintenanceId)
-            .ToListAsync();
-        _context.AssetMaintenanceAssignees.RemoveRange(existing);
-
-        if (assigneeUserIds != null)
-        {
-            foreach (var uid in assigneeUserIds.Distinct())
-            {
-                _context.AssetMaintenanceAssignees.Add(new AssetMaintenanceAssignee
-                {
-                    MaintenanceId = maintenanceId,
-                    UserId = uid,
-                    AssignedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified)
-                });
-            }
-        }
-    }
+    // ==================== Assignee helpers (moved to Application in subtask C) ====================
+    // ValidateAssigneesAsync + ReplaceAssigneesAsync now live in
+    // Application/AssetMaintenances/Commands/MaintenanceAssignees.cs (shared by Create/Update).
+    // Close/Inspect/Reopen (subtask D) never touch assignees.
 }
 
 // ==================== Request records ====================

@@ -291,3 +291,21 @@
 - **Loại trừ nguyên nhân agent hiện tại:** toàn bộ lệnh destructive-capable trong phiên chỉ gồm
   `Remove-Item` target `apphost.log` trong thư mục temp + `git add/commit` với path liệt kê
   tường minh (.cs + BACKLOG.md); không `git clean/checkout/restore/rm`, không script quét ảnh.
+
+---
+
+## BUG-N — AssetMaintenances Update: SupplierId/CompletionDate/Cost gán trực tiếp, field absent bị clear (cùng lớp BUG-E)
+
+- **Trạng thái:** OPEN — phát hiện trong subtask C (Giai đoạn 3, nhóm Rất nặng); migrate
+  verbatim vào `aspire-react.Application/AssetMaintenances/Commands/UpdateMaintenanceCommand.cs`
+  kèm comment `// TODO BUG-N` in-code (KHÔNG fix trong migration — parity trước).
+- **Mức độ: MEDIUM** (nghiệp vụ — cùng lớp patch-safety BUG-E/BUG-I#1: không isolation risk)
+- **Hành vi:** PUT /api/v1/maintenances/{id} — 3 field `SupplierId`, `CompletionDate`, `Cost`
+  gán TRỰC TIẾP từ DTO nullable (`m.SupplierId = r.SupplierId` …); payload thiếu field →
+  bị clear/null (VD: PUT chỉ `{title}` → CompletionDate/Cost/SupplierId mất). Các field còn
+  lại patch-aware (Title/Notes/Type/IsWarranty conditional; StartDate FIELD_LOCKED).
+  *Độ tin cậy: suy luận từ đọc code (payload realistic của frontend Maintenance form gửi đủ
+  field nên chưa trigger — cùng tình trạng với BUG-I#1).*
+- **Fix sketch (THAY ĐỔI HÀNH VI, cần duyệt riêng):** reserve `null` làm "clear có chủ đích"
+  qua field kèm theo (VD `ClearCompletionDate: bool`) hoặc chuyển 3 field sang conditional
+  assign như Title; quyết định cùng lúc với BUG-E (Department) nếu dọn patch-safety toàn diện.

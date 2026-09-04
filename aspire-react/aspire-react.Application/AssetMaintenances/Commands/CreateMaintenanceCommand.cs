@@ -100,9 +100,10 @@ public class CreateMaintenanceCommandHandler : IRequestHandler<CreateMaintenance
 
         // Assignees (optional on create): max 5 + same-company rule, validated against the server-set
         // maintenance company (= Asset.CompanyId ?? Guid.Empty, so floater records allow any user).
-        var assigneeError = await ValidateAssigneesAsync(request.AssigneeUserIds, asset.CompanyId ?? Guid.Empty);
+        var assigneeError = await MaintenanceAssignees.ValidateAsync(
+            _context, _companyScope, request.AssigneeUserIds, asset.CompanyId ?? Guid.Empty, cancellationToken);
         if (assigneeError != null)
-            return assigneeError;
+            return new CreateMaintenanceResult(false, assigneeError.Message, assigneeError.ErrorCode);
 
         var snap = await MaintenanceSnapshot.BuildAsync(_context, asset, cancellationToken);
 
@@ -151,33 +152,5 @@ public class CreateMaintenanceCommandHandler : IRequestHandler<CreateMaintenance
         return new CreateMaintenanceResult(true, "Đã tạo bảo trì.",
             MaintenanceId: m.Id, CompanyId: m.CompanyId,
             Note: $"Tạo bảo trì \"{m.Title}\"");
-    }
-
-    /// <summary>
-    /// Ported from ValidateAssigneesAsync (controller helper returned IActionResult — handler returns
-    /// the failure result instead). Rules verbatim: distinct, max 5, users must exist, same-company
-    /// as the record (superuser scope-null and floater Guid.Empty skip). Null when valid.
-    /// </summary>
-    private async Task<CreateMaintenanceResult?> ValidateAssigneesAsync(Guid[]? assigneeUserIds, Guid maintenanceCompanyId)
-    {
-        if (assigneeUserIds == null || assigneeUserIds.Length == 0) return null;
-
-        var distinct = assigneeUserIds.Distinct().ToArray();
-        if (distinct.Length > 5)
-            return new CreateMaintenanceResult(false, "Tối đa 5 người phụ trách cho một bản ghi bảo trì.", "MAX_5_ASSIGNEES");
-
-        var users = await _context.Users.AsNoTracking()
-            .Where(u => distinct.Contains(u.Id))
-            .Select(u => new { u.Id, u.CompanyId })
-            .ToListAsync();
-        if (users.Count != distinct.Length)
-            return new CreateMaintenanceResult(false, "Có người phụ trách không tồn tại trong hệ thống.", "INVALID_ASSIGNEE");
-
-        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (userCompanyId.HasValue && maintenanceCompanyId != Guid.Empty
-            && users.Any(u => u.CompanyId != maintenanceCompanyId))
-            return new CreateMaintenanceResult(false, "Người phụ trách phải thuộc cùng công ty với bản ghi bảo trì.", "ASSIGNEE_COMPANY_MISMATCH");
-
-        return null;
     }
 }
