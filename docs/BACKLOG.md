@@ -210,7 +210,6 @@
 ---
 
 ## INFRA-1 — Điều tra hạ tầng dev: Docker Desktop/WSL2 mất engine ×3 + file-loss/revert anomalies
-
 - **Trạng thái:** OPEN — điều tra lần 1 hoàn tất 2026-09-02 (kết quả dưới); reopen khi tái diễn
 - **Triệu chứng đã xảy ra (3 lần Docker + 2 lần file):**
   1-3. Docker Desktop engine/daemon mất đột ngột (containers Exited 255, npipe biến mất,
@@ -237,3 +236,30 @@
   rà `.wslconfig` (memory/CPU); (3) giữ quy trình `git status` audit sau mỗi batch (đã áp dụng);
   (4) nếu tái diễn lần 4+ → đọc sâu Docker host logs + Windows Reliability Monitor + cân nhắc
   reinstall WSL2.
+
+---
+
+## BUG-M — Users Create/Update/Delete: log 2 lần, log thứ 2 không atomic với data (LOW)
+
+- **Trạng thái:** OPEN — phát hiện 2026-09-03 trong Giai đoạn 3 (audit Users trước khi migrate
+  4 action inline; 3 action write giữ nguyên theo ranh giới đã duyệt)
+- **Mức độ: LOW** (xác suất trigger thấp — chỉ khi `SaveChanges` của log thứ 2 fail sau khi
+  command đã commit; không có isolation risk như BUG-G, không user-facing 500 như BUG-L)
+- **Vị trí:** hành vi CÓ TỪ M1 trong `UsersController.CreateUser/UpdateUser/DeleteUser`
+  (`aspire-react.Server/Web/Controllers/UsersController.cs` — handler M1 đã `LogAction +
+  SaveChanges` 1 lần trong command, controller sau `_mediator.Send` lại `LogAction +
+  SaveChanges` lần 2 với note khác: Create `"Tạo người dùng ..."` vs `"Created user: ..."`,
+  Update `"Cập nhật người dùng ..."` vs `"Updated user: ..."`, Delete `"Vô hiệu hóa ..."`
+  vs `"Deactivated user: ..."`). Migrate verbatim theo nguyên tắc parity — KHÔNG fix trong
+  task Users (ranh giới đã duyệt: chỉ migrate 4 action inline, giữ nguyên 3 Command M1).
+- **Vi phạm nguyên tắc:** "ActionLog phải atomic với data" (workflow §3.2 — log persist cùng
+  transaction với thay đổi, rollback cùng nhau). Ở đây data đã commit trong handler trước khi
+  log thứ 2 của controller được stage/persist ở transaction riêng → nếu `SaveChanges` thứ 2
+  fail, data tồn tại mà log thứ 2 mất (dù log thứ 1 trong handler vẫn còn → hệ quả thực tế
+  chỉ là thiếu 1 bản log trùng lặp, không mất audit hoàn toàn — chính vì vậy mức LOW).
+- **Fix sketch (khi thực hiện — là THAY ĐỔI HÀNH VI ghi log, cần duyệt riêng, tốt nhất gộp
+  vào đợt dọn dẹp ActionLog toàn diện):** bỏ `LogAction + SaveChanges` thứ 2 ở controller,
+  chuyển 3 Command M1 sang `ILoggableCommand` (behavior mở 1 ambient transaction: handler
+  `SaveChanges` join vào, behavior stage log + save + commit 1 lần → data+log atomic, đúng
+  playbook §4); quyết định giữ note/LogMeta nào trong 2 bản hiện tại (controller bản tiếng
+  Việt vs handler bản tiếng Anh + LogMeta chi tiết).

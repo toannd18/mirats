@@ -1,15 +1,11 @@
-using System.Security.Claims;
-using System.Text.Json;
+using aspire_react.Server.Application.Common.Behaviors;
 using aspire_react.Server.Application.Groups.Commands;
+using aspire_react.Server.Application.Users.Commands;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Authorization;
 using aspire_react.Server.Infrastructure.Persistence;
-using aspire_react.Server.Infrastructure.Services;
-using aspire_react.Server.Web.Controllers;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -56,33 +52,12 @@ public class PermissionLockoutTests
         return user;
     }
 
-    private static ClaimsPrincipal CreatePrincipal(Guid localUserId, bool realmSuper = false, string username = "admin1")
-    {
-        var claims = new List<Claim>
-        {
-            new("preferred_username", username),
-            new(ClaimTypes.NameIdentifier, "kc-sub-" + username),
-            new("local_user_id", localUserId.ToString()),
-            new("realm_access", realmSuper ? "{\"roles\":[\"admin\"]}" : "{\"roles\":[\"user\"]}")
-        };
-        return new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"));
-    }
-
-    // [Giai đoạn 3] Groups migrated to MediatR — the two controller-level tests below now drive the
-    // command handlers directly (real PermissionLockoutGuard + real ActionLogBehavior chain).
-
-    private static UsersController CreateUsersController(AppDbContext db, ClaimsPrincipal principal)
-    {
-        var httpContext = new DefaultHttpContext { User = principal };
-        var controller = new UsersController(
-            mediator: null!,
-            context: db,
-            actionLogService: new ActionLogService(db, new HttpContextAccessor { HttpContext = httpContext }),
-            lockoutGuard: new PermissionLockoutGuard(db),
-            companyScope: new TestHelpers.SuperUserScope());
-        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
-        return controller;
-    }
+    // [Giai đoạn 3] Users UpdateUserGroups migrated to MediatR — the controller-level tests below
+    // now drive UpdateUserGroupsCommandHandler directly (real PermissionLockoutGuard +
+    // SuperUserScope; the realm-superuser flag is passed explicitly since handlers cannot read
+    // HttpContext). Controller CreateUsersController helper removed (no caller left).
+    private static UpdateUserGroupsCommandHandler CreateUpdateGroupsHandler(AppDbContext db)
+        => new(db, new TestHelpers.SuperUserScope(), new PermissionLockoutGuard(db));
 
     // =========================================================================
     // GUARD UNIT TESTS — user TỰ gỡ quyền của chính mình
@@ -286,13 +261,13 @@ public class PermissionLockoutTests
         var group = await SeedAdminGroupAsync(db);
         var admin = await AddUserAsync(db, "admin1", group.Id);
 
-        var principal = CreatePrincipal(admin.Id);
-        var controller = CreateUsersController(db, principal);
-
-        // Admin TỰ gỡ nhóm admin duy nhất của chính mình (không còn admin khác) → 400 SELF_LOCKOUT
-        var result = await controller.UpdateUserGroups(admin.Id, new UpdateUserGroupsRequest(new List<Guid>()));
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Contains("SELF_LOCKOUT", JsonSerializer.Serialize(bad.Value));
+        // Admin TỰ gỡ nhóm admin duy nhất của chính mình (không còn admin khác) → SELF_LOCKOUT
+        var handler = CreateUpdateGroupsHandler(db);
+        var result = await handler.Handle(
+            new UpdateUserGroupsCommand(admin.Id, new List<Guid>(), admin.Id, ActorIsRealmSuperUser: false),
+            CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("SELF_LOCKOUT", result.ErrorCode);
 
         // Quyền của admin KHÔNG bị thay đổi
         Assert.Equal(1, await db.UserGroups.CountAsync(ug => ug.UserId == admin.Id));
@@ -316,14 +291,14 @@ public class PermissionLockoutTests
         db.UserGroups.Add(new UserGroup { UserId = admin.Id, GroupId = editors.Id });
         await db.SaveChangesAsync();
 
-        var principal = CreatePrincipal(admin.Id);
-        var controller = CreateUsersController(db, principal);
-
         // Admin TỰ gỡ nhóm admin nhưng GIỮ nhóm chỉ có users.edit → MẤT khả năng gọi lại API
         // (policy `admin`) → vẫn phải chặn SELF_LOCKOUT. (Guard cũ cho phép — là lỗ hổng.)
-        var result = await controller.UpdateUserGroups(admin.Id, new UpdateUserGroupsRequest(new List<Guid> { editors.Id }));
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Contains("SELF_LOCKOUT", JsonSerializer.Serialize(bad.Value));
+        var handler = CreateUpdateGroupsHandler(db);
+        var result = await handler.Handle(
+            new UpdateUserGroupsCommand(admin.Id, new List<Guid> { editors.Id }, admin.Id, ActorIsRealmSuperUser: false),
+            CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("SELF_LOCKOUT", result.ErrorCode);
 
         // Quyền của admin KHÔNG bị thay đổi
         Assert.Equal(2, await db.UserGroups.CountAsync(ug => ug.UserId == admin.Id));
@@ -337,11 +312,11 @@ public class PermissionLockoutTests
         var adminA = await AddUserAsync(db, "adminA", group.Id);
         await AddUserAsync(db, "adminB", group.Id);
 
-        var principal = CreatePrincipal(adminA.Id);
-        var controller = CreateUsersController(db, principal);
-
-        var result = await controller.UpdateUserGroups(adminA.Id, new UpdateUserGroupsRequest(new List<Guid>()));
-        Assert.IsType<OkObjectResult>(result);
+        var handler = CreateUpdateGroupsHandler(db);
+        var result = await handler.Handle(
+            new UpdateUserGroupsCommand(adminA.Id, new List<Guid>(), adminA.Id, ActorIsRealmSuperUser: false),
+            CancellationToken.None);
+        Assert.True(result.Success);
         Assert.Equal(0, await db.UserGroups.CountAsync(ug => ug.UserId == adminA.Id));
         Assert.Equal(1, await db.UserGroups.CountAsync(ug => ug.UserId != adminA.Id));
     }
@@ -352,11 +327,11 @@ public class PermissionLockoutTests
         await using var db = CreateContext(nameof(UpdateUserGroups_SelfRemove_Superuser_Returns200));
         var superUser = await AddUserAsync(db, "super1", isSuperUser: true);
 
-        var principal = CreatePrincipal(superUser.Id);
-        var controller = CreateUsersController(db, principal);
-
-        var result = await controller.UpdateUserGroups(superUser.Id, new UpdateUserGroupsRequest(new List<Guid>()));
-        Assert.IsType<OkObjectResult>(result);
+        var handler = CreateUpdateGroupsHandler(db);
+        var result = await handler.Handle(
+            new UpdateUserGroupsCommand(superUser.Id, new List<Guid>(), superUser.Id, ActorIsRealmSuperUser: false),
+            CancellationToken.None);
+        Assert.True(result.Success);
     }
 
     [Fact]
@@ -366,11 +341,11 @@ public class PermissionLockoutTests
         var user = await AddUserAsync(db, "realmadmin");
 
         // realm role admin → bypass guard (dù không có group admin nào)
-        var principal = CreatePrincipal(user.Id, realmSuper: true);
-        var controller = CreateUsersController(db, principal);
-
-        var result = await controller.UpdateUserGroups(user.Id, new UpdateUserGroupsRequest(new List<Guid>()));
-        Assert.IsType<OkObjectResult>(result);
+        var handler = CreateUpdateGroupsHandler(db);
+        var result = await handler.Handle(
+            new UpdateUserGroupsCommand(user.Id, new List<Guid>(), user.Id, ActorIsRealmSuperUser: true),
+            CancellationToken.None);
+        Assert.True(result.Success);
     }
 
     [Fact]
@@ -380,12 +355,12 @@ public class PermissionLockoutTests
         var group = await SeedAdminGroupAsync(db);
         var admin = await AddUserAsync(db, "admin1", group.Id);
 
-        var principal = CreatePrincipal(admin.Id);
-        var controller = CreateUsersController(db, principal);
-
-        var result = await controller.UpdateUserGroups(admin.Id, new UpdateUserGroupsRequest(new List<Guid> { Guid.NewGuid() }));
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Contains("GROUP_NOT_FOUND", JsonSerializer.Serialize(bad.Value));
+        var handler = CreateUpdateGroupsHandler(db);
+        var result = await handler.Handle(
+            new UpdateUserGroupsCommand(admin.Id, new List<Guid> { Guid.NewGuid() }, admin.Id, ActorIsRealmSuperUser: false),
+            CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("GROUP_NOT_FOUND", result.ErrorCode);
     }
 
     [Fact]
@@ -396,11 +371,14 @@ public class PermissionLockoutTests
         var adminA = await AddUserAsync(db, "adminA", group.Id);
         var targetUser = await AddUserAsync(db, "targetUser");
 
-        var principal = CreatePrincipal(adminA.Id);
-        var controller = CreateUsersController(db, principal);
-
-        var result = await controller.UpdateUserGroups(targetUser.Id, new UpdateUserGroupsRequest(new List<Guid> { group.Id }));
-        Assert.IsType<OkObjectResult>(result);
+        // [Giai đoạn 3] Drive through the REAL ActionLogBehavior chain (log written by behavior,
+        // enriched — RemoteIp/UserAgent/ActionSource added per playbook §4 enrichment 2a).
+        var handler = CreateUpdateGroupsHandler(db);
+        var behavior = new ActionLogBehavior<UpdateUserGroupsCommand, UpdateUserGroupsResult>(
+            TestHelpers.CreateActionLogService(db, adminA.Id), db);
+        var cmd = new UpdateUserGroupsCommand(targetUser.Id, new List<Guid> { group.Id }, adminA.Id, ActorIsRealmSuperUser: false);
+        var result = await behavior.Handle(cmd, ct => handler.Handle(cmd, ct), CancellationToken.None);
+        Assert.True(result.Success);
         Assert.Equal(1, await db.UserGroups.CountAsync(ug => ug.UserId == targetUser.Id));
 
         // Hành động nhạy cảm phải được ghi ActionLog (ItemType.User, Update)

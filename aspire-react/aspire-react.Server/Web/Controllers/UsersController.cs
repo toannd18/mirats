@@ -1,9 +1,6 @@
 using System.Security.Claims;
-using System.Text.Json;
 using aspire_react.Server.Application.Users.Commands;
-using aspire_react.Server.Application.Users.DTOs;
 using aspire_react.Server.Application.Users.Queries;
-using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Authorization;
@@ -19,6 +16,18 @@ namespace aspire_react.Server.Web.Controllers;
 
 [ApiController]
 [Route("api/v1/users")]
+/// <summary>
+/// [Giai đoạn 3] Users PARTIAL migration (ranh giới đã duyệt): 4 action inline
+/// (List/GetCurrentUser/GetUser/UpdateUserGroups) chuyển sang MediatR Queries/Command;
+/// 3 action write (Create/Update/Delete) GIỮ NGUYÊN Command từ M1 — không đụng lại
+/// (Keycloak liên quan, giảm thiểu rủi ro). Ctor vẫn hybrid (IMediator + DbContext +
+/// ActionLog/lockout/scope cho 3 write) — KHÔNG thu gọn thành IMediator-only như Groups.
+/// BUG-M (docs/BACKLOG.md, LOW): 3 write log 2 lần (handler 1 + controller 1), log thứ 2
+/// không atomic với data — giữ verbatim, fix riêng sau.
+/// UpdateUserGroups sau migrate: ILoggableCommand (behavior commit data+log 1 lần, atomic)
+/// + enrichment 2a có chủ đích (RemoteIp/UserAgent/ActionSource — đã duyệt playbook §4).
+/// Error-shape parity: UpdateUserGroups dùng errorCode CAMELCASE (verbatim, khác error_code).
+/// </summary>
 public class UsersController : ControllerBase
 {
     private readonly IMediator _mediator;
@@ -55,6 +64,7 @@ public class UsersController : ControllerBase
 
     /// <summary>
     /// Returns a paginated list of users with navigation names.
+    /// [Giai đoạn 3] Thin MediatR mapping over ListUsersQuery (logic verbatim trong handler).
     /// </summary>
     [HttpGet]
     [Authorize(Policy = "users.view")]
@@ -64,74 +74,19 @@ public class UsersController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
-        var query = _context.Users
-            .Include(u => u.Company)
-            .Include(u => u.Department)
-            .Include(u => u.Location)
-            .Include(u => u.UserGroups).ThenInclude(ug => ug.Group)
-            .AsNoTracking();
-
-        // [Task K] Company-scoping: a regular user only sees users of their own company (or
-        // company-less floater). The client-supplied `companyId` is IGNORED for a regular user —
-        // scope is forced from the acting user, never from an optional query param. Superuser
-        // (GetCurrentUserCompanyIdAsync → null) may optionally filter by `companyId`.
-        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (userCompanyId.HasValue)
-            query = query.Where(u => u.CompanyId == null || u.CompanyId == userCompanyId.Value);
-        else if (companyId.HasValue)
-            query = query.Where(u => u.CompanyId == companyId.Value);
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var searchLower = search.ToLower();
-            query = query.Where(u =>
-                u.Username.ToLower().Contains(searchLower) ||
-                u.Email.ToLower().Contains(searchLower) ||
-                u.FirstName.ToLower().Contains(searchLower) ||
-                u.LastName.ToLower().Contains(searchLower) ||
-                (u.JobTitle != null && u.JobTitle.ToLower().Contains(searchLower)));
-        }
-
-        var total = await query.CountAsync();
-
-        var users = await query
-            .OrderBy(u => u.Username)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(u => new UserDto
-            {
-                Id = u.Id,
-                Username = u.Username,
-                Email = u.Email,
-                FirstName = u.FirstName,
-                LastName = u.LastName,
-                EmployeeNumber = u.EmployeeNumber,
-                JobTitle = u.JobTitle,
-                IsSuperUser = u.IsSuperUser,
-                IsActive = u.IsActive,
-                CompanyId = u.CompanyId,
-                CompanyName = u.Company != null ? u.Company.Name : null,
-                DepartmentId = u.DepartmentId,
-                DepartmentName = u.Department != null ? u.Department.Name : null,
-                LocationId = u.LocationId,
-                LocationName = u.Location != null ? u.Location.Name : null,
-                Groups = u.UserGroups.Select(ug => new UserGroupDto(ug.GroupId, ug.Group.Name, ug.Group.IsSystem)).ToList(),
-                CreatedAt = u.CreatedAt,
-                UpdatedAt = u.UpdatedAt,
-            })
-            .ToListAsync();
+        var result = await _mediator.Send(new ListUsersQuery(search, companyId, page, pageSize));
 
         return Ok(new
         {
             status = "success",
-            data = users,
+            data = result.Items,
             pagination = new
             {
                 page,
                 pageSize,
-                totalItems = total,
-                totalPages = (int)Math.Ceiling((double)total / pageSize),
-                hasNextPage = page * pageSize < total,
+                totalItems = result.Total,
+                totalPages = (int)Math.Ceiling((double)result.Total / pageSize),
+                hasNextPage = page * pageSize < result.Total,
                 hasPreviousPage = page > 1
             }
         });
@@ -140,6 +95,8 @@ public class UsersController : ControllerBase
     /// <summary>
     /// Returns the currently authenticated user's profile.
     /// Auto-creates local user record from Keycloak claims if not found.
+    /// [Giai đoạn 3] Thin MediatR mapping over GetCurrentUserQuery (claim parse + Unauthorized
+    /// mapping giữ ở controller — verbatim).
     /// </summary>
     [HttpGet("me")]
     [Authorize]
@@ -152,13 +109,7 @@ public class UsersController : ControllerBase
         if (!Guid.TryParse(User.FindFirstValue("local_user_id"), out var localUserId) || localUserId == Guid.Empty)
             return Unauthorized(new { status = "error", message = "User not authenticated." });
 
-        var user = await _context.Users
-            .Include(u => u.Company)
-            .Include(u => u.Department)
-            .Include(u => u.Location)
-            .Include(u => u.UserGroups).ThenInclude(ug => ug.Group)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Id == localUserId);
+        var user = await _mediator.Send(new GetCurrentUserQuery(localUserId));
 
         if (user == null)
             return Unauthorized(new { status = "error", message = "User not authenticated." });
@@ -166,50 +117,22 @@ public class UsersController : ControllerBase
         return Ok(new
         {
             status = "success",
-            data = new UserDto
-            {
-                Id = user.Id,
-                Username = user.Username,
-                Email = user.Email,
-                FirstName = user.FirstName,
-                LastName = user.LastName,
-                EmployeeNumber = user.EmployeeNumber,
-                JobTitle = user.JobTitle,
-                IsSuperUser = user.IsSuperUser,
-                IsActive = user.IsActive,
-                CompanyId = user.CompanyId,
-                CompanyName = user.Company?.Name,
-                DepartmentId = user.DepartmentId,
-                DepartmentName = user.Department?.Name,
-                LocationId = user.LocationId,
-                LocationName = user.Location?.Name,
-                Groups = user.UserGroups.Select(ug => new UserGroupDto(ug.GroupId, ug.Group.Name, ug.Group.IsSystem)).ToList(),
-                CreatedAt = user.CreatedAt,
-                UpdatedAt = user.UpdatedAt,
-            }
+            data = user
         });
     }
 
     /// <summary>
     /// Returns a single user by ID with all navigation data.
+    /// [Giai đoạn 3] Thin MediatR mapping over GetUserByIdQuery (scoping + shape verbatim
+    /// trong handler; out-of-scope → 404 hide-existence).
     /// </summary>
     [HttpGet("{id:guid}")]
     [Authorize(Policy = "users.view")]
     public async Task<IActionResult> GetUser(Guid id)
     {
-        var user = await _context.Users
-            .Include(u => u.Company)
-            .Include(u => u.Department)
-            .Include(u => u.Location)
-            .Include(u => u.UserPermissions)
-            .Include(u => u.UserGroups).ThenInclude(ug => ug.Group)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Id == id);
+        var user = await _mediator.Send(new GetUserByIdQuery(id));
 
-        // [Task K] Company-scoping: a regular user may only view users of their own company (or
-        // company-less floater). Out-of-scope → 404 to hide existence (same convention as Task I).
-        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (user == null || (userCompanyId.HasValue && user.CompanyId.HasValue && user.CompanyId.Value != userCompanyId.Value))
+        if (user == null)
             return NotFound(new { status = "error", message = "User not found." });
 
         return Ok(new
@@ -227,13 +150,13 @@ public class UsersController : ControllerBase
                 user.IsSuperUser,
                 user.IsActive,
                 CompanyId = user.CompanyId,
-                CompanyName = user.Company?.Name,
+                CompanyName = user.CompanyName,
                 DepartmentId = user.DepartmentId,
-                DepartmentName = user.Department?.Name,
+                DepartmentName = user.DepartmentName,
                 LocationId = user.LocationId,
-                LocationName = user.Location?.Name,
-                Permissions = user.UserPermissions.Select(p => new { p.PermissionKey, p.Value }),
-                Groups = user.UserGroups.Select(ug => new { ug.GroupId, ug.Group.Name }),
+                LocationName = user.LocationName,
+                Permissions = user.Permissions.Select(p => new { p.PermissionKey, p.Value }),
+                Groups = user.Groups.Select(g => new { g.GroupId, g.Name }),
                 user.CreatedAt,
                 user.UpdatedAt,
             }
@@ -245,90 +168,22 @@ public class UsersController : ControllerBase
     /// Sensitive operation — protected by the "admin" policy and guarded against
     /// self-lockout (an admin who is the last one with permission-management capability
     /// cannot strip their own access).
+    /// [Giai đoạn 3] Thin MediatR mapping over UpdateUserGroupsCommand (ILoggableCommand —
+    /// scope/guard/log verbatim trong handler; realm-superuser flag resolve ở đây vì handler
+    /// không đọc HttpContext). GIỮ NGUYÊN policy "admin" (Task J — không phải users.edit).
     /// </summary>
     [HttpPut("{id:guid}/groups")]
     [Authorize(Policy = "admin")]
     public async Task<IActionResult> UpdateUserGroups(Guid id, [FromBody] UpdateUserGroupsRequest request)
     {
-        var user = await _context.Users.FindAsync(id);
-        if (user == null)
-            return NotFound(new { status = "error", message = "User not found." });
+        var result = await _mediator.Send(new UpdateUserGroupsCommand(
+            id,
+            (IReadOnlyList<Guid>)(request.GroupIds ?? new List<Guid>()),
+            GetCurrentUserId(),
+            IsRealmSuperUser()));
 
-        // [SEC-FIX CS-3, 2026-08-23] Company-scoping: a company admin may only manage groups of
-        // users in their own company (or floater); Superuser (GetCurrentUserCompanyIdAsync → null)
-        // is unrestricted. Mirrors the exact pattern of UpdateUser/DeleteUser above. Previously a
-        // company admin could assign ANY group (incl. Admin) to a user of ANOTHER company (verified
-        // empirically: cross-company PUT returned 200) while the same target was filtered out of
-        // GET /users — read was scoped, write was not. Out-of-scope → 404 (hide existence).
-        var actorCompanyScope = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (actorCompanyScope.HasValue && user.CompanyId.HasValue && user.CompanyId.Value != actorCompanyScope.Value)
-            return NotFound(new { status = "error", message = "User not found." });
-
-        var requestedIds = (request.GroupIds ?? new List<Guid>()).Distinct().ToList();
-        var validGroupIds = await _context.PermissionGroups
-            .Where(g => requestedIds.Contains(g.Id))
-            .Select(g => g.Id)
-            .ToListAsync();
-
-        if (validGroupIds.Count != requestedIds.Count)
-            return BadRequest(new
-            {
-                status = "error",
-                message = "One or more groups do not exist.",
-                errorCode = "GROUP_NOT_FOUND"
-            });
-
-        var actorId = GetCurrentUserId();
-        var isRealmSuper = IsRealmSuperUser();
-
-        // Anti self-lockout: the acting admin removing their own last permission-management
-        // capability while no other admin remains would leave the system unmanageable.
-        if (await _lockoutGuard.WouldSelfAssignLockoutAsync(actorId, id, validGroupIds, isRealmSuper))
-            return BadRequest(new
-            {
-                status = "error",
-                message = "Bạn không thể tự gỡ quyền quản trị của chính mình khi bạn là người cuối cùng còn giữ quyền quản trị.",
-                errorCode = "SELF_LOCKOUT"
-            });
-
-        // Capture old assignment for the audit trail.
-        var oldGroupIds = await _context.UserGroups
-            .Where(ug => ug.UserId == id)
-            .Select(ug => ug.GroupId)
-            .ToListAsync();
-
-        _context.UserGroups.RemoveRange(_context.UserGroups.Where(ug => ug.UserId == id));
-        foreach (var groupId in validGroupIds)
-        {
-            _context.UserGroups.Add(new UserGroup { UserId = id, GroupId = groupId });
-        }
-
-        // LogAction chỉ add vào change tracker → phải gọi TRƯỚC SaveChanges để được persist.
-        _actionLogService.LogAction(
-            itemType: ItemType.User,
-            itemId: id,
-            actionType: ActionType.Update,
-            loggedByUserId: actorId,
-            companyId: user?.CompanyId,
-            note: "User group assignments updated.",
-            logMeta: JsonSerializer.Serialize(new
-            {
-                changes = new
-                {
-                    groupIds = new
-                    {
-                        old = oldGroupIds,
-                        @new = validGroupIds
-                    }
-                }
-            }));
-
-        await _context.SaveChangesAsync();
-
-        var groups = await _context.PermissionGroups
-            .Where(g => validGroupIds.Contains(g.Id))
-            .Select(g => new UserGroupDto(g.Id, g.Name, g.IsSystem))
-            .ToListAsync();
+        if (!result.Success)
+            return MapUserGroupsFailure(result);
 
         return Ok(new
         {
@@ -336,11 +191,25 @@ public class UsersController : ControllerBase
             message = "User groups updated.",
             data = new
             {
-                user.Id,
-                user.Username,
-                Groups = groups
+                Id = result.UserId,
+                Username = result.Username,
+                Groups = result.Groups
             }
         });
+    }
+
+    /// <summary>
+    /// Maps an UpdateUserGroupsResult failure to the EXACT same HTTP bodies as the pre-migration
+    /// controller: NOT_FOUND → 404 without errorCode (hide-existence, incl. company-scope);
+    /// GROUP_NOT_FOUND / SELF_LOCKOUT → 400 with errorCode in CAMELCASE (verbatim — endpoint này
+    /// khác convention error_code của các controller khác).
+    /// </summary>
+    private IActionResult MapUserGroupsFailure(UpdateUserGroupsResult result)
+    {
+        if (result.ErrorCode == "NOT_FOUND")
+            return NotFound(new { status = "error", message = result.Message });
+
+        return BadRequest(new { status = "error", message = result.Message, errorCode = result.ErrorCode });
     }
 
     /// <summary>

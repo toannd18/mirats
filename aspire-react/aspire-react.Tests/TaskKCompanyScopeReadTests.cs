@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using aspire_react.Server.Application.Departments.Queries;
 using aspire_react.Server.Application.Locations.Queries;
+using aspire_react.Server.Application.Users.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Authorization;
@@ -55,17 +56,13 @@ public class TaskKCompanyScopeReadTests
         return u;
     }
 
-    private static UsersController BuildUsersController(AppDbContext db, Guid actorId, TestHelpers.FakeScope scope)
-    {
-        var controller = new UsersController(
-            mediator: new TestHelpers.ThrowingMediator(),
-            context: db,
-            actionLogService: TestHelpers.CreateActionLogService(db, actorId),
-            lockoutGuard: new PermissionLockoutGuard(db),
-            companyScope: scope);
-        AttachUser(controller, actorId);
-        return controller;
-    }
+    // [Giai đoạn 3] Users migrated to MediatR: list/detail scoping tests now drive the Query
+    // handlers directly (scoping rules live in the handlers; the controller is a thin Send() mapping).
+    private static ListUsersQueryHandler BuildListUsersHandler(AppDbContext db, TestHelpers.FakeScope scope)
+        => new(db, scope);
+
+    private static GetUserByIdQueryHandler BuildGetUserHandler(AppDbContext db, TestHelpers.FakeScope scope)
+        => new(db, scope);
 
     // [Giai đoạn 1] Departments migrated to MediatR: scope tests now drive the Query handlers
     // directly (the scoping rules live in the handlers; the controller is a thin Send() mapping).
@@ -116,10 +113,9 @@ public class TaskKCompanyScopeReadTests
         await SeedUserAsync(db, "uB", ctB);
         await SeedUserAsync(db, "floater", null);
 
-        var controller = BuildUsersController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        var result = await controller.GetUsers(null, null);
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var data = TestHelpers.ReadDataStringArray(ok.Value, "username");
+        var handler = BuildListUsersHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
+        var result = await handler.Handle(new ListUsersQuery(null, null), CancellationToken.None);
+        var data = result.Items.Select(u => u.Username).ToList();
         Assert.Contains("actor", data);
         Assert.Contains("uA", data);
         Assert.Contains("floater", data);
@@ -136,10 +132,9 @@ public class TaskKCompanyScopeReadTests
         await SeedUserAsync(db, "uB", ctB);
 
         // Regular user passes companyId=CT-B but scope is forced to CT-A â†’ uB still hidden.
-        var controller = BuildUsersController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        var result = await controller.GetUsers(null, ctB);
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var data = TestHelpers.ReadDataStringArray(ok.Value, "username");
+        var handler = BuildListUsersHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
+        var result = await handler.Handle(new ListUsersQuery(null, ctB), CancellationToken.None);
+        var data = result.Items.Select(u => u.Username).ToList();
         Assert.DoesNotContain("uB", data);
         Assert.Contains("uA", data);
     }
@@ -153,10 +148,9 @@ public class TaskKCompanyScopeReadTests
         await SeedUserAsync(db, "uA", ctA);
         await SeedUserAsync(db, "uB", ctB);
 
-        var controller = BuildUsersController(db, actor.Id, new TestHelpers.FakeScope { Super = true });
-        var result = await controller.GetUsers(null, null);
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var data = TestHelpers.ReadDataStringArray(ok.Value, "username");
+        var handler = BuildListUsersHandler(db, new TestHelpers.FakeScope { Super = true });
+        var result = await handler.Handle(new ListUsersQuery(null, null), CancellationToken.None);
+        var data = result.Items.Select(u => u.Username).ToList();
         Assert.Contains("uA", data);
         Assert.Contains("uB", data);
     }
@@ -173,8 +167,9 @@ public class TaskKCompanyScopeReadTests
         var actor = await SeedUserAsync(db, "actor", ctA);
         var uB = await SeedUserAsync(db, "uB", ctB);
 
-        var controller = BuildUsersController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        Assert.IsType<NotFoundObjectResult>(await controller.GetUser(uB.Id));
+        var result = await BuildGetUserHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA })
+            .Handle(new GetUserByIdQuery(uB.Id), CancellationToken.None);
+        Assert.Null(result); // out-of-scope → null → controller maps to 404
     }
 
     [Fact]
@@ -185,8 +180,9 @@ public class TaskKCompanyScopeReadTests
         var actor = await SeedUserAsync(db, "actor", ctA);
         var uA = await SeedUserAsync(db, "uA", ctA);
 
-        var controller = BuildUsersController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        Assert.IsType<OkObjectResult>(await controller.GetUser(uA.Id));
+        var result = await BuildGetUserHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA })
+            .Handle(new GetUserByIdQuery(uA.Id), CancellationToken.None);
+        Assert.NotNull(result); // in-scope → found (controller returns 200)
     }
 
     [Fact]
@@ -197,8 +193,9 @@ public class TaskKCompanyScopeReadTests
         var actor = await SeedUserAsync(db, "actor", ctA);
         var floater = await SeedUserAsync(db, "floater", null);
 
-        var controller = BuildUsersController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
-        Assert.IsType<OkObjectResult>(await controller.GetUser(floater.Id));
+        var result = await BuildGetUserHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA })
+            .Handle(new GetUserByIdQuery(floater.Id), CancellationToken.None);
+        Assert.NotNull(result); // floater visible (controller returns 200)
     }
 
     [Fact]
@@ -209,8 +206,9 @@ public class TaskKCompanyScopeReadTests
         var actor = await SeedUserAsync(db, "actor", ctB);
         var uB = await SeedUserAsync(db, "uB", ctB);
 
-        var controller = BuildUsersController(db, actor.Id, new TestHelpers.FakeScope { Super = true });
-        Assert.IsType<OkObjectResult>(await controller.GetUser(uB.Id));
+        var result = await BuildGetUserHandler(db, new TestHelpers.FakeScope { Super = true })
+            .Handle(new GetUserByIdQuery(uB.Id), CancellationToken.None);
+        Assert.NotNull(result);
     }
 
     // =========================================================================
