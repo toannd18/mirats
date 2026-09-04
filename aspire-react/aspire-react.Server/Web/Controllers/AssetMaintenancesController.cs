@@ -1,5 +1,6 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using aspire_react.Server.Application.AssetMaintenances.Commands;
 using aspire_react.Server.Application.AssetMaintenances.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -147,105 +148,48 @@ public class AssetMaintenancesController : ControllerBase
         });
     }
 
+    // ==================== CREATE (2 routes → 1 shared command, subtask B) ====================
+    // Audit verdict: both routes funneled into the SAME CreateCoreAsync with zero divergence
+    // (the aggregated route only repacks its DTO field-by-field) → ONE CreateMaintenanceCommand.
+    // Thin MediatR mappings; validations/scope/snapshot/assignees verbatim in the handler.
+
     [HttpPost("assets/{assetId:guid}/maintenances")]
     [Authorize(Policy = "assets.edit")]
-    public Task<IActionResult> Create(Guid assetId, [FromBody] CreateAssetMaintenanceRequest r)
-        => CreateCoreAsync(assetId, r);
+    public async Task<IActionResult> Create(Guid assetId, [FromBody] CreateAssetMaintenanceRequest r)
+        => await CreateViaCommandAsync(assetId, r.Type, r.Title, r.Notes, r.SupplierId,
+            r.StartDate, r.CompletionDate, r.Cost, r.IsWarranty, r.AssigneeUserIds);
 
     // ==================== CREATE (aggregated — picks the asset from the body) ====================
 
     [HttpPost("maintenances")]
     [Authorize(Policy = "assets.edit")]
-    public Task<IActionResult> CreateForAsset([FromBody] CreateAssetMaintenanceForAssetRequest r)
-        => CreateCoreAsync(r.AssetId, new CreateAssetMaintenanceRequest(r.Type, r.Title, r.Notes, r.SupplierId,
-            r.StartDate, r.CompletionDate, r.Cost, r.IsWarranty, r.AssigneeUserIds));
+    public async Task<IActionResult> CreateForAsset([FromBody] CreateAssetMaintenanceForAssetRequest r)
+        => await CreateViaCommandAsync(r.AssetId, r.Type, r.Title, r.Notes, r.SupplierId,
+            r.StartDate, r.CompletionDate, r.Cost, r.IsWarranty, r.AssigneeUserIds);
 
     /// <summary>
-    /// Shared create logic: validates input, enforces company scope (a regular user may only create
-    /// maintenance for an asset in their own company), snapshots the asset context once, and writes
-    /// the record + ActionLog. CompanyId is set by the server (= Asset.CompanyId ?? Guid.Empty) and
-    /// is locked afterwards.
+    /// Shared create mapping: sends the single CreateMaintenanceCommand and maps failures to the
+    /// EXACT pre-migration bodies (NOT_FOUND → 404; FORBIDDEN → Forbid() 403; validation rules →
+    /// 400 with error_code snake_case).
     /// </summary>
-    private async Task<IActionResult> CreateCoreAsync(Guid assetId, CreateAssetMaintenanceRequest r)
+    private async Task<IActionResult> CreateViaCommandAsync(Guid assetId, AssetMaintenanceType type, string title,
+        string? notes, Guid? supplierId, DateTime startDate, DateTime? completionDate, decimal? cost,
+        bool isWarranty, Guid[]? assigneeUserIds)
     {
-        if (string.IsNullOrWhiteSpace(r.Title))
-            return BadRequest(new { status = "error", message = "Tiêu đề (Title) là bắt buộc.", error_code = "TITLE_REQUIRED" });
-        if (r.CompletionDate.HasValue && r.CompletionDate.Value < r.StartDate)
-            return BadRequest(new { status = "error", message = "Ngày hoàn thành không được trước ngày bắt đầu.", error_code = "COMPLETION_BEFORE_START" });
-        if (r.Cost.HasValue && r.Cost.Value < 0)
-            return BadRequest(new { status = "error", message = "Chi phí không được âm.", error_code = "INVALID_COST" });
-        if (r.SupplierId.HasValue && !await _context.Suppliers.AnyAsync(s => s.Id == r.SupplierId.Value))
-            return BadRequest(new { status = "error", message = "Nhà cung cấp không hợp lệ.", error_code = "INVALID_SUPPLIER" });
+        var result = await _mediator.Send(new CreateMaintenanceCommand(
+            assetId, type, title, notes, supplierId, startDate, completionDate, cost,
+            isWarranty, assigneeUserIds, GetCurrentUserId()));
 
-        var asset = await _context.Assets
-            .Include(a => a.SystemPosition).ThenInclude(sp => sp.SystemInfo)
-            .Include(a => a.Location)
-            .Include(a => a.CurrentAssignment)
-            .FirstOrDefaultAsync(a => a.Id == assetId);
-        if (asset == null) return NotFound(new { status = "error", message = "Asset not found." });
-
-        // Company scope (defense in depth — do not trust the client-side asset filter).
-        var userCompanyId = await GetUserCompanyIdAsync();
-        if (userCompanyId.HasValue && asset.CompanyId.HasValue && asset.CompanyId.Value != userCompanyId.Value)
-            return Forbid();
-
-        // Assignees (optional on create): max 5 + same-company rule, validated against the server-set
-        // maintenance company (= Asset.CompanyId ?? Guid.Empty, so floater records allow any user).
-        var assigneeError = await ValidateAssigneesAsync(r.AssigneeUserIds, asset.CompanyId ?? Guid.Empty);
-        if (assigneeError != null) return assigneeError;
-
-        var snap = await BuildSnapshotAsync(asset, CancellationToken.None);
-
-        var m = new AssetMaintenance
+        if (!result.Success)
         {
-            AssetId = assetId,
-            Type = r.Type,
-            Title = r.Title.Trim(),
-            Notes = r.Notes,
-            SupplierId = r.SupplierId,
-            CompanyId = asset.CompanyId ?? Guid.Empty,
-            StartDate = DateTime.SpecifyKind(r.StartDate, DateTimeKind.Unspecified),
-            CompletionDate = r.CompletionDate.HasValue ? DateTime.SpecifyKind(r.CompletionDate.Value, DateTimeKind.Unspecified) : null,
-            Cost = r.Cost,
-            IsWarranty = r.IsWarranty,
-            SnapshotSystemInfoId = snap.SysInfoId,
-            SnapshotSystemInfoName = snap.SysInfoName,
-            SnapshotSystemPositionId = snap.PosId,
-            SnapshotSystemPositionName = snap.PosName,
-            SnapshotLocationId = snap.LocId,
-            SnapshotLocationName = snap.LocName,
-            SnapshotAssignedUserId = snap.UserId,
-            SnapshotAssignedUserName = snap.UserName,
-            SnapshotDepartmentId = snap.DeptId,
-            SnapshotDepartmentName = snap.DeptName,
-            CreatedById = GetCurrentUserId(),
-            CreatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified),
-            UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified)
-        };
-        _context.AssetMaintenances.Add(m);
-        if (r.AssigneeUserIds != null)
-        {
-            foreach (var uid in r.AssigneeUserIds.Distinct())
-            {
-                _context.AssetMaintenanceAssignees.Add(new AssetMaintenanceAssignee
-                {
-                    MaintenanceId = m.Id,
-                    UserId = uid,
-                    AssignedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified)
-                });
-            }
+            if (result.ErrorCode == "NOT_FOUND")
+                return NotFound(new { status = "error", message = result.Message });
+            if (result.ErrorCode == "FORBIDDEN")
+                return Forbid();
+            return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
-        _actionLogService.Log(new ActionLogEntry
-        {
-            ItemType = ItemType.AssetMaintenance,
-            ItemId = m.Id,
-            ActionType = ActionType.Create,
-            CreatedBy = GetCurrentUserId(),
-            CompanyId = m.CompanyId,
-            Note = $"Tạo bảo trì \"{m.Title}\""
-        });
-        await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Đã tạo bảo trì.", data = new { m.Id } });
+
+        return Ok(new { status = "success", message = result.Message, data = new { Id = result.MaintenanceId } });
     }
 
     // ==================== UPDATE (whitelist; snapshot fields are locked) ====================
@@ -545,74 +489,9 @@ public class AssetMaintenancesController : ControllerBase
             }
         }
     }
-
-    // ==================== Snapshot builder ====================
-
-    /// <summary>
-    /// Captures the asset's context at THIS moment: SystemPosition + its parent SystemInfo
-    /// (both levels — SystemPosition is a child of SystemInfo), Location, assigned User, and
-    /// Department. Mirrors the ActionLog write-time snapshot convention (id + display name).
-    /// </summary>
-    private async Task<(Guid? SysInfoId, string? SysInfoName, Guid? PosId, string? PosName,
-        Guid? LocId, string? LocName, Guid? UserId, string? UserName, Guid? DeptId, string? DeptName)>
-        BuildSnapshotAsync(Asset asset, CancellationToken ct)
-    {
-        Guid? sysInfoId = null;
-        string? sysInfoName = null;
-        Guid? posId = null;
-        string? posName = null;
-        if (asset.SystemPosition != null)
-        {
-            posId = asset.SystemPosition.Id;
-            posName = asset.SystemPosition.Name;
-            sysInfoId = asset.SystemPosition.SystemInfoId;
-            sysInfoName = asset.SystemPosition.SystemInfo?.Name;
-        }
-
-        Guid? locId = asset.LocationId;
-        string? locName = asset.Location?.Name;
-
-        Guid? userId = null;
-        string? userName = null;
-        Guid? deptId = null;
-        string? deptName = null;
-        if (asset.CurrentAssignment != null)
-        {
-            var asgn = asset.CurrentAssignment;
-            if (asgn.TargetType == AssignmentTargetType.User)
-            {
-                userId = asgn.TargetId;
-                var user = await _context.Users.AsNoTracking()
-                    .Where(u => u.Id == userId.Value)
-                    .Select(u => new
-                    {
-                        DisplayName = (u.FirstName + " " + u.LastName).Trim() != ""
-                            ? (u.FirstName + " " + u.LastName).Trim()
-                            : u.Username,
-                        u.DepartmentId,
-                        DeptName = u.Department != null ? u.Department.Name : (string?)null
-                    })
-                    .FirstOrDefaultAsync(ct);
-                if (user != null)
-                {
-                    userName = user.DisplayName;
-                    deptId = user.DepartmentId;
-                    deptName = user.DeptName;
-                }
-            }
-            else if (asgn.TargetType == AssignmentTargetType.Department)
-            {
-                deptId = asgn.TargetId;
-                deptName = await _context.Departments.AsNoTracking()
-                    .Where(d => d.Id == deptId.Value)
-                    .Select(d => d.Name)
-                    .FirstOrDefaultAsync(ct);
-            }
-        }
-
-        return (sysInfoId, sysInfoName, posId, posName, locId, locName, userId, userName, deptId, deptName);
-    }
 }
+
+// ==================== Request records ====================
 
 public record CreateAssetMaintenanceRequest(AssetMaintenanceType Type, string Title, string? Notes, Guid? SupplierId,
     DateTime StartDate, DateTime? CompletionDate, decimal? Cost, bool IsWarranty = false, Guid[]? AssigneeUserIds = null);
