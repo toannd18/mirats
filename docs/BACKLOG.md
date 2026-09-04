@@ -109,6 +109,25 @@
 
 ---
 
+## BUG-J — Dashboard monthly-checkout-trend: 500 cho MỌI superuser (visibleAssetIds null → Contains trong EF expression) (MEDIUM)
+
+- **Trạng thái:** OPEN — phát hiện 2026-09-03 trong Giai đoạn 3 (baseline Dashboard trên binary cũ,
+  CONFIRMED via reproduction); migrate verbatim (parity 500=500) vào
+  `aspire-react.Application/Dashboard/Queries/` kèm `// TODO BUG-J` in-code (KHÔNG fix trong
+  migration — parity trước). *Ghi chú 2026-09-04: entry này bị sót khi commit Dashboard 138c1e2
+  (commit message khai báo đã ghi BACKLOG nhưng file không có thay đổi) — bổ sung bây giờ, nội dung
+  lấy từ facts đã verify của commit đó.*
+- **Mức độ: MEDIUM** (API defect thật, confirmed reproduce — NHƯNG **zero frontend impact**: grep
+  toàn frontend, endpoint monthly-checkout-trend KHÔNG được gọi — DashboardPage chỉ gọi 5 endpoint
+  còn lại; khác BUG-K user-facing thật).
+- **Hành vi:** GET /api/v1/dashboard/monthly-checkout-trend với superuser → visibleAssetIds null
+  (superuser không bị filter company) → `Contains()` trên collection null trong EF expression →
+  ArgumentNullException lúc translate → 500. Regular user KHÔNG bị (visibleAssetIds có giá trị).
+- **Fix sketch (THAY ĐỔI HÀNH VI, cần duyệt riêng):** guard visibleAssetIds null → skip Contains
+  filter (200 + full data) — quyết định cùng đợt dọn patch-safety/bug sau migration.
+
+---
+
 ## BUG-G — Location.Create KHÔNG có company-scoping và không có validation nào (SECURITY/HIGH)
 
 - **Trạng thái:** OPEN — phát hiện 2026-09-01 trong Giai đoạn 2 (audit Location trước khi migrate)
