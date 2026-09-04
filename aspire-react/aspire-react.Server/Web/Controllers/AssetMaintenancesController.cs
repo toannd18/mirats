@@ -254,7 +254,8 @@ public class AssetMaintenancesController : ControllerBase
             return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
 
-        return Ok(new { status = "success", message = result.Message, data = new { result.MaintenanceId, result.IsClosed, result.ClosedAt, result.ClosedById } });
+        // Key "id" verbatim (old: m.Id) — result.MaintenanceId would serialize "maintenanceId".
+        return Ok(new { status = "success", message = result.Message, data = new { Id = result.MaintenanceId, result.IsClosed, result.ClosedAt, result.ClosedById } });
     }
 
     // ==================== INSPECT (independent pre-close approval step) ====================
@@ -280,7 +281,8 @@ public class AssetMaintenancesController : ControllerBase
             return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
 
-        return Ok(new { status = "success", message = result.Message, data = new { result.MaintenanceId, result.InspectedById, result.InspectedAt } });
+        // Key "id" verbatim (old: m.Id); InspectedById/InspectedAt verbatim (old: m.InspectedById/m.InspectedAt).
+        return Ok(new { status = "success", message = result.Message, data = new { Id = result.MaintenanceId, result.InspectedById, result.InspectedAt } });
     }
 
     [HttpPost("maintenances/{id:guid}/reopen")]
@@ -298,7 +300,8 @@ public class AssetMaintenancesController : ControllerBase
             return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
 
-        return Ok(new { status = "success", message = result.Message, data = new { result.MaintenanceId, result.IsClosed, result.ClosedAt, result.ClosedById } });
+        // Key "id" verbatim (old: m.Id) — same parity fix as Close.
+        return Ok(new { status = "success", message = result.Message, data = new { Id = result.MaintenanceId, result.IsClosed, result.ClosedAt, result.ClosedById } });
     }
 
     // ==================== Assignee helpers (moved to Application in subtask C) ====================
