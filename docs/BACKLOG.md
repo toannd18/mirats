@@ -130,8 +130,25 @@
 
 ## BUG-G — Location.Create KHÔNG có company-scoping và không có validation nào (SECURITY/HIGH)
 
-- **Trạng thái:** OPEN — phát hiện 2026-09-01 trong Giai đoạn 2 (audit Location trước khi migrate)
-- **Mức độ: SECURITY/HIGH** (khác MEDIUM của BUG-E/F): regular user (không phải superuser) có thể
+- **Trạng thái: RESOLVED 2026-09-05** (SECURITY/HIGH — fix hành vi thật, thiết kế duyệt riêng
+  trước khi code theo quy trình behavior-change). Re-audit dữ liệu thật trước fix: 8 locations
+  (1 thật "QA AUD Loc" do superuser tạo + 7 PRT fixture floater) — **0 cross-company sign** → fix
+  không ảnh hưởng dữ liệu hiện có.
+  - **Thay đổi hành vi (thiết kế Bước 2 đã duyệt):** `CreateLocationCommandHandler` thêm check
+    ĐẦU TIÊN theo đúng pattern Task L2 (`CreateDepartmentCommand`): regular user chỉ tạo được
+    Location cho company của chính họ (hoặc floater CompanyId=null); superuser bỏ qua; mismatch →
+    **400 + `error_code: COMPANY_MISMATCH`** + message "Bạn chỉ được tạo địa điểm cho công ty của
+    mình." Blocked request không tạo row và không tạo ActionLog. Positive path verified trên
+    binary thật (admin tạo location company + floater 200/200, không regression).
+  - **Phạm vi fix — CHỈ company-scoping** (tránh gộp): empty-name check + dup-name check vẫn còn
+    thiếu → thuộc nhóm patch-safety dọn dẹp sau. **Limitation đã biết, chấp nhận (nhất quán với
+    Department — KHÔNG phải thiếu sót riêng của Location):** không có company-existence check
+    (CompanyId không tồn tại vẫn pass — chỉ data-hygiene, không security-risk).
+  - **Tests:** `LocationCommandTests` ×4 (FakeScope, unit-test là đủ theo duyệt — không tạo user
+    Keycloak thật): negative A→B = COMPANY_MISMATCH + 0 row + 0 log; positive A→A ✔; floater ✔;
+    superuser → company B ✔. Full suite 400/400 (396 + 4 mới).
+- **Phát hiện lúc audit (2026-09-01, Giai đoạn 2):** Mức độ SECURITY/HIGH (khác MEDIUM của
+  BUG-E/F): regular user (không phải superuser) có thể
   tạo Location cho **company BẤT KỲ** (cross-company creation) — vi phạm trực tiếp company-isolation
   (nguyên tắc cứng nhất của dự án, convention Task L2: "Create out-of-scope → 400 COMPANY_MISMATCH");
   ngoài ra không có empty-name/dup-name check (location name rỗng cũng tạo được).
