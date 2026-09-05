@@ -84,7 +84,8 @@ public class MaintenanceCampaignTests
     }
 
     private static MaintenanceCampaignsController Ctx(AppDbContext db, bool super, Guid? companyId)
-        => new(db, new TestHelpers.FakeCurrentUser(), new TestHelpers.FakeScope { Super = super, CompanyId = companyId },
+        => new(TestHelpers.BuildMediator(db, new TestHelpers.FakeScope { Super = super, CompanyId = companyId }),
+            db, new TestHelpers.FakeCurrentUser(), new TestHelpers.FakeScope { Super = super, CompanyId = companyId },
             TestHelpers.CreateActionLogService(db));
 
     // ==================== Create + snapshot ====================

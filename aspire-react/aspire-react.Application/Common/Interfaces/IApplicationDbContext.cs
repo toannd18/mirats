@@ -1,5 +1,6 @@
 using aspire_react.Server.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace aspire_react.Server.Application.Common.Interfaces;
@@ -16,6 +17,21 @@ public interface IApplicationDbContext
 {
     /// <summary>Relational facade — CreateExecutionStrategy / BeginTransactionAsync / ProviderName (Task O-FIX concurrency pattern).</summary>
     DatabaseFacade Database { get; }
+
+    /// <summary>
+    /// Change-tracker facade — [Giai đoạn 3 — MaintenanceCampaigns] BUG-A race-safe Create cần
+    /// <c>ChangeTracker.Clear()</c> verbatim sau khi re-fetch SystemInfo FOR UPDATE (drop the
+    /// FOR UPDATE snapshot — sys state stays from the pre-read). Same rationale as Database:
+    /// transaction-boundary surface, zero behavior change (AppDbContext already exposes it).
+    /// </summary>
+    ChangeTracker ChangeTracker { get; }
+
+    /// <summary>
+    /// Change-tracker entry accessor — [Giai đoạn 3 — MaintenanceCampaigns] BUG-D retry-merge cần
+    /// <c>Entry(entity).State = Detached</c> verbatim sau khi thua 23505 (unique violation) trước khi
+    /// retry. Same rationale as ChangeTracker above (AppDbContext already exposes it via DbContext).
+    /// </summary>
+    EntityEntry<TEntity> Entry<TEntity>(TEntity entity) where TEntity : class;
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

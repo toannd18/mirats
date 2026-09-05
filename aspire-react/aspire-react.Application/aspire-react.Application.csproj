@@ -18,6 +18,11 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+    <!-- [Giai đoạn 3 — MaintenanceCampaigns] Npgsql ADO THUẦN (KHÔNG phải EF provider — cái đó ở
+         Infrastructure): chỉ dùng cho exception-type catching PostgresException/PostgresErrorCodes
+         trong BUG-D retry-merge (UpsertCampaignResult). ADO driver không kéo EF, không vi phạm
+         dependency direction (Domain ← Application chỉ thấy exception types thuần). -->
+    <PackageReference Include="Npgsql" Version="10.0.2" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
   </ItemGroup>
 
