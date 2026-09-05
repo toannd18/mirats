@@ -24,10 +24,13 @@ public record UpdateMaintenanceResult(
 /// INVALID_COST → INVALID_SUPPLIER → whitelist assign → assignees replace-all → thin Update log.
 /// Lock map (audited): StartDate = explicit FIELD_LOCKED; AssetId (route-only), CompanyId +
 /// Snapshot* (absent from DTO entirely) = structural locks; closed state locks everything.
-/// Assignment semantics verbatim (NOT normalized to patch-safe): Title/Notes/Type/IsWarranty are
-/// conditional, but SupplierId / CompletionDate / Cost assign DIRECTLY (absent → null → clears).
-/// The latter is pre-existing FULL-PUT behavior of BUG-E class — kept verbatim, registered as
-/// BUG-N (docs/BACKLOG.md) + TODO in-code, NOT fixed here. ILoggableCommand only.
+/// Assignment semantics — [BUG-N FIX 2026-09-05] PATCH-SAFE (Task M1/M2 pattern, behavior change
+/// approved): Title/Notes/Type/IsWarranty were already conditional; SupplierId / CompletionDate /
+/// Cost now ALSO assigned only when SENT (`is not null` / HasValue) — an absent field no longer
+/// clears the stored value (previously direct-assign → absent → null, wiping supplier/cost/
+/// completion data). Explicit nulls in the JSON still clear (deserialization sends null →
+/// indistinguishable from absent in this DTO shape — known JSON-patch limitation, same as the
+/// patch DTOs elsewhere). ILoggableCommand only.
 /// </summary>
 public record UpdateMaintenanceCommand(
     Guid Id,
@@ -100,14 +103,15 @@ public class UpdateMaintenanceCommandHandler : IRequestHandler<UpdateMaintenance
             return new UpdateMaintenanceResult(false, "Nhà cung cấp không hợp lệ.", "INVALID_SUPPLIER");
 
         // Whitelist: Title, Notes, Type, SupplierId, CompletionDate, Cost, IsWarranty.
-        // TODO BUG-N (docs/BACKLOG.md): SupplierId/CompletionDate/Cost assign DIRECTLY (absent →
-        // null → clears) — pre-existing FULL-PUT of BUG-E class, kept verbatim, do NOT normalize.
+        // [BUG-N FIX] PATCH-SAFE: every field assigned ONLY when sent (Task M1/M2 pattern).
+        // NOTE: the pre-migration code assigned SupplierId/CompletionDate/Cost directly (absent →
+        // null → cleared — BUG-E class); registered as BUG-N during migration subtask C, now fixed.
         if (!string.IsNullOrWhiteSpace(request.Title)) m.Title = request.Title.Trim();
-        m.Notes = request.Notes ?? m.Notes;
+        if (request.Notes is not null) m.Notes = request.Notes;
         if (request.Type.HasValue) m.Type = request.Type.Value;
-        m.SupplierId = request.SupplierId;
-        m.CompletionDate = request.CompletionDate.HasValue ? DateTime.SpecifyKind(request.CompletionDate.Value, DateTimeKind.Unspecified) : null;
-        m.Cost = request.Cost;
+        if (request.SupplierId.HasValue) m.SupplierId = request.SupplierId;
+        if (request.CompletionDate.HasValue) m.CompletionDate = DateTime.SpecifyKind(request.CompletionDate.Value, DateTimeKind.Unspecified);
+        if (request.Cost.HasValue) m.Cost = request.Cost;
         if (request.IsWarranty.HasValue) m.IsWarranty = request.IsWarranty.Value;
         m.UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
 

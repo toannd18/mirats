@@ -375,16 +375,21 @@
 
 ## BUG-N — AssetMaintenances Update: SupplierId/CompletionDate/Cost gán trực tiếp, field absent bị clear (cùng lớp BUG-E)
 
-- **Trạng thái:** OPEN — phát hiện trong subtask C (Giai đoạn 3, nhóm Rất nặng); migrate
-  verbatim vào `aspire-react.Application/AssetMaintenances/Commands/UpdateMaintenanceCommand.cs`
-  kèm comment `// TODO BUG-N` in-code (KHÔNG fix trong migration — parity trước).
-- **Mức độ: MEDIUM** (nghiệp vụ — cùng lớp patch-safety BUG-E/BUG-I#1: không isolation risk)
-- **Hành vi:** PUT /api/v1/maintenances/{id} — 3 field `SupplierId`, `CompletionDate`, `Cost`
-  gán TRỰC TIẾP từ DTO nullable (`m.SupplierId = r.SupplierId` …); payload thiếu field →
-  bị clear/null (VD: PUT chỉ `{title}` → CompletionDate/Cost/SupplierId mất). Các field còn
-  lại patch-aware (Title/Notes/Type/IsWarranty conditional; StartDate FIELD_LOCKED).
-  *Độ tin cậy: suy luận từ đọc code (payload realistic của frontend Maintenance form gửi đủ
-  field nên chưa trigger — cùng tình trạng với BUG-I#1).*
-- **Fix sketch (THAY ĐỔI HÀNH VI, cần duyệt riêng):** reserve `null` làm "clear có chủ đích"
-  qua field kèm theo (VD `ClearCompletionDate: bool`) hoặc chuyển 3 field sang conditional
-  assign như Title; quyết định cùng lúc với BUG-E (Department) nếu dọn patch-safety toàn diện.
+- **Trạng thái: RESOLVED 2026-09-05** (behavior change theo sketch — phương án "chuyển 3 field
+  sang conditional assign" đã chọn). `UpdateMaintenanceCommandHandler`: `SupplierId`,
+  `CompletionDate`, `Cost` giờ gán CHỈ KHI GỬI (`is not null`/`HasValue` — Task M1/M2 pattern,
+  đồng bộ Title/Notes/Type/IsWarranty vốn đã conditional); `Notes` đổi từ `?? m.Notes` sang
+  `is not null` cho nhất quán (subtle: empty-string notes trước đây vẫn ghi đè qua `??` — giờ
+  empty-string là giá trị gửi, vẫn ghi đè đúng; chỉ absent mới giữ). `CompletionDate` vẫn
+  SpecifyKind Unspecified khi gởi. **Known limitation (same as all patch DTOs):** JSON explicit
+  null indistinguishable from absent → không có "clear có chủ đích" (FE gửi prefill đủ field khi
+  muốn đổi thành null — MaintenanceCompleteModal đã verify). Frontend impact: 0 — 2 caller
+  (`AssetMaintenanceSection` full-form, `MaintenanceCompleteModal` gửi 5 field kèm đủ 3 field
+  này prefill từ record). Tests: `Update_PatchSafe_PartialPayload_KeepsExistingSupplierCost
+  Completion_BugRepro` (PUT chỉ {title} → SupplierId/CompletionDate/Cost GIỮ NGUYÊN). Full suite
+  421/421.
+- **Phát hiện (subtask C, Giai đoạn 3, nhóm Rất nặng):** MEDIUM — cùng lớp patch-safety
+  BUG-E/BUG-I#1: không isolation risk. Hành vi gốc: 3 field gán TRỰC TIẾP từ DTO nullable;
+  payload thiếu field → bị clear/null. *Độ tin cậy lúc audit: suy luận từ đọc code (payload
+  realistic của frontend luôn gửi đủ field nên chưa trigger).* Migrate verbatim trước, fix riêng
+  bây giờ.

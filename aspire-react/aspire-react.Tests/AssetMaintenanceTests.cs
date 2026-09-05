@@ -801,6 +801,36 @@ public class AssetMaintenanceTests
         Assert.Equal(newDept.Id, cc.DepartmentId);
     }
 
+    [Fact]
+    public async Task Update_PatchSafe_PartialPayload_KeepsExistingSupplierCostCompletion_BugRepro()
+    {
+        await using var ctx = CreateContext(nameof(Update_PatchSafe_PartialPayload_KeepsExistingSupplierCostCompletion_BugRepro));
+        var company = new Company { Name = "CT-A" };
+        ctx.Companies.Add(company);
+        var supplier = new Supplier { Name = "SUP-N" };
+        ctx.Suppliers.Add(supplier);
+        await ctx.SaveChangesAsync();
+        var assetId = await SeedAssetWithCompanyAsync(ctx, company.Id);
+        var maintenanceId = await SeedMaintenanceAsync(ctx, assetId, company.Id, "MAINT-N");
+        var controller = new AssetMaintenancesController(TestHelpers.BuildMediator(ctx, new FakeScope { Super = true }), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
+
+        // Seed supplier + completion + cost via a full payload first (completion must be AFTER
+        // StartDate — the COMPLETION_BEFORE_START guard).
+        var full = await controller.Update(maintenanceId, new UpdateAssetMaintenanceRequest(
+            SupplierId: supplier.Id, CompletionDate: DateTime.UtcNow.AddDays(1), Cost: 150m));
+        Assert.IsType<OkObjectResult>(full);
+
+        // BUG-N reproduction: a payload WITHOUT those 3 fields — previously they were cleared.
+        var result = await controller.Update(maintenanceId, new UpdateAssetMaintenanceRequest(Title: "MAINT-N v2"));
+
+        Assert.IsType<OkObjectResult>(result);
+        var reloaded = await ctx.AssetMaintenances.SingleAsync(x => x.Id == maintenanceId);
+        Assert.Equal("MAINT-N v2", reloaded.Title);
+        Assert.Equal(supplier.Id, reloaded.SupplierId);      // was cleared before the fix
+        Assert.NotNull(reloaded.CompletionDate);             // was cleared before the fix
+        Assert.Equal(150m, reloaded.Cost);                   // was cleared before the fix
+    }
+
     private static string ReadErrorCode(object? value)
     {
         using var doc = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(value, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
