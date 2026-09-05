@@ -74,11 +74,20 @@
 
 ## BUG-H — AssetModel Create/Update thiếu toàn bộ validation + FK không kiểm tra tồn tại + client tự set Id (MEDIUM)
 
-- **Trạng thái:** OPEN — phát hiện 2026-09-01 trong Giai đoạn 2 (audit Models trước khi migrate)
-- **Mức độ: MEDIUM** (nghiệp vụ — reference data, KHÔNG có company-isolation risk như BUG-G)
-- **Vị trí:** hành vi CÓ TỪ TRƯỚC trong `AdminController.CreateModel` / `UpdateModel` (HEAD trước
-  migrate Models); di chuyển verbatim vào `aspire-react.Application/Models/Commands/` kèm comment
-  `// TODO BUG-H` in-code.
+- **Trạng thái: RESOLVED 2026-09-05** (behavior change theo sketch). Implement qua
+  `ModelValidation` shared helper dùng chung Create/Update:
+  (1) empty-name — "Tên model không được để trống." (400, Update chỉ khi name ĐƯỢC GỬI và blank);
+  (2) dup-name — "Tên model đã tồn tại." (Create exact; Update chỉ khi name thực sự thay đổi,
+  exclude self; re-send current name = no-op);
+  (3) FK-existence ManufacturerId/CategoryId/DepreciationId/FieldsetId — GUID không tồn tại →
+  **400 `RESOURCE_NOT_FOUND`** + message "Trường tham chiếu không tồn tại: {field}." (trước đây
+  raw FK-violation 500 tại SaveChanges) — check trước mọi mutation.
+  Thành phần #1 (client-set-Id) đã loại từ lúc migrate (DTO không có field Id). Audit dữ liệu thật
+  trước fix: 14 models, 0 empty-name, 0 dup → không hồi tố vấn đề. Tests: `ModelValidationTests`
+  ×7 phủ cả negative/positive/patch-safe. Full suite 415/415.
+- **Phát hiện lúc audit (2026-09-01, Giai đoạn 2):** MEDIUM (nghiệp vụ — reference data, KHÔNG có
+  company-isolation risk như BUG-G). Vị trí gốc: `AdminController.CreateModel` / `UpdateModel`;
+  di chuyển verbatim vào `aspire-react.Application/Models/Commands/` (parity trước, fix riêng).
 - **Các thành phần riêng biệt của bug (ghi tách bạch để đánh giá lại khi fix):**
   1. **Client có thể tự set Id qua entity binding** — `CreateModel([FromBody] AssetModel m)` cho
      phép JSON chứa `"id": "<guid>"` → tạo model với PK do client chọn → trùng PK đã tồn tại =

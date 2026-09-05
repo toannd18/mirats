@@ -10,10 +10,11 @@ namespace aspire_react.Server.Application.Models.Commands;
 /// <summary>
 /// [Giai đoạn 2] PUT /api/v1/models/{id} (extracted from AdminController.UpdateModel).
 /// Patch semantics verbatim (Task M2): 9 fields conditional (`is not null` / non-whitespace for
-/// Name). ⚠️ TODO BUG-H: no dup-check, FK existence unchecked (bogus ManufacturerId/CategoryId/
-/// DepreciationId GUID → FK violation 500) — pre-migration behavior preserved for parity, see
-/// docs/BACKLOG.md BUG-H. LogMeta changes-snapshot (9 fields) built in the handler, carried to
-/// ActionLogBehavior via the response.
+/// Name). [BUG-H FIX 2026-09-05] Validation ADDED (behavior change approved — see ModelValidation):
+/// blank name WHEN SENT → 400; dup-name only when actually CHANGED (exclude self) → 400; supplied
+/// FK ids must exist → 400 RESOURCE_NOT_FOUND (previously unchecked → raw FK-violation 500).
+/// LogMeta changes-snapshot (9 fields) built in the handler, carried to ActionLogBehavior via
+/// the response.
 /// </summary>
 public record UpdateModelCommand(
     Guid Id,
@@ -60,6 +61,21 @@ public class UpdateModelCommandHandler : IRequestHandler<UpdateModelCommand, Mod
             return new ModelResult(false, "Not found.", "NOT_FOUND");
 
         // Patch semantics (Task M2): only fields explicitly sent are applied (absent → keep current).
+        // [BUG-H FIX] Validation before mutation: blank-when-SENT name → 400; dup only when the
+        // name actually changes; FK existence for every SUPPLIED id.
+        if (request.Name != null && string.IsNullOrWhiteSpace(request.Name))
+            return new ModelResult(false, "Tên model không được để trống.");
+        if (request.Name != null && request.Name != m.Name)
+        {
+            var nameError = await ModelValidation.ValidateNameAsync(_context, request.Name, request.Id, cancellationToken);
+            if (nameError != null)
+                return new ModelResult(false, nameError);
+        }
+        var fkError = await ModelValidation.ValidateForeignKeysAsync(
+            _context, request.ManufacturerId, request.CategoryId, request.DepreciationId, request.FieldsetId, cancellationToken);
+        if (fkError != null)
+            return ModelValidation.FkNotFound(fkError);
+
         var before = new { m.Name, m.ModelNumber, m.ManufacturerId, m.CategoryId, m.DepreciationId, m.FieldsetId, m.Eol, m.Notes, m.Requestable };
         if (!string.IsNullOrWhiteSpace(request.Name)) m.Name = request.Name;
         if (request.ModelNumber is not null) m.ModelNumber = request.ModelNumber;

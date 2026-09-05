@@ -8,11 +8,11 @@ namespace aspire_react.Server.Application.Models.Commands;
 
 /// <summary>
 /// [Giai đoạn 2] POST /api/v1/models (extracted from AdminController.CreateModel).
-/// ⚠️ TODO BUG-H (MEDIUM, docs/BACKLOG.md): NO validation at all — no empty-name check, no
-/// dup-check, ManufacturerId/CategoryId/DepreciationId/FieldsetId not verified to exist
-/// (bogus GUID → FK violation 500 at SaveChanges). Pre-migration behavior preserved verbatim
-/// for parity; fix requires its own approved task. Request DTO narrowing also REMOVED the old
-/// client-set-Id quirk (entity binding accepted a client-chosen PK — see BUG-H entry #1).
+/// [BUG-H FIX 2026-09-05] Validation ADDED (behavior change approved — see ModelValidation):
+/// empty-name → 400; dup-name → 400; supplied ManufacturerId/CategoryId/DepreciationId/FieldsetId
+/// must exist → 400 RESOURCE_NOT_FOUND (previously: no checks at all, bogus FK → raw 500 at
+/// SaveChanges). Request DTO narrowing had already REMOVED the old client-set-Id quirk (entity
+/// binding accepted a client-chosen PK — BUG-H entry #1, fixed by DTO since migration).
 /// ILoggableCommand only: /models has NO output-cache — ICacheInvalidatingCommand deliberately
 /// NOT implemented.
 /// </summary>
@@ -54,8 +54,15 @@ public class CreateModelCommandHandler : IRequestHandler<CreateModelCommand, Mod
 
     public async Task<ModelResult> Handle(CreateModelCommand request, CancellationToken cancellationToken)
     {
-        // TODO BUG-H: no validation (name empty OK, dup OK, FK existence unchecked) — verbatim
-        // pre-migration behavior, see docs/BACKLOG.md BUG-H (MEDIUM).
+        // [BUG-H FIX] Validation before any mutation (order: name → dup → FK existence).
+        var nameError = await ModelValidation.ValidateNameAsync(_context, request.Name, excludeModelId: null, cancellationToken);
+        if (nameError != null)
+            return new ModelResult(false, nameError);
+        var fkError = await ModelValidation.ValidateForeignKeysAsync(
+            _context, request.ManufacturerId, request.CategoryId, request.DepreciationId, request.FieldsetId, cancellationToken);
+        if (fkError != null)
+            return ModelValidation.FkNotFound(fkError);
+
         var m = new AssetModel
         {
             Name = request.Name,
