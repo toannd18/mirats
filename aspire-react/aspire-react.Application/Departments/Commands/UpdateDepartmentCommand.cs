@@ -9,17 +9,18 @@ using Microsoft.EntityFrameworkCore;
 namespace aspire_react.Server.Application.Departments.Commands;
 
 /// <summary>
-/// [Giai đoạn 1 — pilot MediatR] PUT /api/v1/departments/{id}. Full-PUT semantics preserved
-/// EXACTLY from the pre-migration controller: Name/CompanyId/ManagerId/Phone/Fax are ALL
-/// assigned unconditionally (a field absent from the payload clears it — this is the historical
-/// behavior, deliberately NOT "improved" to patch semantics in a pure-migration task).
-/// Rule order preserved: 404 → scope 404 → empty-name 400 → duplicate-name 400.
-/// The ActionLog changes-snapshot (LogMeta old→new) is built in the handler where the tracked
-/// entity's before-values live, and carried to ActionLogBehavior via the response.
+/// [Giai đoạn 1 — pilot MediatR] PUT /api/v1/departments/{id}.
+/// [BUG-E FIX 2026-09-05] PATCH-SAFE semantics (Task M1/M2 pattern — behavior change approved):
+/// all fields are NULLABLE and assigned ONLY when actually sent (`is not null`); an absent field
+/// no longer clears the stored value. Previously full-PUT (Name/CompanyId/ManagerId/Phone/Fax ALL
+/// assigned unconditionally — a missing field silently wiped data). Validation order preserved:
+/// 404 → scope 404 → empty-name 400 (only when Name IS sent and blank) → duplicate-name 400 (only
+/// when the name is actually CHANGED — mirrors Create's dup-check). LogMeta old→new pairs now
+/// naturally reflect only real changes (unchanged fields yield old==new).
 /// </summary>
 public record UpdateDepartmentCommand(
     Guid Id,
-    string Name,
+    string? Name,
     Guid? CompanyId,
     Guid? ManagerId,
     string? Phone,
@@ -67,18 +68,22 @@ public class UpdateDepartmentCommandHandler : IRequestHandler<UpdateDepartmentCo
         if (userCompanyId.HasValue && d.CompanyId.HasValue && d.CompanyId.Value != userCompanyId.Value)
             return new DepartmentResult(false, "Not found.", "NOT_FOUND");
 
-        if (string.IsNullOrWhiteSpace(request.Name))
+        // [BUG-E FIX] Name is only required WHEN SENT (patch semantics): blank sent → 400 (same as
+        // the old full-PUT rule); absent → keep the stored name.
+        if (request.Name != null && string.IsNullOrWhiteSpace(request.Name))
             return new DepartmentResult(false, "Tên phòng ban không được để trống.");
 
-        if (await _context.Departments.AnyAsync(x => x.Name == request.Name && x.Id != request.Id, cancellationToken))
+        // [BUG-E FIX] Dup-check only when the name is actually CHANGED (same rule as Create).
+        var nameChanged = request.Name != null && request.Name != d.Name;
+        if (nameChanged && await _context.Departments.AnyAsync(x => x.Name == request.Name && x.Id != request.Id, cancellationToken))
             return new DepartmentResult(false, "Tên phòng ban đã tồn tại.");
 
         var before = new { d.Name, d.CompanyId, d.ManagerId, d.Phone, d.Fax };
-        d.Name = request.Name;
-        d.CompanyId = request.CompanyId;
-        d.ManagerId = request.ManagerId;
-        d.Phone = request.Phone;
-        d.Fax = request.Fax;
+        if (request.Name != null) d.Name = request.Name;
+        if (request.CompanyId.HasValue) d.CompanyId = request.CompanyId;
+        if (request.ManagerId.HasValue) d.ManagerId = request.ManagerId;
+        if (request.Phone is not null) d.Phone = request.Phone;
+        if (request.Fax is not null) d.Fax = request.Fax;
         await _context.SaveChangesAsync(cancellationToken);
 
         var logMeta = JsonSerializer.Serialize(new

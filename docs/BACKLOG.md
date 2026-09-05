@@ -7,8 +7,18 @@
 
 ## BUG-E — DepartmentsController.UpdateDepartment: full-PUT, field không gửi bị clear (vi phạm patch-safety)
 
-- **Trạng thái:** OPEN — phát hiện 2026-09-01 trong Giai đoạn 1 (pilot MediatR, parity verification)
-- **Phân loại:** patch-safety (cùng lớp lỗi Task M1/M2 đã fix cho 11 entity khác — xem workflow §Patch semantics)
+- **Trạng thái: RESOLVED 2026-09-05** (patch-safety fix — behavior change theo sketch đã dự kiến).
+  Đổi `UpdateDepartmentCommand`/`UpdateDepartmentRequest` sang nullable-only + handler gán theo
+  `is not null` (Task M1/M2 pattern): field không gửi → GIỮ NGUYÊN (không còn bị clear). Name chỉ
+  bắt buộc KHI GỬI (blank gửi → 400 như cũ); dup-check chỉ chạy khi name thực sự thay đổi (đồng bộ
+  rule Create). LogMeta old→new tự phản ánh đúng field thực sự đổi (unchanged → old==new).
+  Tests: `DepartmentPatchSafetyTests` ×4 — bug-repro (PUT chỉ {name} → CompanyId/Phone/Fax GIỮ
+  nguyên), full-payload vẫn update đủ (positive, frontend full-form không vỡ), blank-name 400,
+  dup-name 400. Full suite 404/404.
+- **Phát hiện lúc audit (2026-09-01, Giai đoạn 1 pilot):** patch-safety (cùng lớp lỗi Task M1/M2
+  đã fix cho 11 entity khác — xem workflow §Patch semantics). Lưu ý verify cũ: parity old==new đã
+  được xác nhận (full-PUT cả 2 phía) — bug KHÔNG được tạo ra bởi migration; frontend Department
+  form gửi full payload nên chưa trigger.
 - **Vị trí:** `aspire-react.Application/Departments/Commands/UpdateDepartmentCommand.cs` (hành vi di chuyển
   verbatim từ `DepartmentsController.Update` — bug CÓ TỪ TRƯỚC, KHÔNG phải do migrate tạo ra;
   dẫn chứng: HEAD `e060ffa` — `[FromBody] Department updated` + gán vô điều kiện

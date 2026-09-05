@@ -103,4 +103,4 @@ public class DepartmentsController : ControllerBase
 public record CreateDepartmentRequest(string Name, Guid? CompanyId, Guid? ManagerId, string? Phone, string? Fax);
 
 /// <summary>Request DTO for PUT /api/v1/departments/{id} (full-PUT semantics preserved).</summary>
-public record UpdateDepartmentRequest(string Name, Guid? CompanyId, Guid? ManagerId, string? Phone, string? Fax);
+public record UpdateDepartmentRequest(string? Name, Guid? CompanyId, Guid? ManagerId, string? Phone, string? Fax);
