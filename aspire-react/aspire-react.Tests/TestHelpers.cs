@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.ImportExport;
 using aspire_react.Server.Domain.Exceptions;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Caching;
@@ -220,7 +221,8 @@ public static class TestHelpers
     public static MediatR.IMediator BuildMediator(
         AppDbContext db,
         ICompanyScopeService? scope = null,
-        Guid? actorId = null)
+        Guid? actorId = null,
+        IExcelImportService? excelImport = null)
     {
         var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
         services.AddSingleton<IApplicationDbContext>(db);
@@ -230,6 +232,8 @@ public static class TestHelpers
         services.AddSingleton<ICacheTagEvictor>(new NullCacheTagEvictor());
         services.AddSingleton<IComponentAllocationService, ComponentAllocationService>();
         services.AddSingleton<IConsumableAllocationService, ConsumableAllocationService>();
+        if (excelImport != null)
+            services.AddSingleton(excelImport); // [ImportExport migration] import handlers resolve this
         services.AddLogging();
         services.AddApplicationServices();
         return services.BuildServiceProvider().GetRequiredService<MediatR.IMediator>();

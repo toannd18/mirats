@@ -1,4 +1,5 @@
 using ClosedXML.Excel;
+using aspire_react.Server.Application.ImportExport;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -8,45 +9,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Infrastructure.Services;
 
-/// <summary>Row-level outcome of one imported row (best-effort import: a bad row is reported, not fatal).</summary>
-public sealed record ImportRowResult(int RowNumber, bool Success, string Message);
-
-/// <summary>Aggregated outcome of one sheet import. <c>Rows</c> = every processed row (for the
-/// per-row UI report), <c>Errors</c> = the failed subset.</summary>
-public sealed record ImportSheetResult(int Created, int Failed, IReadOnlyList<ImportRowResult> Rows, IReadOnlyList<ImportRowResult> Errors);
-
-/// <summary>
-/// Shared Excel (.xlsx) import machinery for the Mirats import feature (T1–T4).
-/// Design decisions (approved):
-///  - Sheet lookup BY NAME (not position) — mirrors the sample workbook
-///    <c>docs/Mirats_DuLieuMau_VatTu_T&amp;E.xlsx</c> (1_DanhMuc…7_VatTuTieuHao).
-///  - Header row is auto-detected (the sample has title rows above the header and the
-///    header lives on row 3 for sheet 7 but row 4 for the others) and each column is
-///    located by its header text — so column order in the file does not matter.
-///  - Best-effort per row (no all-or-nothing atomicity).
-///  - Reference sheets (T1) auto-create Category/Manufacturer/Location when missing;
-///    inventory sheets resolve by name only and report a per-row error if missing
-///    (AssetModel is NEVER auto-created — approved decision).
-///  - Component serial rows are grouped by (Name + CategoryName + ModelNumber) into ONE
-///    serial-tracked component; StockInAsync is reused for per-unit stock + audit logging.
-///  - Every created record gets its own ActionLog (ActionType.Import) in the same SaveChanges.
-///  - Company scoping (Task IMPORT-T5): ONE import = ONE company. The controller validates the
-///    client-supplied target company against the acting user's real scope (never trust the client)
-///    and passes it in; every created record AND every ActionLog of the batch gets that CompanyId.
-///    Category/Manufacturer stay global entities (no CompanyId column) but their import ActionLogs
-///    are stamped with the chosen company so the whole batch is auditable per company.
-/// </summary>
-public interface IExcelImportService
-{
-    Task<ImportSheetResult> ImportReferenceAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
-    Task<ImportSheetResult> ImportAssetModelsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
-    Task<ImportSheetResult> ImportAssetsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
-    Task<ImportSheetResult> ImportComponentsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
-    Task<ImportSheetResult> ImportAccessoriesAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
-    Task<ImportSheetResult> ImportConsumablesAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
-    Task<ImportSheetResult> ImportSystemsAsync(Stream xlsxStream, Guid actingUserId, Guid companyId, CancellationToken ct = default);
-    Task<ImportSheetResult> ImportSystemPositionsAsync(Stream xlsxStream, Guid actingUserId, Guid? actingUserCompanyId, CancellationToken ct = default);
-}
+// [Giai đoạn 3 — ImportExport] ImportRowResult / ImportSheetResult / IExcelImportService MOVED to
+// Application/ImportExport/ExcelImportContracts.cs (pattern Jason Taylor). This file keeps ONLY the
+// ClosedXML implementation — DI registration unchanged
+// (InfrastructureServiceCollectionExtensions.AddInfrastructureServices).
 
 public class ExcelImportService : IExcelImportService
 {

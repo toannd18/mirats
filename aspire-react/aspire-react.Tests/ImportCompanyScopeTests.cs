@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using aspire_react.Server.Application.ImportExport;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Persistence;
@@ -234,7 +235,9 @@ public class ImportCompanyScopeTests
         var httpContext = BuildHttpContext(principal, ctx);
         var scope = new CompanyScopeService(new HttpContextAccessor { HttpContext = httpContext }, new MemoryCache(new MemoryCacheOptions()));
         var actionLog = new ActionLogService(ctx, new HttpContextAccessor { HttpContext = httpContext });
-        var controller = new ImportExportController(ctx, scope, actionLog, excel);
+        var controller = new ImportExportController(
+            TestHelpers.BuildMediator(ctx, scope, excelImport: excel),
+            ctx, scope, actionLog);
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
         return controller;
     }
