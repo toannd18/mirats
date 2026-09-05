@@ -14,16 +14,3 @@ public record CheckinRequestDto(
 public record AuditRequestDto(
     DateTime? AuditDate,
     string? Note);
-
-public record BulkUpdateRequestDto(
-    List<Guid> AssetIds,
-    Guid? StatusId,
-    Guid? LocationId);
-
-public record BulkAuditRequestDto(
-    List<Guid> AssetIds,
-    DateTime? AuditDate,
-    string? Note);
-
-public record AcceptDeclineRequestDto(
-    string? Signature);
