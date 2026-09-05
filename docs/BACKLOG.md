@@ -154,12 +154,25 @@
 
 ## BUG-J — Dashboard monthly-checkout-trend: 500 cho MỌI superuser (visibleAssetIds null → Contains trong EF expression) (MEDIUM)
 
-- **Trạng thái:** OPEN — phát hiện 2026-09-03 trong Giai đoạn 3 (baseline Dashboard trên binary cũ,
-  CONFIRMED via reproduction); migrate verbatim (parity 500=500) vào
-  `aspire-react.Application/Dashboard/Queries/` kèm `// TODO BUG-J` in-code (KHÔNG fix trong
-  migration — parity trước). *Ghi chú 2026-09-04: entry này bị sót khi commit Dashboard 138c1e2
-  (commit message khai báo đã ghi BACKLOG nhưng file không có thay đổi) — bổ sung bây giờ, nội dung
-  lấy từ facts đã verify của commit đó.*
+- **Trạng thái: RESOLVED 2026-09-05** (behavior change 500→200; **root cause ĐÃ RE-DIAGNOSE
+  đúng lúc fix** — ghi nhận minh bạch):
+  - **Chẩn đoán ban đầu (sai một phần):** visibleAssetIds null → `Contains()` throw → 500 chỉ
+    superuser. **Sai lệch:** InMemory unit test pass cả 2 phiên bản → không phát hiện được; live
+    test sau branch-fix (superuser branch, không Contains) VẪN 500 → chứng tỏ nguyên nhân khác.
+  - **Root cause thật (verified live):** inline projection `$"{g.Key.Year}-{g.Key.Month:D2}"`
+    KHÔNG translate được bởi Npgsql (format specifier `:D2` trong composite format) → EF throw
+    lúc translate → 500 cho MỌI caller (cả superuser lẫn regular; baseline chỉ test superuser
+    nên ghi nhầm "chỉ superuser"). Fix: GroupBy (Year, Month) + count aggregate trong SQL, build
+    month-string client-side (D2 in memory). Regular-user path giữ contains-filter; superuser
+    branch không filter (giữ hành vi "sees all" đúng thiết kế).
+  - **Verified:** Release binary + live Postgres → 200 + data chuẩn (month "2026-08"/"2026-09",
+    counts khớp ActionLogs thật). Tests: `DashboardTests` +2 (superuser 200 với data, regular
+    user scope không leak company B) — InMemory pass vì client-eval projection (bài học: bug này
+    KHÔNG test được bằng InMemory, phải live-verify). Full suite 428/428.
+- **Phát hiện lúc audit (2026-09-03):** MEDIUM (API defect confirmed-reproduce NHƯNG zero
+  frontend impact — DashboardPage không gọi endpoint này). Lưu ý process-lesson: `dotnet run`
+  mặc định Debug — các lần verify trước đây dùng `--no-build` sau khi build Release có thể đã
+  chạy Debug binary cũ; lần này dùng `--configuration Release` tường minh.
 - **Mức độ: MEDIUM** (API defect thật, confirmed reproduce — NHƯNG **zero frontend impact**: grep
   toàn frontend, endpoint monthly-checkout-trend KHÔNG được gọi — DashboardPage chỉ gọi 5 endpoint
   còn lại; khác BUG-K user-facing thật).
