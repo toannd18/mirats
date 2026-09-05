@@ -3,13 +3,16 @@ using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Application.Groups.Commands;
 
 /// <summary>
 /// [Giai đoạn 3] POST /api/v1/groups (extracted from GroupsController.Create).
-/// ⚠️ TODO BUG-K (MEDIUM, docs/BACKLOG.md): NO duplicate-Name check and NO empty-Name check —
-/// verbatim pre-migration behavior (creating a group with an existing/empty name succeeds).
+/// [BUG-K FIX 2026-09-05] Validation ADDED (behavior change approved): empty-Name → 400 "Group
+/// name is required."; duplicate-Name (CASE-INSENSITIVE — decided at fix time per the sketch:
+/// group names act as role-like identifiers, "Admin"/"admin" duplication is the same confusion)
+/// → 400 "A group with this name already exists." (no errorCode, soft-fail section style).
 /// PermissionGroup is system-wide (no CompanyId) → log CompanyId = null.
 /// ILoggableCommand only (no output-cache on groups).
 /// </summary>
@@ -41,6 +44,14 @@ public class CreateGroupCommandHandler : IRequestHandler<CreateGroupCommand, Gro
 
     public async Task<GroupResult> Handle(CreateGroupCommand request, CancellationToken cancellationToken)
     {
+        // [BUG-K FIX] empty-name + dup-name (case-insensitive) before any mutation.
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return new GroupResult(false, "Group name is required.");
+        var dup = await _context.PermissionGroups.AnyAsync(
+            g => g.Name.ToLower() == request.Name.ToLower(), cancellationToken);
+        if (dup)
+            return new GroupResult(false, "A group with this name already exists.");
+
         var group = new PermissionGroup
         {
             Name = request.Name,

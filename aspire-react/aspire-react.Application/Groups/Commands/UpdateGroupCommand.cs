@@ -4,6 +4,7 @@ using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Application.Groups.Commands;
 
@@ -11,7 +12,10 @@ namespace aspire_react.Server.Application.Groups.Commands;
 /// [Giai đoạn 3] PUT /api/v1/groups/{id} (extracted from GroupsController.Update).
 /// SYSTEM_GROUP_LOCKED verbatim (IsSystem groups cannot be renamed). Name/Description assigned
 /// unconditionally (full-put — verbatim). LogMeta ×2 (name/description old→new).
-/// ILoggableCommand only. TODO BUG-K: no duplicate-Name check on rename (verbatim).
+/// [BUG-K FIX 2026-09-05] Validation ADDED after the existing guards (behavior change approved):
+/// empty-Name → 400 "Group name is required."; duplicate-Name on rename (CASE-INSENSITIVE, only
+/// when the name actually CHANGES, excluding self) → 400 "A group with this name already exists."
+/// ILoggableCommand only.
 /// </summary>
 public record UpdateGroupCommand(Guid Id, string Name, string? Description, Guid CurrentUserId)
     : IRequest<GroupResult>, ILoggableCommand<GroupResult>
@@ -48,6 +52,17 @@ public class UpdateGroupCommandHandler : IRequestHandler<UpdateGroupCommand, Gro
 
         if (group.IsSystem)
             return new GroupResult(false, "System groups cannot be renamed.", "SYSTEM_GROUP_LOCKED");
+
+        // [BUG-K FIX] empty-name + dup-name (case-insensitive, only when actually changed).
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return new GroupResult(false, "Group name is required.");
+        if (request.Name != group.Name)
+        {
+            var dup = await _context.PermissionGroups.AnyAsync(
+                g => g.Id != request.Id && g.Name.ToLower() == request.Name.ToLower(), cancellationToken);
+            if (dup)
+                return new GroupResult(false, "A group with this name already exists.");
+        }
 
         var oldName = group.Name;
         var oldDescription = group.Description;

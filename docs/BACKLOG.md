@@ -242,11 +242,24 @@
 
 ## BUG-K — Groups Create/Update: không có dup-Name check, không empty-Name check (MEDIUM)
 
-- **Trạng thái:** OPEN — phát hiện 2026-09-03 trong Giai đoạn 3 (audit Groups + parity verification
-  trên binary cũ); di chuyển verbatim vào `aspire-react.Application/Groups/Commands/` kèm comment
-  `// TODO BUG-K` in-code.
-- **Mức độ: MEDIUM** (user-facing — GroupListPage quản trị group là UI thật, khác BUG-J zero-impact;
-  không phải SECURITY — PermissionGroup không có CompanyId, không isolation risk)
+- **Trạng thái: RESOLVED 2026-09-05** (behavior change theo sketch; case-insensitivity đã quyết
+  tại thời điểm fix). Audit dữ liệu thật trước fix: 2 groups (Admin, Superuser — đều IsSystem,
+  seed) → 0 dup, 0 empty → không hồi tố. Fix:
+  1. **Create dup-Name check (CONFIRMED bug)** — case-INSENSITIVE ("Admin"/"admin" = trùng —
+     group name là role-like identifier), exclude-none, 400 "A group with this name already
+     exists." (không errorCode — soft-fail style section);
+  2. **Create empty-Name check** — 400 "Group name is required.";
+  3. **Update dup-Name on rename** — chỉ khi name THAY ĐỔI (re-send current name = no-op), case-
+     insensitive, exclude self; empty-name cũng chặn; GUARD ORDER: SYSTEM_GROUP_LOCKED vẫn check
+     TRƯỚC validation (đúng hàng rào cũ).
+  Frontend impact: 0 vỡ — `GroupFormModal` trims name trước khi gửi + hiển thị `message` từ error
+  response → dup/empty message hiện đúng chỗ. (Convention `errorCode` camelCase + `Permissions[]
+  .Value` int GIỮ NGUYÊN verbatim — ghi nhận riêng, không thuộc BUG-K.) Tests: `GroupValidation
+  Tests` ×5. Full suite 426/426.
+- **Phát hiện lúc audit (2026-09-03, Giai đoạn 3):** MEDIUM user-facing — GroupListPage quản trị
+  group là UI thật (khác BUG-J zero-impact; không phải SECURITY — PermissionGroup không có
+  CompanyId, không isolation risk). Vị trí gốc: `GroupsController.CreateGroup/UpdateGroup`;
+  di chuyển verbatim vào `aspire-react.Application/Groups/Commands/`.
 - **Các thành phần — độ tin cậy:**
   1. **Create không dup-Name check** ✅ **CONFIRMED VIA REPRODUCTION** — POST 2 group cùng tên →
      cả 2 đều 201 (baseline bắt được trên binary cũ; post parity 2xx). Hệ quả: danh sách group trùng
