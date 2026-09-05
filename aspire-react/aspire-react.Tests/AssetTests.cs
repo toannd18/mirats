@@ -364,7 +364,7 @@ public class AssetTests
             new Asset { AssetTag = "AST-F", Name = "F", IsConfirmed = true, CompanyId = null });
         await ctx.SaveChangesAsync();
 
-        var controller = new AssetsController(ctx, new TestHelpers.ThrowingMediator(), new TestHelpers.FakeCurrentUser(),
+        var controller = new AssetsController(ctx, TestHelpers.BuildMediator(ctx, new TestHelpers.FakeScope { Super = false, CompanyId = companyA.Id }), new TestHelpers.FakeCurrentUser(),
             new TestHelpers.FakeScope { Super = false, CompanyId = companyA.Id });
 
         var result = await controller.GetAssets(null, null, null, null);
@@ -388,7 +388,7 @@ public class AssetTests
             new Asset { AssetTag = "AST-B", Name = "B", IsConfirmed = true, CompanyId = companyB.Id });
         await ctx.SaveChangesAsync();
 
-        var controller = new AssetsController(ctx, new TestHelpers.ThrowingMediator(), new TestHelpers.FakeCurrentUser(),
+        var controller = new AssetsController(ctx, TestHelpers.BuildMediator(ctx, new TestHelpers.FakeScope { Super = true }), new TestHelpers.FakeCurrentUser(),
             new TestHelpers.FakeScope { Super = true });
 
         var result = await controller.GetAssets(null, null, null, null);
@@ -410,7 +410,7 @@ public class AssetTests
         ctx.Assets.Add(assetB);
         await ctx.SaveChangesAsync();
 
-        var controller = new AssetsController(ctx, new TestHelpers.ThrowingMediator(), new TestHelpers.FakeCurrentUser(),
+        var controller = new AssetsController(ctx, TestHelpers.BuildMediator(ctx, new TestHelpers.FakeScope { Super = false, CompanyId = companyA.Id }), new TestHelpers.FakeCurrentUser(),
             new TestHelpers.FakeScope { Super = false, CompanyId = companyA.Id });
 
         var result = await controller.GetAsset(assetB.Id);

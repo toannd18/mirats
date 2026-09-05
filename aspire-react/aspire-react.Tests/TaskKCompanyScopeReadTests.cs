@@ -79,7 +79,8 @@ public class TaskKCompanyScopeReadTests
 
     private static AssetsController BuildAssetsController(AppDbContext db, Guid actorId, TestHelpers.FakeScope scope)
     {
-        var controller = new AssetsController(db, new TestHelpers.ThrowingMediator(), new TestHelpers.FakeCurrentUser(), scope);
+        // [Giai đoạn 3 — Assets] reads drive the real MediatR pipeline (queries own the scoping).
+        var controller = new AssetsController(db, TestHelpers.BuildMediator(db, scope, actorId), new TestHelpers.FakeCurrentUser(), scope);
         AttachUser(controller, actorId);
         return controller;
     }

@@ -37,6 +37,10 @@ public class AssetsController : ControllerBase
     private Task<Guid?> GetUserCompanyIdAsync() => _companyScope.GetCurrentUserCompanyIdAsync();
 
     // ==================== LIST ====================
+    // [Giai đoạn 3 — Assets, section CUỐI] Thin MediatR mapping over ListAssetsQuery (filters +
+    // scope + pagination + batch assignedTo name-resolve verbatim trong handler). QUIRK verbatim:
+    // list assignedTo.type = "User"/"Department"/"SystemPosition" (hoa) — KHÔNG thống nhất với
+    // detail ("user" thường) — pre-existing behavior, giữ nguyên (user-approved).
 
     [HttpGet]
     [Authorize(Policy = "assets.view")]
@@ -44,147 +48,25 @@ public class AssetsController : ControllerBase
         [FromQuery] string? search, [FromQuery] AssetStatus? status, [FromQuery] Guid? categoryId,
         [FromQuery] Guid? locationId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        var query = _context.Assets
-            .Include(a => a.Model).ThenInclude(m => m != null ? m.Manufacturer : null)
-            .Include(a => a.Model).ThenInclude(m => m != null ? m.Category : null)
-            .Include(a => a.Location)
-            .Include(a => a.Company)
-            .Include(a => a.CurrentAssignment)
-            .AsNoTracking();
+        var result = await _mediator.Send(new ListAssetsQuery(search, status, categoryId, locationId, page, pageSize));
 
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var s = search.ToLower();
-            query = query.Where(a => a.AssetTag.ToLower().Contains(s) || a.Name.ToLower().Contains(s) || (a.Serial != null && a.Serial.ToLower().Contains(s)));
-        }
-        if (status.HasValue)
-            query = query.Where(a => a.Status == status.Value);
-        if (categoryId.HasValue) query = query.Where(a => a.Model != null && a.Model.CategoryId == categoryId);
-        if (locationId.HasValue) query = query.Where(a => a.LocationId == locationId);
-
-        var userCompanyId = await GetUserCompanyIdAsync();
-        query = query.Where(a => userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value);
-
-        var total = await query.CountAsync();
-        var assets = await query.OrderBy(a => a.AssetTag).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(a => new
-            {
-                a.Id,
-                a.AssetTag,
-                a.Name,
-                a.Serial,
-                a.Notes,
-                a.PurchaseCost,
-                a.PurchaseDate,
-                Status = a.Status.ToString(),
-                a.IsConfirmed,
-                a.CheckoutCounter,
-                a.CheckinCounter,
-                a.LastCheckout,
-                a.LastCheckin,
-                Model = a.Model == null ? null : new { a.Model.Id, a.Model.Name },
-                Category = a.Model == null || a.Model.Category == null ? null : new { a.Model.Category.Id, a.Model.Category.Name, a.Model.Category.TagColor },
-                Manufacturer = a.Model == null || a.Model.Manufacturer == null ? null : new { a.Model.Manufacturer.Id, a.Model.Manufacturer.Name },
-                Location = a.Location == null ? null : new { a.Location.Id, a.Location.Name },
-                Company = a.Company == null ? null : new { a.Company.Id, a.Company.Name },
-                AssignedTo = a.CurrentAssignment == null ? null : new
-                {
-                    type = a.CurrentAssignment.TargetType.ToString(),
-                    targetId = a.CurrentAssignment.TargetId
-                }
-            }).ToListAsync();
-
-        // ── Batch-resolve assigned-to target names ──
-        var atAssets = assets.Where(a => a.AssignedTo != null).Select(a => a.AssignedTo!).ToList();
-        var uDict = new Dictionary<Guid, string>(); var dDict = new Dictionary<Guid, string>(); var pDict = new Dictionary<Guid, string>();
-        if (atAssets.Any())
-        {
-            var uids = atAssets.Where(x => x.type == "User").Select(x => x.targetId).Distinct().ToList();
-            var dids = atAssets.Where(x => x.type == "Department").Select(x => x.targetId).Distinct().ToList();
-            var pids = atAssets.Where(x => x.type == "SystemPosition").Select(x => x.targetId).Distinct().ToList();
-            if (uids.Any()) uDict = await _context.Users.Where(u => uids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => (u.FirstName + " " + u.LastName).Trim() != "" ? (u.FirstName + " " + u.LastName).Trim() : u.Username);
-            if (dids.Any()) dDict = await _context.Departments.Where(d => dids.Contains(d.Id)).ToDictionaryAsync(d => d.Id, d => d.Name);
-            if (pids.Any()) pDict = await _context.SystemPositions.Where(sp => pids.Contains(sp.Id)).ToDictionaryAsync(sp => sp.Id, sp => sp.Name);
-        }
-        var enriched = assets.Select(a =>
-        {
-            string? an = null;
-            if (a.AssignedTo != null) an = a.AssignedTo.type switch { "User" => uDict.GetValueOrDefault(a.AssignedTo.targetId), "Department" => dDict.GetValueOrDefault(a.AssignedTo.targetId), "SystemPosition" => pDict.GetValueOrDefault(a.AssignedTo.targetId), _ => null };
-            return new { a.Id, a.AssetTag, a.Name, a.Serial, a.Notes, a.PurchaseCost, a.PurchaseDate, a.Status, a.IsConfirmed, a.CheckoutCounter, a.CheckinCounter, a.LastCheckout, a.LastCheckin, a.Model, a.Category, a.Manufacturer, a.Location, a.Company, AssignedTo = a.AssignedTo == null ? null : new { a.AssignedTo.type, a.AssignedTo.targetId, name = an } };
-        }).ToList();
-
-        return Ok(new { status = "success", data = enriched, pagination = new { page, pageSize, totalItems = total, totalPages = (int)Math.Ceiling((double)total / pageSize), hasNextPage = page * pageSize < total, hasPreviousPage = page > 1 } });
+        return Ok(new { status = "success", data = result.Items, pagination = new { page, pageSize, totalItems = result.Total, totalPages = (int)Math.Ceiling((double)result.Total / pageSize), hasNextPage = page * pageSize < result.Total, hasPreviousPage = page > 1 } });
     }
 
     // ==================== BY ID ====================
+    // [Giai đoạn 3 — Assets] Thin MediatR mapping over GetAssetByIdQuery (scope 404 + 26-key shape +
+    // QUIRK verbatim: detail assignedTo type lowercase "user"/"department"/"systemPosition" với
+    // per-type shapes — KHÔNG thống nhất với list).
 
     [HttpGet("{id:guid}")]
     [Authorize(Policy = "assets.view")]
     public async Task<IActionResult> GetAsset(Guid id)
     {
-        var userCompanyId = await GetUserCompanyIdAsync();
-        var asset = await _context.Assets
-            .Include(a => a.Model).ThenInclude(m => m != null ? m.Manufacturer : null)
-            .Include(a => a.Model).ThenInclude(m => m != null ? m.Category : null)
-            .Include(a => a.Location).Include(a => a.Supplier).Include(a => a.Company)
-            .Include(a => a.CurrentAssignment)
-            .AsNoTracking().FirstOrDefaultAsync(a => a.Id == id);
-
-        // Company scoping: a regular user may only view assets of their company (or company-less / floater).
-        if (asset == null || (userCompanyId.HasValue && asset.CompanyId.HasValue && asset.CompanyId.Value != userCompanyId.Value))
+        var result = await _mediator.Send(new GetAssetByIdQuery(id));
+        if (!result.Success || result.Asset == null)
             return NotFound(new { status = "error", message = "Asset not found." });
 
-        object? assignedTo = null;
-        if (asset.CurrentAssignment != null)
-        {
-            var asgn = asset.CurrentAssignment;
-            assignedTo = asgn.TargetType switch
-            {
-                AssignmentTargetType.User => await _context.Users.AsNoTracking().Select(u => new { u.Id, Type = "user", u.Username, u.FirstName, u.LastName }).FirstOrDefaultAsync(u => u.Id == asgn.TargetId),
-                AssignmentTargetType.Department => await _context.Departments.AsNoTracking().Select(d => new { d.Id, Type = "department", d.Name }).FirstOrDefaultAsync(d => d.Id == asgn.TargetId),
-                AssignmentTargetType.SystemPosition => await _context.SystemPositions.AsNoTracking().Select(sp => new { sp.Id, Type = "systemPosition", sp.Name }).FirstOrDefaultAsync(sp => sp.Id == asgn.TargetId),
-                _ => null
-            };
-        }
-
-        return Ok(new
-        {
-            status = "success",
-            data = new
-            {
-                asset.Id,
-                asset.AssetTag,
-                asset.Name,
-                asset.Serial,
-                asset.Image,
-                asset.PurchaseCost,
-                asset.PurchaseDate,
-                asset.WarrantyMonths,
-                asset.LastCheckout,
-                asset.LastCheckin,
-                asset.LastAuditDate,
-                asset.NextAuditDate,
-                asset.CheckinCounter,
-                asset.CheckoutCounter,
-                asset.RequestsCounter,
-                Status = asset.Status.ToString(),
-                asset.IsConfirmed,
-                asset.Physical,
-                asset.Requestable,
-                asset.Accepted,
-                asset.OrderNumber,
-                asset.Notes,
-                asset.CreatedAt,
-                asset.UpdatedAt,
-                Model = asset.Model == null ? null : new { asset.Model.Id, asset.Model.Name, asset.Model.ModelNumber },
-                Category = asset.Model?.Category == null ? null : new { asset.Model.Category.Id, asset.Model.Category.Name, asset.Model.Category.TagColor },
-                Manufacturer = asset.Model?.Manufacturer == null ? null : new { asset.Model.Manufacturer.Id, asset.Model.Manufacturer.Name },
-                Location = asset.Location == null ? null : new { asset.Location.Id, asset.Location.Name },
-                Supplier = asset.Supplier == null ? null : new { asset.Supplier.Id, asset.Supplier.Name },
-                Company = asset.Company == null ? null : new { asset.Company.Id, asset.Company.Name },
-                AssignedTo = assignedTo
-            }
-        });
+        return Ok(new { status = "success", data = result.Asset });
     }
 
     // ==================== CREATE ====================
@@ -320,36 +202,18 @@ public class AssetsController : ControllerBase
     }
 
     // ==================== HISTORY ====================
+    // [Giai đoạn 3 — Assets] Thin MediatR mapping over GetAssetHistoryQuery (Task K scope-404 +
+    // Take(50) + Creator JOIN verbatim trong handler).
 
     [HttpGet("{id:guid}/history")]
     [Authorize(Policy = "assets.view")]
     public async Task<IActionResult> GetHistory(Guid id)
     {
-        // [Task K] Company-scoping: history of an asset is only visible to users who can see the
-        // asset itself (mirrors GetAsset). Out-of-scope asset → 404 to hide existence.
-        var userCompanyId = await GetUserCompanyIdAsync();
-        var visible = await _context.Assets.AsNoTracking()
-            .AnyAsync(a => a.Id == id && (userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value));
-        if (!visible)
+        var result = await _mediator.Send(new GetAssetHistoryQuery(id));
+        if (!result.Success || result.Logs == null)
             return NotFound(new { status = "error", message = "Asset not found." });
 
-        var logs = await _context.ActionLogs.Include(l => l.Creator).AsNoTracking()
-            .Where(l => l.ItemType == ItemType.Asset && l.ItemId == id && l.DeletedAt == null)
-            .OrderByDescending(l => l.ActionDate).Take(50)
-            .Select(l => new
-            {
-                l.Id,
-                l.ActionType,
-                l.Note,
-                l.LogMeta,
-                l.ActionDate,
-                l.LocationId,
-                l.RemoteIp,
-                l.ActionSource,
-                Creator = new { l.Creator.Id, l.Creator.Username, l.Creator.FirstName, l.Creator.LastName }
-            })
-            .ToListAsync();
-        return Ok(new { status = "success", data = logs });
+        return Ok(new { status = "success", data = result.Logs });
     }
 
     // ==================== AUDIT ====================
