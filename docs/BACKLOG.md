@@ -41,8 +41,19 @@
 
 ## BUG-F — Category Update không kiểm tra trùng Name+CategoryType như Create (cho phép rename thành tên trùng lặp)
 
-- **Trạng thái:** OPEN — phát hiện 2026-09-01 trong Giai đoạn 2 (parity verification trên binary cũ)
-- **Phân loại:** business-rule inconsistency (Create có dup-check, Update không)
+- **Trạng thái: RESOLVED 2026-09-05** (behavior change theo sketch: rename trùng từ 2xx → 400).
+  Dup-check `Name+CategoryType` thêm vào `UpdateCategoryCommandHandler` — chỉ khi name THAY ĐỔI
+  THẬT (re-send current name vẫn no-op), exclude self, message đồng bộ Create ("Tên danh mục đã
+  tồn tại." — 400 không error_code). **Không hồi tố**: dup tạo trước fix vẫn tồn tại (audit dữ liệu
+  thật trước fix: 25 categories có duy nhất 1 cặp trùng = fixture parity G2-era
+  "G2-baseline-DUP-20260901091044", đã cleanup cả 2 — 0 references; dev data sạch dup). Tests:
+  `CategoryPatchSafetyTests` ×4 — bug-repro (rename trùng bị chặn + bản gốc giữ nguyên), rename
+  tên tự do ✔, same-name khác-type vẫn cho phép (rule per-type như Create), re-send current name
+  không bị chặn. Full suite 408/408.
+- **Phát hiện lúc audit (2026-09-01, Giai đoạn 2, parity verification trên binary cũ):**
+  business-rule inconsistency (Create có dup-check, Update không). Backend không có code path nào
+  tra cứu Category theo Name — ComponentsController/LicensesController đều lookup theo Id; rủi ro
+  chính = UI hiển thị 2 danh mục trùng tên trong cùng loại (user confusion).
 - **Vị trí:** hành vi CÓ TỪ TRƯỚC trong `AdminController.UpdateCategory` (HEAD `425be5c` trước
   migrate — không có `AnyAsync(x => x.Name == updated.Name ...)`); hành vi được di chuyển verbatim
   vào `aspire-react.Application/Categories/Commands/UpdateCategoryCommand.cs` (đúng nguyên tắc
