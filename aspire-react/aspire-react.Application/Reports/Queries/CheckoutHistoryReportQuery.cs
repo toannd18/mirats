@@ -21,10 +21,14 @@ public record CheckoutHistoryCreatorDto(Guid Id, string Username, string FirstNa
 /// [Giai đoạn 3] GET /api/v1/reports/checkout-history (extracted from
 /// ReportsController.CheckoutHistory). Take(200) candidates → IActionLogVisibilityService
 /// list-filter (regular users; superuser unfiltered — reused from the Domain interface move).
-/// ⚠️ TODO BUG-L (MEDIUM, docs/BACKLOG.md) — VERBATIM DEFECT: with startDate/endDate filters
-/// the query compares a Kind=Unspecified DateTime against a timestamptz column → Npgsql throws
-/// → raw 500 (CONFIRMED via reproduction on the pre-migration binary). Zero frontend impact
-/// (no caller passes date filters — grep-verified). Fix = SpecifyKind/UTC — needs own approval.
+/// [BUG-L FIX 2026-09-05] Behavior change approved (500 → 200): query-param DateTimes bind as
+/// Kind=Unspecified and comparing them directly against the `timestamptz` ActionDate column made
+/// Npgsql throw → raw 500 whenever startDate/endDate was supplied (CONFIRMED via reproduction on
+/// the pre-migration binary). Fix per the project DateTime Kind convention (workflow doc /
+/// HANDOFF_DATETIME_KIND_AUDIT): `timestamp with time zone` comparisons MUST receive Kind=Utc —
+/// both filters are normalized with DateTime.SpecifyKind(value, DateTimeKind.Utc) before the
+/// comparison. Zero frontend impact (no caller passes date filters — grep-verified); the fix
+/// only unblocks future API callers.
 /// </summary>
 public record CheckoutHistoryReportQuery(DateTime? StartDate, DateTime? EndDate) : IRequest<CheckoutHistoryResult>;
 
@@ -46,12 +50,20 @@ public class CheckoutHistoryReportQueryHandler : IRequestHandler<CheckoutHistory
     public async Task<CheckoutHistoryResult> Handle(CheckoutHistoryReportQuery request, CancellationToken cancellationToken)
     {
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+
+        // [BUG-L FIX] Normalize filter Kinds before the timestamptz comparison (DateTime Kind
+        // convention): query params arrive Kind=Unspecified → Npgsql throws. Reinterpreted AS UTC
+        // (the API contract treats filter instants as UTC — matching the ActionDate values written
+        // with DateTime.UtcNow).
+        var startDate = request.StartDate.HasValue ? (DateTime?)DateTime.SpecifyKind(request.StartDate.Value, DateTimeKind.Utc) : null;
+        var endDate = request.EndDate.HasValue ? (DateTime?)DateTime.SpecifyKind(request.EndDate.Value, DateTimeKind.Utc) : null;
+
         var candidates = await _context.ActionLogs
             .Include(l => l.Creator)
             .AsNoTracking()
             .Where(l => l.ActionType == Domain.Enums.ActionType.Checkout || l.ActionType == Domain.Enums.ActionType.Checkin)
-            .Where(l => !request.StartDate.HasValue || l.ActionDate >= request.StartDate.Value)
-            .Where(l => !request.EndDate.HasValue || l.ActionDate <= request.EndDate.Value)
+            .Where(l => !startDate.HasValue || l.ActionDate >= startDate.Value)
+            .Where(l => !endDate.HasValue || l.ActionDate <= endDate.Value)
             .OrderByDescending(l => l.ActionDate)
             .Take(200)
             .ToListAsync(cancellationToken);

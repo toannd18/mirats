@@ -295,18 +295,17 @@
 
 ## BUG-L — Reports checkout-history: date filters → raw 500 (DateTime Kind=Unspecified vs timestamptz) (MEDIUM)
 
-- **Trạng thái:** OPEN — phát hiện 2026-09-03 trong Giai đoạn 3 (baseline Reports trên binary cũ);
-  di chuyển verbatim vào `aspire-react.Application/Reports/Queries/CheckoutHistoryReportQuery.cs`
-  kèm comment `// TODO BUG-L` in-code.
-- **Mức độ: MEDIUM** — user-facing 500 khi có filter, NHƯNG **zero frontend impact**: grep toàn
-  frontend xác nhận KHÔNG có caller của `/reports/checkout-history` (ReportsPage chỉ gọi
-  depreciation + audit) → latent API defect, không user nào gặp (khác BUG-J cùng class).
-- **Thành phần — độ tin cậy:** **GET /reports/checkout-history?startDate=…&endDate=… → 500** ✅
-  CONFIRMED VIA REPRODUCTION (baseline + post đều 500 — parity verbatim). Nguyên nhân: query param
-  DateTime bind Kind=Unspecified, so sánh trực tiếp với cột `timestamptz` → Npgsql throw
-  (error-class DateTime Kind đã tài liệu hóa trong workflow doc). Unfiltered call hoạt động bình
-  thường (17 rows). Fix = `DateTime.SpecifyKind(value, DateTimeKind.Utc)` cho filter trước khi so
-  sánh — THAY ĐỔI HÀNH VI (500→200), cần duyệt riêng.
+- **Trạng thái: RESOLVED 2026-09-05** (behavior change 500→200 theo sketch). Fix đúng DateTime
+  Kind convention: 2 filter params (bind Kind=Unspecified) được `DateTime.SpecifyKind(value,
+  DateTimeKind.Utc)` trước khi so sánh với `timestamptz` ActionDate (reinterpreted AS UTC — khớp
+  contract vì ActionDate luôn ghi bằng UtcNow). Verify: **live Postgres + Release binary →
+  filtered 200 + unfiltered 200** (trước fix filtered = 500 confirmed). Zero frontend impact giữ
+  nguyên (không caller); fix chỉ mở đường cho caller tương lai. Tests: `CheckoutHistoryReport
+  Tests` ×2 pin filter-logic (InMemory không reproduce được Npgsql Kind-throw — live-verify là
+  bằng chứng chính, ghi rõ). Full suite 430/430.
+- **Phát hiện lúc audit (2026-09-03, Giai đoạn 3):** MEDIUM — user-facing 500 khi có filter,
+  NHƯNG zero frontend impact (ReportsPage chỉ gọi depreciation + audit) → latent API defect.
+  Điều kiện kích hoạt: BẤT KỲ caller nào truyền startDate/endDate (policy reports.view).
 - **Điều kiện kích hoạt:** BẤT KỲ caller nào truyền startDate hoặc endDate (chỉ có superuser/
   admin token gọi được — policy reports.view; không user frontend nào bị ảnh hưởng).
 - **Fix sketch:** SpecifyKind UTC cho 2 filter params; nếu build UI filter cho report này sau
