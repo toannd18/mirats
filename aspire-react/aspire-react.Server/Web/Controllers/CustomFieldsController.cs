@@ -55,7 +55,7 @@ public class CustomFieldsController : ControllerBase
     public async Task<IActionResult> Create([FromBody] CreateCustomFieldRequest r)
     {
         var result = await _mediator.Send(new CreateCustomFieldCommand(
-            r.Name, r.Slug, r.Format, r.Element, r.FieldValues, r.FieldEncrypted, r.HelpText, r.IsUnique,
+            r.Name!, r.Slug!, r.Format!, r.Element, r.FieldValues, r.FieldEncrypted ?? false, r.HelpText, r.IsUnique ?? false,
             GetCurrentUserId()));
 
         if (!result.Success)
@@ -108,6 +108,8 @@ public class CustomFieldsController : ControllerBase
     }
 }
 
-/// <summary>Request DTO for POST and PUT /api/v1/custom-fields — verbatim field set from the pre-migration CreateCustomFieldRequest record (Update reused the SAME record — full-PUT semantics, see BUG-I).</summary>
-public record CreateCustomFieldRequest(string Name, string Slug, string Format, string? Element,
-    string? FieldValues, bool FieldEncrypted, string? HelpText, bool IsUnique);
+/// <summary>Request DTO for POST and PUT /api/v1/custom-fields — [BUG-I FIX] now PATCH-SAFE
+/// (all fields nullable; Update assigns only what was sent; the Update endpoint previously
+/// reused a full-PUT record — see BUG-I).</summary>
+public record CreateCustomFieldRequest(string? Name, string? Slug, string? Format, string? Element,
+    string? FieldValues, bool? FieldEncrypted, string? HelpText, bool? IsUnique);

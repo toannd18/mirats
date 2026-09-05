@@ -9,8 +9,10 @@ namespace aspire_react.Server.Application.CustomFields.Commands;
 
 /// <summary>
 /// [Giai đoạn 3] POST /api/v1/custom-fields (extracted from CustomFieldsController.Create).
-/// Validation verbatim: ONLY dup-Slug check ("A field with this slug already exists." — no
-/// error_code). Deliberately NO empty-Name/Slug check (pre-migration had none — see BUG-I).
+/// [BUG-I FIX 2026-09-05] Empty-Name/Slug checks ADDED (behavior change approved — previously a
+/// field with empty name/slug could be created): "Field name is required." / "Field slug is
+/// required." (400, no error_code — section's English soft-fail style). Dup-Slug check verbatim
+/// ("A field with this slug already exists." — no error_code).
 /// ILoggableCommand (thin log, no LogMeta on create) — NO cache marker (no output-cache).
 /// </summary>
 public record CreateCustomFieldCommand(
@@ -50,6 +52,12 @@ public class CreateCustomFieldCommandHandler : IRequestHandler<CreateCustomField
 
     public async Task<CustomFieldResult> Handle(CreateCustomFieldCommand request, CancellationToken cancellationToken)
     {
+        // [BUG-I #3 FIX] Required checks before the dup check.
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return new CustomFieldResult(false, "Field name is required.");
+        if (string.IsNullOrWhiteSpace(request.Slug))
+            return new CustomFieldResult(false, "Field slug is required.");
+
         var exists = await _context.CustomFields.AnyAsync(f => f.Slug == request.Slug, cancellationToken);
         if (exists)
             return new CustomFieldResult(false, "A field with this slug already exists.");

@@ -112,10 +112,23 @@
 
 ## BUG-I — CustomFields Create/Update: thiếu dup-Slug ở Update (→ 500 DB index) + FULL-PUT ×8 + không empty-Name check (MEDIUM)
 
-- **Trạng thái:** OPEN — phát hiện 2026-09-01/02 trong Giai đoạn 3 (audit + parity verification
-  trên binary cũ); di chuyển verbatim vào
-  `aspire-react.Application/CustomFields/Commands/` kèm comment `// TODO BUG-I` in-code.
-- **Mức độ: MEDIUM** (nghiệp vụ — CustomField không có CompanyId, không isolation risk như BUG-G)
+- **Trạng thái: RESOLVED 2026-09-05** (cả 3 thành phần, behavior change theo sketch — thành phần
+  (b) dup-Slug confirmed-500 ưu tiên trước đúng kế hoạch):
+  (a) **FULL-PUT ×8 → patch-safe** (Task M1/M2): `UpdateCustomFieldCommand` + request DTO nullable
+  toàn bộ, gán theo `is not null` — field không gửi GIỮ NGUYÊN (Name=null trước đây → DB NOT NULL
+  violation → 500).
+  (b) **Dup-Slug check thêm vào Update** — chỉ khi slug thực sự thay đổi, exclude self, message
+  đồng bộ Create ("A field with this slug already exists." — 400 không error_code); thay raw 500
+  đã CONFIRMED. Re-send current slug = no-op.
+  (c) **Empty-Name/Slug check** cả Create lẫn Update (blank khi gửi → 400 "Field name is
+  required." / "Field slug is required.").
+  Audit dữ liệu thật trước fix: 0 custom fields trong dev DB → không hồi tố. **Frontend impact:
+  0** — scan toàn frontend: KHÔNG có UI nào gọi /custom-fields CRUD (chỉ /custom-fieldsets GET ở
+  trang khác). Tests: `CustomFieldValidationTests` ×5 (bug-repro dup-slug-500 + patch-safe +
+  guards + positive). Full suite 420/420.
+- **Phát hiện lúc audit (2026-09-01/02, Giai đoạn 3):** MEDIUM (CustomField không có CompanyId,
+  không isolation risk như BUG-G). Vị trí gốc: `CustomFieldsController.Update/Create`; di chuyển
+  verbatim vào `aspire-react.Application/CustomFields/Commands/` (parity trước, fix riêng).
 - **3 thành phần — độ tin cậy KHÁC NHAU (ghi rõ để đánh giá lại khi fix):**
   1. **Update FULL-PUT ×8** — tất cả field gán vô điều kiện; payload thiếu field → bị clear/null
      (Name=null → DB NOT NULL violation → 500). *Độ tin cậy: suy luận từ đọc code (chưa reproduce
