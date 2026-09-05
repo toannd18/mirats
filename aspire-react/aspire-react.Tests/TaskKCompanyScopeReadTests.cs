@@ -16,10 +16,10 @@ using Xunit;
 namespace aspire_react.Tests;
 
 /// <summary>
-/// Task K â€” company-scoping cho endpoint Äá»ŒC cÃ²n thiáº¿u: UsersController.GetUsers/GetUser,
+/// Task K — company-scoping cho endpoint ĐỌC còn thiếu: UsersController.GetUsers/GetUser,
 /// AssetsController.GetHistory, ComponentsController.RemoveAssignment, ConsumablesController.Confirm,
-/// DepartmentsController.GetAll/Get. Má»—i endpoint verify 2 chiá»u: user thÆ°á»ng bá»‹ cháº·n khÃ¡c cÃ´ng ty,
-/// hoáº¡t Ä‘á»™ng Ä‘Ãºng cÃ¹ng cÃ´ng ty, Superuser khÃ´ng bá»‹ áº£nh hÆ°á»Ÿng.
+/// DepartmentsController.GetAll/Get. Mỗi endpoint verify 2 chiều: user thường bị chặn khác công ty,
+/// hoạt động đúng cùng công ty, Superuser không bị ảnh hưởng.
 /// </summary>
 public class TaskKCompanyScopeReadTests
 {
@@ -432,7 +432,7 @@ public class TaskKCompanyScopeReadTests
         var controller = BuildComponentsController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         var result = await controller.RemoveAssignment(compB.Id, new RemoveComponentRequest(asgnB.Id));
         Assert.IsType<NotFoundObjectResult>(result);
-        Assert.NotNull(await db.ComponentAssignments.FindAsync(asgnB.Id)); // khÃ´ng bá»‹ xÃ³a
+        Assert.NotNull(await db.ComponentAssignments.FindAsync(asgnB.Id)); // không bị xóa
     }
 
     [Fact]
@@ -449,7 +449,7 @@ public class TaskKCompanyScopeReadTests
         var controller = BuildComponentsController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         var result = await controller.RemoveAssignment(compA.Id, new RemoveComponentRequest(asgnA.Id));
         Assert.IsType<OkObjectResult>(result);
-        Assert.Null(await db.ComponentAssignments.FindAsync(asgnA.Id)); // Ä‘Ã£ xÃ³a
+        Assert.Null(await db.ComponentAssignments.FindAsync(asgnA.Id)); // đã xóa
     }
 
     // =========================================================================
@@ -469,7 +469,7 @@ public class TaskKCompanyScopeReadTests
         var controller = BuildConsumablesController(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         Assert.IsType<NotFoundObjectResult>(await controller.Confirm(consB.Id));
         var reloaded = await db.Consumables.FindAsync(consB.Id);
-        Assert.Equal(ConsumableStatus.Pending, reloaded!.Status); // khÃ´ng bá»‹ confirm
+        Assert.Equal(ConsumableStatus.Pending, reloaded!.Status); // không bị confirm
     }
 
     [Fact]
