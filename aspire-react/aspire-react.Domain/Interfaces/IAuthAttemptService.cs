@@ -12,6 +12,10 @@ public interface IAuthAttemptService
     /// 15-minute window, after the most recent success.</summary>
     Task<int> GetConsecutiveFailuresAsync(string usernameLower, CancellationToken cancellationToken = default);
 
+    /// <summary>Timestamp (UTC) of the most recent FAILED attempt for the username within the
+    /// window (null = no failure in window) — anchor for the escalating lockout countdown.</summary>
+    Task<DateTime?> GetLastFailureAtAsync(string usernameLower, CancellationToken cancellationToken = default);
+
     /// <summary>Lockout seconds for the current failure count: 1–4 → 0 (no lock); 5 → 60s;
     /// 6–9 → 2^attempt seconds capped at 900s (15 minutes).</summary>
     int LockoutSeconds(int consecutiveFailures);

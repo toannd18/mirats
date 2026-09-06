@@ -49,6 +49,16 @@ public class AuthAttemptService : IAuthAttemptService
         return await query.CountAsync(cancellationToken);
     }
 
+    public async Task<DateTime?> GetLastFailureAtAsync(string usernameLower, CancellationToken cancellationToken = default)
+    {
+        var windowStart = DateTime.UtcNow.AddMinutes(-WindowMinutes);
+        return await _context.AuthLoginAttempts.AsNoTracking()
+            .Where(a => a.Username == usernameLower && !a.Success && a.CreatedAt >= windowStart)
+            .OrderByDescending(a => a.CreatedAt)
+            .Select(a => (DateTime?)a.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public int LockoutSeconds(int consecutiveFailures)
     {
         if (consecutiveFailures < LockoutThreshold) return 0;

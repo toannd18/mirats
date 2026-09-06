@@ -81,10 +81,18 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthTokenResult
             return await genericFailure();
 
         // Escalating per-username lockout — checked BEFORE password verification.
+        // Lockout = elapsed-since-LAST-FAILURE < LockoutSeconds(failure count): the 5th failure
+        // locks for 60s, the 6th+ escalate (2^n, cap 15 min); when the countdown expires the user
+        // can try again (their next failure re-locks with the escalated duration).
         var failures = await _attempts.GetConsecutiveFailuresAsync(usernameLower, cancellationToken);
         var lockoutSeconds = _attempts.LockoutSeconds(failures);
         if (lockoutSeconds > 0)
-            return new AuthTokenResult(false, "ACCOUNT_LOCKED");
+        {
+            var lastFailureAt = await _attempts.GetLastFailureAtAsync(usernameLower, cancellationToken);
+            var lockedUntil = (lastFailureAt ?? DateTime.UtcNow).AddSeconds(lockoutSeconds);
+            if (DateTime.UtcNow < lockedUntil)
+                return new AuthTokenResult(false, "ACCOUNT_LOCKED");
+        }
 
         var verify = _passwordHasher.Verify(request.Password, user.PasswordHash);
         if (verify == PasswordVerifyResult.Failed)
