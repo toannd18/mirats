@@ -24,6 +24,11 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<GroupPermission> GroupPermissions => Set<GroupPermission>();
     public DbSet<UserGroup> UserGroups => Set<UserGroup>();
 
+    // [AUTH Phase 1] Local password authentication (Keycloak replacement)
+    public DbSet<UserCredential> UserCredentials => Set<UserCredential>();
+    public DbSet<UserPasskey> UserPasskeys => Set<UserPasskey>();
+    public DbSet<AuthLoginAttempt> AuthLoginAttempts => Set<AuthLoginAttempt>();
+
     // Asset Management
     public DbSet<Asset> Assets => Set<Asset>();
     public DbSet<AssetModel> Models => Set<AssetModel>();
@@ -103,6 +108,55 @@ public class AppDbContext : DbContext, IApplicationDbContext
             entity.HasOne(e => e.Company).WithMany(e => e.Users).HasForeignKey(e => e.CompanyId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(e => e.Department).WithMany().HasForeignKey(e => e.DepartmentId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(e => e.Location).WithMany().HasForeignKey(e => e.LocationId).OnDelete(DeleteBehavior.SetNull);
+            // [AUTH Phase 1] Local password auth — additive columns; null hash = no local password yet.
+            entity.Property(e => e.PasswordHash).HasMaxLength(500);
+            entity.Property(e => e.MustChangePassword).HasDefaultValue(false);
+        });
+
+        // [AUTH Phase 1] Refresh-token credentials (rotation + revocation, hash-only storage).
+        modelBuilder.Entity<UserCredential>(entity =>
+        {
+            entity.ToTable("user_credentials");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.TokenHash).IsRequired().HasMaxLength(128);
+            entity.HasIndex(e => e.TokenHash).IsUnique();
+            entity.HasOne(e => e.User).WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.UserId);
+            entity.Property(e => e.ExpiresAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.RevokedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone");
+        });
+
+        // [AUTH Phase 1] WebAuthn passkeys (optional secondary login, flag-gated).
+        modelBuilder.Entity<UserPasskey>(entity =>
+        {
+            entity.ToTable("user_passkeys");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.CredentialId).IsRequired().HasMaxLength(512);
+            entity.HasIndex(e => e.CredentialId).IsUnique();
+            entity.Property(e => e.PublicKey).IsRequired();
+            entity.Property(e => e.Aaguid).HasMaxLength(64);
+            entity.Property(e => e.Name).HasMaxLength(100);
+            entity.Property(e => e.Transports).HasMaxLength(200);
+            entity.HasOne(e => e.User).WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.UserId);
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.LastUsedAt).HasColumnType("timestamp with time zone");
+        });
+
+        // [AUTH Phase 1] Login attempts — brute-force counters + sign-in audit trail.
+        modelBuilder.Entity<AuthLoginAttempt>(entity =>
+        {
+            entity.ToTable("auth_login_attempts");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.Username).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.IpAddress).HasMaxLength(64);
+            entity.HasIndex(e => new { e.Username, e.CreatedAt });
+            entity.HasIndex(e => new { e.IpAddress, e.CreatedAt });
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone");
         });
 
         modelBuilder.Entity<PermissionGroup>(entity =>

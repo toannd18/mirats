@@ -3,6 +3,8 @@ using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace aspire_react.Server.Infrastructure.Persistence;
 
@@ -94,5 +96,26 @@ public static class StartupDataSeeder
         // === v7: Migration dữ liệu cũ → nhóm — gán user legacy IsSuperUser vào nhóm "Superuser".
         // Chỉ THÊM membership, idempotent → không bao giờ thu hẹp quyền hiện có (xem PermissionMigration). ===
         try { PermissionMigration.AssignLegacySuperUsersToSuperuserGroupAsync(db).GetAwaiter().GetResult(); } catch { }
+
+        // [AUTH Phase 1] Bootstrap admin local password — DEV/BOOTSTRAP ONLY (not a production
+        // flow): if the "admin" user has no local PasswordHash yet, seed it from the
+        // Auth:BootstrapAdminPassword configuration (AppHost user-secret/param). This lets the
+        // admin log in via /auth/login and then reset other users' passwords through the UI
+        // (Phase 4 migration path). Idempotent — an existing hash is NEVER overwritten here.
+        try
+        {
+            var bootstrapPassword = services.GetRequiredService<IConfiguration>()["Auth:BootstrapAdminPassword"];
+            if (!string.IsNullOrEmpty(bootstrapPassword))
+            {
+                var admin = db.Users.FirstOrDefault(u => u.Username.ToLower() == "admin");
+                if (admin != null && string.IsNullOrEmpty(admin.PasswordHash))
+                {
+                    admin.PasswordHash = new Authentication.PasswordHasherService().Hash(bootstrapPassword);
+                    admin.MustChangePassword = false; // bootstrap admin is trusted; no forced change
+                    db.SaveChanges();
+                }
+            }
+        }
+        catch { }
     }
 }

@@ -61,6 +61,14 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<PermissionLockoutGuard>();
         services.AddScoped<aspire_react.Server.Domain.Interfaces.IPermissionLockoutGuard, PermissionLockoutGuard>();
 
+        // [AUTH Phase 1] Local password authentication services (Keycloak replacement — see
+        // AUTH_MIGRATION_PLAYBOOK §11.1: contracts in Domain/Interfaces, framework-heavy
+        // implementations in Infrastructure/Authentication).
+        services.AddScoped<aspire_react.Server.Domain.Interfaces.IPasswordHasherService, Authentication.PasswordHasherService>();
+        services.AddScoped<aspire_react.Server.Domain.Interfaces.ITokenService, Authentication.TokenService>();
+        services.AddScoped<aspire_react.Server.Domain.Interfaces.IAuthAttemptService, Authentication.AuthAttemptService>();
+        services.AddScoped<aspire_react.Server.Domain.Interfaces.IAuthCookieService, Authentication.AuthCookieService>();
+
         return services;
     }
 }

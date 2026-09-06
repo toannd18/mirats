@@ -25,6 +25,15 @@ public class User : IAuditable
     public bool IsSuperUser { get; set; }
     public bool IsActive { get; set; } = true;
 
+    // [AUTH Phase 1] Local password auth (Keycloak replacement). PasswordHash null = user has
+    // never been given a local password (admin hasn't reset them yet) → password login blocked
+    // with a clear message (dual-auth keeps their Keycloak session working until then).
+    public string? PasswordHash { get; set; }
+
+    /// <summary>Set by admin reset — forces a password change at next login before system use
+    /// (limited-scope token: only /auth/password + /users/me until changed).</summary>
+    public bool MustChangePassword { get; set; }
+
     // Navigation
     public Company? Company { get; set; }
     public ICollection<UserPermission> UserPermissions { get; set; } = new List<UserPermission>();

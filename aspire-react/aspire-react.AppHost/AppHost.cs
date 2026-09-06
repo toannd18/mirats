@@ -18,6 +18,14 @@ var dbPassword = builder.AddParameter("dbPassword", secret: true);
 var kcBootstrapAdminPassword = builder.AddParameter("kcBootstrapAdminPassword", secret: true);
 var kcClientSecret = builder.AddParameter("kcClientSecret", secret: true);
 
+// [AUTH Phase 1] Self-signed JWT parameters (Keycloak replacement — AUTH_MIGRATION_PLAYBOOK):
+// - authSigningKey → Auth:SigningKey on the Server (HS256 key, ≥ 256 bits). NEVER committed.
+// - authBootstrapPassword → Auth:BootstrapAdminPassword: one-time seeding of the local password
+//   for the "admin" user when it has none yet (dev/bootstrap convenience — Phase 4 replaces the
+//   manual flow with the admin reset-password UI).
+var authSigningKey = builder.AddParameter("authSigningKey", secret: true);
+var authBootstrapPassword = builder.AddParameter("authBootstrapPassword", secret: true);
+
 var postgres = builder.AddPostgres("postgres", password: dbPassword)
     .WithDataVolume("postgres-data")
     .WithPgAdmin()
@@ -44,6 +52,8 @@ var server = builder.AddProject<Projects.aspire_react_Server>("server")
     .WithReference(keycloak)
     .WaitFor(keycloak)
     .WithEnvironment("Keycloak__ClientSecret", kcClientSecret)
+    .WithEnvironment("Auth__SigningKey", authSigningKey)
+    .WithEnvironment("Auth__BootstrapAdminPassword", authBootstrapPassword)
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 

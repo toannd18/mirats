@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using aspire_react.Server.Application.Auth.Commands;
 using aspire_react.Server.Application.Users.Commands;
 using aspire_react.Server.Application.Users.Queries;
 using aspire_react.Server.Domain.Enums;
@@ -360,6 +361,35 @@ public class UsersController : ControllerBase
             data = result.User
         });
     }
+
+    /// <summary>
+    /// [AUTH Phase 1] Admin resets a user's password (the approved Keycloak-migration path — no
+    /// email flow). Forces MustChangePassword at next login and revokes the user's sessions.
+    /// Thin MediatR mapping over AdminResetPasswordCommand (ILoggableCommand logs who reset whom).
+    /// </summary>
+    [HttpPost("{id:guid}/reset-password")]
+    [Authorize(Policy = "users.edit")]
+    public async Task<IActionResult> ResetPassword(Guid id, [FromBody] ResetPasswordRequest request)
+    {
+        // Company-scoping consistent with Update/Delete: regular admin may only reset users of
+        // their own company (hide-existence otherwise); superuser unrestricted.
+        var targetUser = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id);
+        if (targetUser == null)
+            return NotFound(new { status = "error", message = "User not found." });
+
+        var actorCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (actorCompanyId.HasValue && targetUser.CompanyId.HasValue && targetUser.CompanyId.Value != actorCompanyId.Value)
+            return NotFound(new { status = "error", message = "User not found." });
+
+        var result = await _mediator.Send(new AdminResetPasswordCommand(id, request.NewPassword, GetCurrentUserId()));
+
+        if (!result.Success)
+            return NotFound(new { status = "error", message = "User not found." });
+
+        return Ok(new { status = "success", message = "Đã đặt lại mật khẩu. Người dùng sẽ phải đổi mật khẩu ở lần đăng nhập kế tiếp." });
+    }
+
+    public record ResetPasswordRequest(string NewPassword);
 
     /// <summary>
     /// Deactivates a user (soft delete). Syncs disable to Keycloak.

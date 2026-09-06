@@ -11,6 +11,8 @@ using MediatR;
 using aspire_react.Server.Application;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.Memory;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace aspire_react.Tests;
@@ -234,9 +236,25 @@ public static class TestHelpers
         services.AddSingleton<IConsumableAllocationService, ConsumableAllocationService>();
         if (excelImport != null)
             services.AddSingleton(excelImport); // [ImportExport migration] import handlers resolve this
+        // [AUTH Phase 1] password-auth services for Auth command handlers (real impls — InMemory-safe).
+        services.AddSingleton<aspire_react.Server.Domain.Interfaces.IPasswordHasherService, aspire_react.Server.Infrastructure.Authentication.PasswordHasherService>();
+        services.AddSingleton<aspire_react.Server.Domain.Interfaces.ITokenService>(sp =>
+            new aspire_react.Server.Infrastructure.Authentication.TokenService(TestAuthConfig(), Microsoft.Extensions.Logging.Abstractions.NullLogger<aspire_react.Server.Infrastructure.Authentication.TokenService>.Instance));
+        services.AddSingleton<aspire_react.Server.Domain.Interfaces.IAuthAttemptService, aspire_react.Server.Infrastructure.Authentication.AuthAttemptService>();
         services.AddLogging();
         services.AddApplicationServices();
         return services.BuildServiceProvider().GetRequiredService<MediatR.IMediator>();
     }
+
+    /// <summary>[AUTH Phase 1] Deterministic JWT config for tests (production reads user-secrets).</summary>
+    private static Microsoft.Extensions.Configuration.IConfiguration TestAuthConfig()
+        => new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Auth:Issuer"] = "test-issuer",
+                ["Auth:Audience"] = "test-audience",
+                ["Auth:SigningKey"] = "unit-test-signing-key-0123456789abcdef0123456789abcdef"
+            })
+            .Build();
 }
 

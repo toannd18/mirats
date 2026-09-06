@@ -43,6 +43,11 @@ public interface IApplicationDbContext
     DbSet<GroupPermission> GroupPermissions { get; }
     DbSet<UserGroup> UserGroups { get; }
 
+    // [AUTH Phase 1] Local password authentication (Keycloak replacement)
+    DbSet<UserCredential> UserCredentials { get; }
+    DbSet<UserPasskey> UserPasskeys { get; }
+    DbSet<AuthLoginAttempt> AuthLoginAttempts { get; }
+
     // Asset Management
     DbSet<Asset> Assets { get; }
     DbSet<AssetModel> Models { get; }
