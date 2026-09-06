@@ -376,25 +376,38 @@
 
 ---
 
-## INFRA-2 — 6 file PNG evidence (root) phát hiện mất khỏi working tree, không rõ thời điểm (ghi riêng, KHÔNG gộp vào INFRA-1)
+## INFRA-2 — 6 file PNG evidence (root) mất khỏi working tree — ⚠️ TÁI DIỄN LẦN 2 (CÙNG ĐÚNG 6 FILE) — nâng mức: nghi có nguyên nhân HỆ THỐNG, không phải ngẫu nhiên
 
-- **Trạng thái:** RESOLVED (file) / OPEN (nguyên nhân) — phát hiện trong subtask A (Giai đoạn 3,
-  nhóm Rất nặng), khôi phục 100% từ git blob ngay trong phiên (`git checkout HEAD --`,
-  verify size + `git status` sạch)
-- **Hiện tượng:** 6 file PNG ở repo root (`mc8_template_builder_nested.png`,
-  `mc8b_after_expand.png`, `mc8b_after_form.png`, `qa7d_campaign_3of3.png`,
-  `qa7d_campaign_detail.png`, `qa7d_template_builder.png` — evidence QA đợt MC-7d/MC-8/MC-9,
-  commit `4c08d9b` ngày 2026-08-29) ở trạng thái `" D"` (mất khỏi working tree, chưa stage),
-  `Test-Path` xác nhận vật lý không còn, `git diff HEAD` = N bytes → 0.
-- **Vì sao TÁCH RIÊNG khỏi INFRA-1:** 2 vụ INFRA-1 trước (31-file loss, AdminController revert)
-  có timeline rõ ràng — xảy ra GIỮA lúc agent đang thao tác, có thể liên hệ với Docker sập
-  cùng thời điểm. Vụ này KHÔNG xác định được thời điểm xóa (đã tồn tại ở `git status` đầu
-  tiên của phiên, trước mọi sửa code — có thể tiền-phiên: dọn tay, session agent khác, hoặc
-  tác nhân ngoài). Gộp chung khi thiếu bằng chứng nhân quả sẽ làm loãng độ tin cậy của
-  chính record INFRA-1.
-- **Loại trừ nguyên nhân agent hiện tại:** toàn bộ lệnh destructive-capable trong phiên chỉ gồm
-  `Remove-Item` target `apphost.log` trong thư mục temp + `git add/commit` với path liệt kê
-  tường minh (.cs + BACKLOG.md); không `git clean/checkout/restore/rm`, không script quét ảnh.
+- **Trạng thái: REOPENED — TÁI DIỄN LẦN 2 (2026-09-06, phiên AUTH Phase 1).** Cùng ĐÚNG 6 file bị
+  mất LẦN NỮA sau khi đã khôi phục và đã push (`fc84f25` trở đi — file nằm an toàn trên remote),
+  phát hiện qua `git status --porcelain` ngay sau commit Phase 1 (`3110436`). Khôi phục lần 2 bằng
+  `git checkout HEAD --` (100% OK). **Kết luận đã nâng:** 2 lần cùng một bộ file chính xác = KHÔNG
+  còn giải thích được là ngẫu nhiên/tiền-phiên — nghi có tác nhân hệ thống có CHỌN LỌC target đúng
+  nhóm PNG này (thời điểm loss lần 2: trong phiên, giữa lúc agent chạy build/test/commit — KHÁC
+  với lần 1 vốn là tiền-phiên). Điều tra chuyên sâu lần 2 đã chạy ngay:
+  - **Loại trừ agent hiện tại (lần 2):** toàn bộ `Remove-Item` trong phiên nhắm `_parity_*.ps1`
+    (root), `apphost.log`, thư mục TEMP — không một lệnh nào target `*.png`; mọi `git add` đều
+    path-explicit; chỉ dùng `git checkout HEAD --` (khôi phục, không xóa).
+  - **Loại trừ scripts của repo:** `audit-sweeps.ps1` (không đụng file), `docker-reset.ps1`
+    (chỉ remove Docker volumes `mirats-*`), `seed-initial-admin.ps1` (chỉ Remove temp body file)
+    — KHÔNG script nào quét/xóa PNG.
+  - **Loại trừ cloud-sync/NTFS attribute:** file attributes thuần `Archive` (không OneDrive/
+    Sparse/Recall flags), drive D:\ NTFS local, free 48.9GB.
+  - **Nghi phạm còn lại (điều tra tiếp nếu tái diễn lần 3):** Windows Storage Sense/StorSvc
+    (đang Running — cần kiểm tra cấu hình "clean temp files" có target thư mục này không),
+    antivirus/EDR quét-xóa, tiến trình khác trên máy. **Hành động phòng ngừa đã áp dụng:** 6
+    file đã push lên remote (an toàn vĩnh viễn trên git); khuyến nghị commit lịch theo dõi —
+    nếu tái diễn lần 3, snapshot `Get-Process` + `Handle` list ngay khi phát hiện.
+- **Lịch sử lần 1 (2026-09-04):** phát hiện trong subtask A (Giai đoạn 3) ở trạng thái `" D"`
+  tiền-phiên, khôi phục từ git blob; khi đó đánh giá "không xác định được thời điểm xóa".
+- **Hiện tượng (giống hệt 2 lần):** `mc8_template_builder_nested.png`, `mc8b_after_expand.png`,
+  `mc8b_after_form.png`, `qa7d_campaign_3of3.png`, `qa7d_campaign_detail.png`,
+  `qa7d_template_builder.png` (evidence QA đợt MC-7d/MC-8/MC-9, commit `4c08d9b` 2026-08-29) —
+  mất vật lý khỏi working tree, `git diff HEAD` = N → 0 bytes.
+- **Vì sao TÁCH RIÊNG khỏi INFRA-1 (giữ nguyên, thêm đánh giá lại):** lần 1 không timeline;
+  **nhưng lần 2 CÓ timeline trong phiên → ranh giới với INFRA-1 mờ đi** — nếu lần 3 đồng thời
+  với Docker/WSL2 sự cố thì GỘP vào INFRA-1 làm một hồ sơ hạ tầng; nếu lần 3 vẫn độc lập thì
+  giữ riêng và điều tra như một tác nhân file-targeting độc lập.
 
 ---
 
