@@ -10,7 +10,7 @@ import { assetService, type CreateMaintenanceForAssetPayload } from '../../asset
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import MaintenanceTable, { MAINTENANCE_TYPE_OPTIONS } from '../components/MaintenanceTable';
-import { isSuperUser } from '../../../services/keycloak';
+import { isSuperUser } from '../../../features/auth/services/auth';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
 interface AssetOption {

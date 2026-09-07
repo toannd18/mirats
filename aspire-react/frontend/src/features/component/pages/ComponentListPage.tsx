@@ -13,7 +13,7 @@ import apiClient from '../../../services/api-client';
 import { componentsApi } from '../services/components.service';
 import { usePermission } from '../../../hooks/usePermission';
 import { uiColors, cardBadgeGradients } from '../../../theme/designTokens';
-import { isSuperUser } from '../../../services/keycloak';
+import { isSuperUser } from '../../../features/auth/services/auth';
 import ComponentFormModal from '../components/ComponentFormModal';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 

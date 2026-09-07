@@ -5,7 +5,7 @@ import {
 import { LockOutlined, PlusOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { licensesApi, type CreateLicensePayload, type LicenseDetailDto } from '../services/licenses.service';
-import { isSuperUser } from '../../../services/keycloak';
+import { isSuperUser } from '../../../features/auth/services/auth';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';

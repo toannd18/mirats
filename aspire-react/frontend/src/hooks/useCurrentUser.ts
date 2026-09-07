@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import apiClient from '../services/api-client';
-import { getCurrentSub } from '../services/keycloak';
+import { getCurrentSub } from '../features/auth/services/auth';
 
 /**
  * Kết quả GET /api/v1/users/me — thông tin user hiện tại (đã camelCase từ JSON).

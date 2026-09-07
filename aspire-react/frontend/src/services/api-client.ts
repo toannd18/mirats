@@ -1,13 +1,15 @@
 import axios, { AxiosError } from 'axios';
 import type { InternalAxiosRequestConfig } from 'axios';
-import { logout } from './keycloak';
-import keycloak from './keycloak';
+import { getToken, logout, refreshAccessToken, mustChangePassword } from '../features/auth/services/auth';
 
 // Backend API base URL — can be overridden via VITE_API_BASE_URL env variable.
 // Semantics: it is the SERVER base (origin or path). The `/api/v1` prefix is appended
 // here — UNLESS the base already ends with it (e.g. prod `VITE_API_BASE_URL=/api/v1`
 // via compose build arg must NOT become `/api/v1/api/v1`).
-const API_BASE = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL ?? 'http://localhost:5428';
+//
+// [AUTH Phase 2 — §4.2 Option A same-origin] Default base is '' (relative) so the browser
+// only ever talks to the Vite dev origin (HTTPS proxy → 7314) or the nginx prod proxy.
+const API_BASE = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL ?? '';
 const API_PREFIX = '/api/v1';
 const baseURL = API_BASE.endsWith(API_PREFIX) ? API_BASE : `${API_BASE}${API_PREFIX}`;
 
@@ -35,68 +37,48 @@ const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue = [];
 };
 
-// Request interceptor — proactively refresh token before each request
+// Request interceptor — attach the in-memory access token (refresh happens on 401; the
+// refresh-token cookie travels automatically — same-origin, SameSite=Lax).
 apiClient.interceptors.request.use(
-  async (config: InternalAxiosRequestConfig) => {
-    try {
-      // Ensure the Keycloak adapter is initialized
-      if (!keycloak.authenticated) return config;
-
-      // Refresh token if it will expire within 30 seconds.
-      // updateToken(30) returns a Promise that resolves when refresh is complete
-      // and rejects if the refresh fails (e.g., session expired).
-      const refreshed = await keycloak.updateToken(30);
-
-      if (refreshed) {
-        console.debug('Keycloak token refreshed proactively');
-      }
-
-      const token = keycloak.token;
-      if (token && config.headers) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    } catch (err) {
-      // Token refresh failed — session likely expired
-      console.warn('Token refresh failed, redirecting to login...', err);
-      logout();
-      return Promise.reject(err);
+  (config: InternalAxiosRequestConfig) => {
+    const token = getToken();
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
-
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// Response interceptor — handle 401 with auto-retry after re-authentication
+// Response interceptor — on 401: refresh via the httpOnly cookie and retry once (queueing
+// concurrent failures); give up → sign out. Matches the old Keycloak updateToken(30) loop.
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
     if (error.response?.status === 401) {
-      // If we already retried once, don't loop
       if (originalRequest._retry) {
         console.warn('API returned 401 after token refresh. Redirecting to login.');
-        logout();
+        void logout();
         return Promise.reject(error);
       }
 
-      // Attempt to refresh the token and retry once
       if (!isRefreshing) {
         isRefreshing = true;
         originalRequest._retry = true;
 
         try {
-          const refreshed = await keycloak.updateToken(30);
+          const refreshed = await refreshAccessToken();
           if (refreshed) {
-            const newToken = keycloak.token;
-            processQueue(null, newToken!);
+            const newToken = getToken();
+            processQueue(null, newToken);
           } else {
-            processQueue(null, keycloak.token!);
+            processQueue(null, null);
           }
         } catch (refreshError) {
           processQueue(refreshError, null);
-          logout();
+          void logout();
           return Promise.reject(refreshError);
         } finally {
           isRefreshing = false;
@@ -127,5 +109,8 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// Re-export for callers that gate on the forced-password-change state.
+export { mustChangePassword };
 
 export default apiClient;

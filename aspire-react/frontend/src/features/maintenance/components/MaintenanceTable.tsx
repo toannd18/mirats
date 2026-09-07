@@ -12,7 +12,7 @@ import type { ActionType } from '@ant-design/pro-components';
 import { Link, useNavigate } from 'react-router-dom';
 import apiClient from '../../../services/api-client';
 import { assetService, type AssetMaintenanceDto } from '../../asset/services/asset.service';
-import { isSuperUser } from '../../../services/keycloak';
+import { isSuperUser } from '../../../features/auth/services/auth';
 import { usePermission } from '../../../hooks/usePermission';
 import MaintenanceCompleteModal from './MaintenanceCompleteModal';
 import { statusColors, uiColors, cardBadgeGradients } from '../../../theme/designTokens';

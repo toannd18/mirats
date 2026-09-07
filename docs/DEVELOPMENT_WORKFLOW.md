@@ -8,6 +8,27 @@
 > Cập nhật ST9: 2026-08-14 (triển khai `scripts/audit-sweeps.ps1` + mở rộng test Asset/Accessory/User-CRUD-ActionLog/Company-Scope).
 > Cập nhật ST10: 2026-08-14 (khắc phục đăng nhập admin/Admin123!: reset password realm `aspire-react` qua Admin API + IsSuperUser local + JIT stamp từ realm role).
 > Cập nhật 2026-08-16 (Task Q/R/P): JIT tách sang `IJitUserProvisioningService`; Program.cs → composition root (DI trong extension); seed/migration → `StartupDataSeeder`; Redis output-cache reference-data; bổ sung Patch-semantics/DateTime Kind/Concurrency/EF-InMemory/ValidationBehavior.
+> Cập nhật [AUTH Phase 2] 2026-09-07: **Dev prerequisites mới** — Node ≥ 22.12 + HTTPS-dev bắt buộc (xem §0.1).
+
+## 0.1 Dev prerequisites (bắt buộc từ AUTH Phase 2 — Keycloak replacement)
+
+Frontend dev server chạy **HTTPS bắt buộc** với **proxy /api → backend HTTPS (127.0.0.1:7314)** — KHÔNG có fallback HTTP (AUTH_MIGRATION_PLAYBOOK §4.2, Option A same-origin).
+
+1. **Node ≥ 22.12** (package.json `engines` đã pin; Node cũ không có cơ chế trust cert dev cần thiết).
+2. **Export ASP.NET dev cert 1 lần** (cert đã trust ở Windows store qua `dotnet dev-certs https --trust`):
+   ```
+   dotnet dev-certs https -ep "D:\Person\Applications\Aspire Project\certs-dev\localhost.pem" --format Pem --no-password
+   ```
+   → sinh `localhost.pem` + `localhost.key` dùng cho CẢ Vite TLS LẪN Node CA trust.
+3. `npm run dev` (chạy qua `scripts/dev-server.mjs`): tự kiểm tra 2 điều kiện trên, set
+   `NODE_EXTRA_CA_CERTS` để Node trust cert dev, rồi spawn Vite. Thiếu gì cũng **fail loudly**
+   — không bao giờ lặng lẽ downgrade về HTTP.
+4. **Lý do kỹ thuật (đừng bỏ):** Node KHÔNG dùng Windows cert store; `--use-system-ca` cũng
+   không đủ trên Windows vì cert dev ASP.NET là self-signed LEAF trong Root store (Node từ chối
+   leaf-in-Root). `NODE_EXTRA_CA_CERTS` trỏ thẳng file PEM là cơ chế duy nhất giữ TLS verify ON.
+5. Vite proxy target là `https://127.0.0.1:7314` (KHÔNG dùng `localhost` — Node resolve
+   localhost→IPv6 `::1` trước trong khi ASP.NET dev bind IPv4 → ECONNREFUSED).
+6. Backend chạy qua AppHost profile HTTPS (`https://localhost:7314` có sẵn trong launchSettings).
 
 ---
 

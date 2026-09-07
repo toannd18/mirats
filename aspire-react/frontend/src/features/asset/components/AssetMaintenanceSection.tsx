@@ -7,7 +7,7 @@ import { PlusOutlined, CheckOutlined, CloseOutlined, EditOutlined, LockOutlined,
 import apiClient from '../../../services/api-client';
 import { assetService, type AssetMaintenanceDto, type CreateMaintenancePayload } from '../services/asset.service';
 import { usePermission } from '../../../hooks/usePermission';
-import { isSuperUser } from '../../../services/keycloak';
+import { isSuperUser } from '../../../features/auth/services/auth';
 import dayjs from 'dayjs';
 import {
   MAINTENANCE_STATUS_COLORS, MAINTENANCE_TYPE_LABELS, MAINTENANCE_TYPE_VALUE,

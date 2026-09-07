@@ -12,7 +12,9 @@ import {
   HistoryOutlined, ExperimentOutlined, MenuOutlined, FileTextOutlined, CarOutlined,
   MenuFoldOutlined, LogoutOutlined, IdcardOutlined, ImportOutlined,
 } from '@ant-design/icons';
-import { initKeycloak, login, logout, isAuthenticated, isSuperUser, getUserInfo } from './services/keycloak';
+import { initAuth, logout, isAuthenticated, isSuperUser, getUserInfo } from './features/auth/services/auth';
+import LoginPage from './features/auth/pages/LoginPage';
+import ChangePasswordPage from './features/auth/pages/ChangePasswordPage';
 import { designTokens } from './theme/designTokens';
 import { usePermissionMap } from './hooks/usePermission';
 import { useCurrentUser, clearCurrentUserCache } from './hooks/useCurrentUser';
@@ -393,7 +395,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               </Space>
             </Dropdown>
           ) : (
-            <Button type="primary" onClick={login}>Login</Button>
+            <Button type="primary" onClick={() => navigate('/login', { replace: true })}>Login</Button>
           )}
         </Header>
         <Content style={{ margin: isMobile ? 8 : 24, padding: isMobile ? 12 : 24, background: '#fff' }}>
@@ -432,7 +434,10 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    initKeycloak().finally(() => setLoading(false));
+    // [AUTH Phase 2] Boot = silent session restore from the httpOnly refresh cookie
+    // (replaces the Keycloak login-required redirect). Unauthenticated → the route
+    // guards send the browser to /login.
+    initAuth().finally(() => setLoading(false));
   }, []);
 
   if (loading) {
@@ -448,6 +453,9 @@ function App() {
       <AntApp>
         <BrowserRouter>
           <Routes>
+            {/* [AUTH Phase 2] Local auth pages — NOT wrapped in ProtectedRoute */}
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/change-password" element={<ChangePasswordPage />} />
             <Route path="/" element={
               <ProtectedRoute>
                 <AppLayout><Navigate to="/dashboard" replace /></AppLayout>

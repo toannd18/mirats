@@ -15,7 +15,7 @@ import dayjs from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { assetService, type CreateAssetPayload } from '../services/asset.service';
 import { usePermission } from '../../../hooks/usePermission';
-import { isSuperUser } from '../../../services/keycloak';
+import { isSuperUser } from '../../../features/auth/services/auth';
 import AssetArchiveModal from '../components/AssetArchiveModal';
 import AssetAllocationModal from '../components/AssetAllocationModal';
 import AssetRecallModal from '../components/AssetRecallModal';

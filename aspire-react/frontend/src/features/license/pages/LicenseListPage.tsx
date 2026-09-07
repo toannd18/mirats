@@ -13,7 +13,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../../../services/api-client';
 import { licensesApi, type LicenseListItem } from '../services/licenses.service';
 import { usePermission } from '../../../hooks/usePermission';
-import { isSuperUser } from '../../../services/keycloak';
+import { isSuperUser } from '../../../features/auth/services/auth';
 import LicenseFormModal from '../components/LicenseFormModal';
 import LicenseDetailModal from '../components/LicenseDetailModal';
 import LicenseCheckoutModal from '../components/LicenseCheckoutModal';
