@@ -251,12 +251,11 @@ public class UsersController : ControllerBase
 
         if (!result.Success)
         {
+            // [AUTH Phase 4] local-only creation — KEYCLOAK_* outcomes no longer occur.
             return result.ErrorCode switch
             {
                 "VALIDATION_ERROR" => BadRequest(new { status = "error", message = result.Message }),
-                "KEYCLOAK_USERNAME_EXISTS" => Conflict(new { status = "error", message = result.Message, errorCode = result.ErrorCode }),
-                "KEYCLOAK_EMAIL_EXISTS" => Conflict(new { status = "error", message = result.Message, errorCode = result.ErrorCode }),
-                _ => StatusCode(502, new { status = "error", message = result.Message, errorCode = result.ErrorCode })
+                _ => BadRequest(new { status = "error", message = result.Message, errorCode = result.ErrorCode })
             };
         }
 

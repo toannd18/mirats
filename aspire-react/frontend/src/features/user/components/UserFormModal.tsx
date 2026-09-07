@@ -24,6 +24,7 @@ interface FormValues {
   lastName: string;
   employeeNumber: string;
   jobTitle: string;
+  password: string;
   isSuperUser: boolean;
   isActive: boolean;
   companyId: string | undefined;
@@ -149,6 +150,9 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         companyId: values.companyId || null,
         departmentId: values.departmentId || null,
         locationId: values.locationId || null,
+        // [AUTH Phase 4] initial password — create mode only (local auth; user must change it
+        // at first login). Never sent on update.
+        ...(isEditing ? {} : { password: values.password }),
       };
 
       if (isEditing) {
@@ -257,6 +261,20 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
           </Form.Item>
         </div>
 
+        {/* Row 2.5: [AUTH Phase 4] Initial password — create mode only */}
+        {!isEditing && (
+          <Form.Item
+            label="Mật khẩu ban đầu" name="password"
+            rules={[
+              { required: true, message: 'Required' },
+              { min: 8, message: 'Tối thiểu 8 ký tự' },
+            ]}
+            extra="Người dùng sẽ bị yêu cầu đổi mật khẩu này ở lần đăng nhập đầu tiên."
+          >
+            <Input.Password placeholder="Mật khẩu ban đầu (tối thiểu 8 ký tự)" autoComplete="new-password" />
+          </Form.Item>
+        )}
+
         {/* Company — CompanyTreeSelect (self-loads tree, keeps cascade via handleCompanyChange) */}
         <Form.Item
           label="Company"
@@ -309,7 +327,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
             label="Super User"
             name="isSuperUser"
             valuePropName="checked"
-            tooltip="Adds user to superuser group in Keycloak"
+            tooltip="[AUTH Phase 4] Cờ superuser nội bộ — không còn đồng bộ nhóm Keycloak"
           >
             <Switch checkedChildren="Yes" unCheckedChildren="No" />
           </Form.Item>

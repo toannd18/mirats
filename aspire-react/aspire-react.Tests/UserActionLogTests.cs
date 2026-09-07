@@ -35,8 +35,8 @@ public class UserActionLogTests
         return actor.Id;
     }
 
-    private static CreateUserCommandHandler CreateHandler(AppDbContext ctx, TestHelpers.FakeKeycloakService keycloak, Guid actorId)
-        => new(ctx, keycloak, TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<CreateUserCommandHandler>.Instance);
+    private static CreateUserCommandHandler CreateHandler(AppDbContext ctx, Guid actorId)
+        => new(ctx, new PasswordHasherService(), TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<CreateUserCommandHandler>.Instance);
 
     private static UpdateUserCommandHandler UpdateHandler(AppDbContext ctx, TestHelpers.FakeKeycloakService keycloak, Guid actorId)
         => new(ctx, keycloak, TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<UpdateUserCommandHandler>.Instance);
@@ -47,13 +47,12 @@ public class UserActionLogTests
     // ==================== CREATE ====================
 
     [Fact]
-    public async Task CreateUser_SyncsKeycloak_SavesUser_AndLogsCreateWithCompanyId()
+    public async Task CreateUser_SetsPasswordHash_MustChange_AndLogsCreateWithCompanyId()
     {
-        await using var ctx = TestHelpers.CreateContext(nameof(CreateUser_SyncsKeycloak_SavesUser_AndLogsCreateWithCompanyId));
+        await using var ctx = TestHelpers.CreateContext(nameof(CreateUser_SetsPasswordHash_MustChange_AndLogsCreateWithCompanyId));
         var companyId = await SeedCompanyAsync(ctx);
         await SeedActorAsync(ctx, companyId);
-        var keycloak = new TestHelpers.FakeKeycloakService();
-        var handler = CreateHandler(ctx, keycloak, ActorId);
+        var handler = CreateHandler(ctx, ActorId);
 
         var result = await handler.Handle(new CreateUserCommand
         {
@@ -61,16 +60,20 @@ public class UserActionLogTests
             Email = "NVA@Test.local",
             FirstName = "Nguyen",
             LastName = "Van A",
+            Password = "Init#Pass2026",
             IsActive = true,
             IsSuperUser = false,
             CompanyId = companyId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
-        Assert.Equal(1, keycloak.CreateCalls);
         var user = await ctx.Users.SingleAsync(u => u.Username == "nv.a");
         Assert.Equal("nva@test.local", user.Email); // trimmed + lower-cased
         Assert.Equal(companyId, user.CompanyId);
+        // [AUTH Phase 4] local-only creation: hash stored, MUST-change enforced, no Keycloak.
+        Assert.False(string.IsNullOrEmpty(user.PasswordHash));
+        Assert.Equal(PasswordVerifyResult.Success, new PasswordHasherService().Verify("Init#Pass2026", user.PasswordHash!));
+        Assert.True(user.MustChangePassword);
 
         var log = await ctx.ActionLogs.SingleAsync(l => l.ItemType == ItemType.User && l.ActionType == ActionType.Create);
         Assert.Equal(ActorId, log.CreatedBy);
@@ -80,13 +83,12 @@ public class UserActionLogTests
     }
 
     [Fact]
-    public async Task CreateUser_KeycloakFailure_ReturnsError_NoLocalUser_NoLog()
+    public async Task CreateUser_ShortPassword_Rejected_NoLocalUser_NoLog()
     {
-        await using var ctx = TestHelpers.CreateContext(nameof(CreateUser_KeycloakFailure_ReturnsError_NoLocalUser_NoLog));
+        await using var ctx = TestHelpers.CreateContext(nameof(CreateUser_ShortPassword_Rejected_NoLocalUser_NoLog));
         var companyId = await SeedCompanyAsync(ctx);
         await SeedActorAsync(ctx, companyId);
-        var keycloak = new TestHelpers.FakeKeycloakService { CreateShouldThrow = true };
-        var handler = CreateHandler(ctx, keycloak, ActorId);
+        var handler = CreateHandler(ctx, ActorId);
 
         var result = await handler.Handle(new CreateUserCommand
         {
@@ -94,23 +96,23 @@ public class UserActionLogTests
             Email = "b@t.local",
             FirstName = "B",
             LastName = "B",
+            Password = "short",
             CompanyId = companyId
         }, CancellationToken.None);
 
         Assert.False(result.Success);
-        Assert.Equal("KEYCLOAK_ERROR", result.ErrorCode);
+        Assert.Equal("VALIDATION_ERROR", result.ErrorCode);
         Assert.Empty(await ctx.Users.Where(u => u.Username == "nv.b").ToListAsync());
         Assert.Empty(await ctx.ActionLogs.ToListAsync());
     }
 
     [Fact]
-    public async Task CreateUser_IsSuperUser_AddsToKeycloakSuperUserGroup()
+    public async Task CreateUser_IsSuperUser_LocalFlagOnly_NoKeycloakGroup()
     {
-        await using var ctx = TestHelpers.CreateContext(nameof(CreateUser_IsSuperUser_AddsToKeycloakSuperUserGroup));
+        await using var ctx = TestHelpers.CreateContext(nameof(CreateUser_IsSuperUser_LocalFlagOnly_NoKeycloakGroup));
         var companyId = await SeedCompanyAsync(ctx);
         await SeedActorAsync(ctx, companyId);
-        var keycloak = new TestHelpers.FakeKeycloakService();
-        var handler = CreateHandler(ctx, keycloak, ActorId);
+        var handler = CreateHandler(ctx, ActorId);
 
         var result = await handler.Handle(new CreateUserCommand
         {
@@ -118,13 +120,16 @@ public class UserActionLogTests
             Email = "sup@t.local",
             FirstName = "S",
             LastName = "S",
+            Password = "Init#Pass2026",
             IsSuperUser = true,
             IsActive = true,
             CompanyId = companyId
         }, CancellationToken.None);
 
         Assert.True(result.Success);
-        Assert.Equal(1, keycloak.AddToSuperUserGroupCalls);
+        var user = await ctx.Users.SingleAsync(u => u.Username == "sup");
+        Assert.True(user.IsSuperUser);
+        Assert.True(user.MustChangePassword);
     }
 
     // ==================== UPDATE ====================

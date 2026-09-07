@@ -10,7 +10,9 @@ using Microsoft.Extensions.Logging;
 namespace aspire_react.Server.Application.Users.Commands;
 
 /// <summary>
-/// Command to create a new user. Syncs one-way to Keycloak before saving to local DB.
+/// [AUTH Phase 4] Command to create a new user — LOCAL-ONLY (no Keycloak sync; D-3 approved).
+/// Admin supplies the initial password (≥8) → PBKDF2 hash + MustChangePassword=true so the
+/// user must change it at first login (no email system — offline handover, D-4).
 /// </summary>
 public record CreateUserCommand : IRequest<CreateUserResult>
 {
@@ -20,6 +22,7 @@ public record CreateUserCommand : IRequest<CreateUserResult>
     public string LastName { get; init; } = string.Empty;
     public string? EmployeeNumber { get; init; }
     public string? JobTitle { get; init; }
+    public string Password { get; init; } = string.Empty;
     public bool IsSuperUser { get; init; }
     public bool IsActive { get; init; } = true;
     public Guid? CompanyId { get; init; }
@@ -36,18 +39,18 @@ public record CreateUserResult(
 public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, CreateUserResult>
 {
     private readonly IApplicationDbContext _context;
-    private readonly IKeycloakService _keycloakService;
+    private readonly IPasswordHasherService _passwordHasher;
     private readonly IActionLogService _actionLogService;
     private readonly ILogger<CreateUserCommandHandler> _logger;
 
     public CreateUserCommandHandler(
         IApplicationDbContext context,
-        IKeycloakService keycloakService,
+        IPasswordHasherService passwordHasher,
         IActionLogService actionLogService,
         ILogger<CreateUserCommandHandler> logger)
     {
         _context = context;
-        _keycloakService = keycloakService;
+        _passwordHasher = passwordHasher;
         _actionLogService = actionLogService;
         _logger = logger;
     }
@@ -56,34 +59,13 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, Creat
         CreateUserCommand request,
         CancellationToken cancellationToken)
     {
-        // === Step 1: Create user in Keycloak first ===
-        try
-        {
-            await _keycloakService.CreateUserAsync(
-                request.Username.Trim(),
-                request.Email.Trim().ToLowerInvariant(),
-                request.FirstName.Trim(),
-                request.LastName.Trim(),
-                request.IsActive,
-                cancellationToken);
+        // [AUTH Phase 4] LOCAL-ONLY creation (D-3): the old Keycloak sync block is removed —
+        // the password is hashed here and the user MUST change it at first login (§4.4 policy).
+        // Validator enforces ≥8 chars; defense-in-depth check here too.
+        if (string.IsNullOrEmpty(request.Password) || request.Password.Length < 8)
+            return new CreateUserResult(false, "Mật khẩu ban đầu phải có ít nhất 8 ký tự.", ErrorCode: "VALIDATION_ERROR");
 
-            _logger.LogInformation("User '{Username}' created in Keycloak successfully.",
-                request.Username);
-        }
-        catch (KeycloakApiException kex)
-        {
-            _logger.LogWarning(kex, "Failed to create user '{Username}' in Keycloak.", request.Username);
-            return new CreateUserResult(
-                false,
-                kex.Message,
-                ErrorCode: kex.ErrorCode ?? "KEYCLOAK_ERROR");
-        }
-        catch (ArgumentException aex)
-        {
-            return new CreateUserResult(false, aex.Message, ErrorCode: "VALIDATION_ERROR");
-        }
-
-        // === Step 2: Save to local DB ===
+        // === Save to local DB ===
         var user = new User
         {
             Username = request.Username.Trim(),
@@ -92,6 +74,8 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, Creat
             LastName = request.LastName.Trim(),
             EmployeeNumber = request.EmployeeNumber?.Trim(),
             JobTitle = request.JobTitle?.Trim(),
+            PasswordHash = _passwordHasher.Hash(request.Password),
+            MustChangePassword = true,
             IsSuperUser = request.IsSuperUser,
             IsActive = request.IsActive,
             CompanyId = request.CompanyId,
@@ -121,28 +105,8 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, Creat
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("User '{Username}' saved to local DB with ID {UserId}.",
+        _logger.LogInformation("User '{Username}' saved to local DB with ID {UserId} (local password set, must change at first login).",
             user.Username, user.Id);
-
-        // === Step 3: Add to superuser group in Keycloak if applicable ===
-        if (request.IsSuperUser)
-        {
-            try
-            {
-                await _keycloakService.AddUserToSuperUserGroupAsync(
-                    request.Username.Trim(),
-                    cancellationToken);
-                _logger.LogInformation("User '{Username}' added to superuser group in Keycloak.",
-                    request.Username);
-            }
-            catch (KeycloakApiException kex)
-            {
-                _logger.LogWarning(kex,
-                    "User '{Username}' created in Keycloak but failed to add to superuser group. " +
-                    "Manual intervention may be required.", request.Username);
-                // Do not fail the whole operation — the user was created successfully
-            }
-        }
 
         var dto = MapToDto(user);
         return new CreateUserResult(true, "User created successfully.", User: dto);

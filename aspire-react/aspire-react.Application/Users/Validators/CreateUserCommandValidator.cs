@@ -41,6 +41,11 @@ public class CreateUserCommandValidator : AbstractValidator<CreateUserCommand>
 
         RuleFor(x => x.JobTitle)
             .MaximumLength(200).WithMessage("Job title must not exceed 200 characters.");
+
+        // [AUTH Phase 4] Initial password — admin-supplied, same policy as ChangePassword (≥8).
+        RuleFor(x => x.Password)
+            .NotEmpty().WithMessage("Initial password is required.")
+            .MinimumLength(8).WithMessage("Mật khẩu ban đầu phải có ít nhất 8 ký tự.");
     }
 
     private async Task<bool> BeUniqueUsername(string username, CancellationToken ct)
