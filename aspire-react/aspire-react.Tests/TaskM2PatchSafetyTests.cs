@@ -62,7 +62,7 @@ public class TaskM2PatchSafetyTests
         ctx.Users.Add(user);
         await ctx.SaveChangesAsync();
 
-        var handler = new UpdateUserCommandHandler(ctx, new TestHelpers.FakeKeycloakService(),
+        var handler = new UpdateUserCommandHandler(ctx,
             TestHelpers.CreateActionLogService(ctx, ActorId), NullLogger<UpdateUserCommandHandler>.Instance);
 
         // Partial payload: no IsSuperUser / IsActive â†’ must keep the existing true/true.
@@ -96,7 +96,7 @@ public class TaskM2PatchSafetyTests
         ctx.Users.Add(user);
         await ctx.SaveChangesAsync();
 
-        var handler = new UpdateUserCommandHandler(ctx, new TestHelpers.FakeKeycloakService(),
+        var handler = new UpdateUserCommandHandler(ctx,
             TestHelpers.CreateActionLogService(ctx, ActorId), NullLogger<UpdateUserCommandHandler>.Instance);
 
         var result = await handler.Handle(new UpdateUserCommand

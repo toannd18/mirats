@@ -2,6 +2,8 @@ using System.Text.Json;
 using aspire_react.Server.Application.Users.Commands;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
+using aspire_react.Server.Domain.Interfaces;
+using aspire_react.Server.Infrastructure.Authentication;
 using aspire_react.Server.Infrastructure.Persistence;
 using aspire_react.Server.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -38,11 +40,11 @@ public class UserActionLogTests
     private static CreateUserCommandHandler CreateHandler(AppDbContext ctx, Guid actorId)
         => new(ctx, new PasswordHasherService(), TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<CreateUserCommandHandler>.Instance);
 
-    private static UpdateUserCommandHandler UpdateHandler(AppDbContext ctx, TestHelpers.FakeKeycloakService keycloak, Guid actorId)
-        => new(ctx, keycloak, TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<UpdateUserCommandHandler>.Instance);
+    private static UpdateUserCommandHandler UpdateHandler(AppDbContext ctx, Guid actorId)
+        => new(ctx, TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<UpdateUserCommandHandler>.Instance);
 
-    private static DeleteUserCommandHandler DeleteHandler(AppDbContext ctx, TestHelpers.FakeKeycloakService keycloak, Guid actorId)
-        => new(ctx, keycloak, TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<DeleteUserCommandHandler>.Instance);
+    private static DeleteUserCommandHandler DeleteHandler(AppDbContext ctx, Guid actorId)
+        => new(ctx, TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<DeleteUserCommandHandler>.Instance);
 
     // ==================== CREATE ====================
 
@@ -146,8 +148,7 @@ public class UserActionLogTests
         var user = new User { Username = "nv.c", Email = "old@t.local", FirstName = "Old", LastName = "C", CompanyId = companyId, IsActive = true };
         ctx.Users.Add(user);
         await ctx.SaveChangesAsync();
-        var keycloak = new TestHelpers.FakeKeycloakService();
-        var handler = UpdateHandler(ctx, keycloak, ActorId);
+        var handler = UpdateHandler(ctx, ActorId);
 
         var result = await handler.Handle(new UpdateUserCommand
         {
@@ -163,7 +164,6 @@ public class UserActionLogTests
         }, CancellationToken.None);
 
         Assert.True(result.Success);
-        Assert.Equal(1, keycloak.UpdateCalls);
         var updated = await ctx.Users.SingleAsync(u => u.Id == user.Id);
         Assert.Equal("New", updated.FirstName);
         Assert.False(updated.IsActive);
@@ -189,8 +189,7 @@ public class UserActionLogTests
         await using var ctx = TestHelpers.CreateContext(nameof(UpdateUser_NotFound_ReturnsError));
         var companyId = await SeedCompanyAsync(ctx);
         await SeedActorAsync(ctx, companyId);
-        var keycloak = new TestHelpers.FakeKeycloakService();
-        var handler = UpdateHandler(ctx, keycloak, ActorId);
+        var handler = UpdateHandler(ctx, ActorId);
 
         var result = await handler.Handle(new UpdateUserCommand
         {
@@ -210,21 +209,19 @@ public class UserActionLogTests
     // ==================== DELETE (soft deactivate) ====================
 
     [Fact]
-    public async Task DeleteUser_Deactivates_LogsDelete_AndDisablesInKeycloak()
+    public async Task DeleteUser_Deactivates_LogsDelete_LocalOnly()
     {
-        await using var ctx = TestHelpers.CreateContext(nameof(DeleteUser_Deactivates_LogsDelete_AndDisablesInKeycloak));
+        await using var ctx = TestHelpers.CreateContext(nameof(DeleteUser_Deactivates_LogsDelete_LocalOnly));
         var companyId = await SeedCompanyAsync(ctx);
         await SeedActorAsync(ctx, companyId);
         var user = new User { Username = "nv.d", Email = "d@t.local", FirstName = "D", LastName = "D", CompanyId = companyId, IsActive = true };
         ctx.Users.Add(user);
         await ctx.SaveChangesAsync();
-        var keycloak = new TestHelpers.FakeKeycloakService();
-        var handler = DeleteHandler(ctx, keycloak, ActorId);
+        var handler = DeleteHandler(ctx, ActorId);
 
         var result = await handler.Handle(new DeleteUserCommand(user.Id), CancellationToken.None);
 
         Assert.True(result.Success);
-        Assert.Equal(1, keycloak.DisableCalls);
         var deactivated = await ctx.Users.SingleAsync(u => u.Id == user.Id);
         Assert.False(deactivated.IsActive); // soft delete — row stays for history
 
@@ -240,8 +237,7 @@ public class UserActionLogTests
         await using var ctx = TestHelpers.CreateContext(nameof(DeleteUser_NotFound_ReturnsError));
         var companyId = await SeedCompanyAsync(ctx);
         await SeedActorAsync(ctx, companyId);
-        var keycloak = new TestHelpers.FakeKeycloakService();
-        var handler = DeleteHandler(ctx, keycloak, ActorId);
+        var handler = DeleteHandler(ctx, ActorId);
 
         var result = await handler.Handle(new DeleteUserCommand(Guid.NewGuid()), CancellationToken.None);
 

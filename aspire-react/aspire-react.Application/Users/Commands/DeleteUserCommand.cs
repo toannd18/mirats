@@ -8,8 +8,8 @@ using Microsoft.Extensions.Logging;
 namespace aspire_react.Server.Application.Users.Commands;
 
 /// <summary>
-/// Command to soft-delete (deactivate) a user.
-/// Syncs disable to Keycloak.
+/// [AUTH Phase 4] Command to soft-delete (deactivate) a user — LOCAL-ONLY (no Keycloak
+/// disable sync; D-3).
 /// </summary>
 public record DeleteUserCommand(Guid Id) : IRequest<DeleteUserResult>;
 
@@ -18,18 +18,15 @@ public record DeleteUserResult(bool Success, string Message, string? ErrorCode =
 public class DeleteUserCommandHandler : IRequestHandler<DeleteUserCommand, DeleteUserResult>
 {
     private readonly IApplicationDbContext _context;
-    private readonly IKeycloakService _keycloakService;
     private readonly IActionLogService _actionLogService;
     private readonly ILogger<DeleteUserCommandHandler> _logger;
 
     public DeleteUserCommandHandler(
         IApplicationDbContext context,
-        IKeycloakService keycloakService,
         IActionLogService actionLogService,
         ILogger<DeleteUserCommandHandler> logger)
     {
         _context = context;
-        _keycloakService = keycloakService;
         _actionLogService = actionLogService;
         _logger = logger;
     }
@@ -67,20 +64,8 @@ public class DeleteUserCommandHandler : IRequestHandler<DeleteUserCommand, Delet
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("User '{Username}' (ID: {UserId}) deactivated in local DB.",
+        _logger.LogInformation("User '{Username}' (ID: {UserId}) deactivated in local DB (local-only — no Keycloak sync).",
             user.Username, user.Id);
-
-        // Sync disable to Keycloak — fire and forget, don't fail on Keycloak errors
-        try
-        {
-            await _keycloakService.DisableUserAsync(user.Username, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to disable user '{Username}' in Keycloak. Local DB updated successfully.",
-                user.Username);
-        }
 
         return new DeleteUserResult(true, "User deactivated successfully.");
     }

@@ -10,8 +10,8 @@ using Microsoft.Extensions.Logging;
 namespace aspire_react.Server.Application.Users.Commands;
 
 /// <summary>
-/// Command to update an existing user. Syncs changes one-way to Keycloak.
-/// Handles IsSuperUser toggle: add/remove from superuser group in Keycloak.
+/// [AUTH Phase 4] Command to update an existing user — LOCAL-ONLY (no Keycloak sync; D-3).
+/// IsSuperUser is a purely local flag now.
 /// </summary>
 public record UpdateUserCommand : IRequest<UpdateUserResult>
 {
@@ -39,18 +39,15 @@ public record UpdateUserResult(
 public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, UpdateUserResult>
 {
     private readonly IApplicationDbContext _context;
-    private readonly IKeycloakService _keycloakService;
     private readonly IActionLogService _actionLogService;
     private readonly ILogger<UpdateUserCommandHandler> _logger;
 
     public UpdateUserCommandHandler(
         IApplicationDbContext context,
-        IKeycloakService keycloakService,
         IActionLogService actionLogService,
         ILogger<UpdateUserCommandHandler> logger)
     {
         _context = context;
-        _keycloakService = keycloakService;
         _actionLogService = actionLogService;
         _logger = logger;
     }
@@ -90,65 +87,10 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
         user.DepartmentId = request.DepartmentId;
         user.LocationId = request.LocationId;
 
-        // === Step 1: Sync to Keycloak ===
-        try
-        {
-            await _keycloakService.UpdateUserAsync(
-                user.Username, // Username is immutable in Keycloak
-                user.Email,
-                user.FirstName,
-                user.LastName,
-                user.IsActive,
-                cancellationToken);
+        // [AUTH Phase 4] LOCAL-ONLY update (D-3): the Keycloak sync block (UpdateUserAsync +
+        // superuser group add/remove) is removed — IsSuperUser is a purely local flag now.
 
-            _logger.LogInformation("User '{Username}' updated in Keycloak.", user.Username);
-        }
-        catch (KeycloakApiException kex)
-        {
-            _logger.LogWarning(kex, "Failed to sync user '{Username}' to Keycloak.", user.Username);
-            return new UpdateUserResult(
-                false,
-                kex.Message,
-                ErrorCode: kex.ErrorCode ?? "KEYCLOAK_SYNC_FAILED");
-        }
-
-        // === Step 2: Handle IsSuperUser group changes in Keycloak ===
-        if (request.IsSuperUser == true && !previousIsSuperUser)
-        {
-            // User was promoted to superuser → add to group
-            try
-            {
-                await _keycloakService.AddUserToSuperUserGroupAsync(
-                    user.Username, cancellationToken);
-                _logger.LogInformation(
-                    "User '{Username}' added to superuser group in Keycloak.", user.Username);
-            }
-            catch (KeycloakApiException kex)
-            {
-                _logger.LogWarning(kex,
-                    "User '{Username}' updated but failed to add to superuser group.", user.Username);
-                // Non-critical — continue
-            }
-        }
-        else if (request.IsSuperUser == false && previousIsSuperUser)
-        {
-            // User was demoted from superuser → remove from group
-            try
-            {
-                await _keycloakService.RemoveUserFromSuperUserGroupAsync(
-                    user.Username, cancellationToken);
-                _logger.LogInformation(
-                    "User '{Username}' removed from superuser group in Keycloak.", user.Username);
-            }
-            catch (KeycloakApiException kex)
-            {
-                _logger.LogWarning(kex,
-                    "User '{Username}' updated but failed to remove from superuser group.", user.Username);
-                // Non-critical — continue
-            }
-        }
-
-        // === Step 3: Save to local DB ===
+        // === Save to local DB ===
         // Audit trail (ST5/F10): record actor + affected user + meaningful changes; persisted with the update.
         var actorId = await _actionLogService.GetCurrentUserIdAsync();
         _actionLogService.LogAction(
