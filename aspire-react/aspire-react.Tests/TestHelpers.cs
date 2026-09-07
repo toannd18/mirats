@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.ImportExport;
+using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Exceptions;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Caching;
@@ -256,5 +257,18 @@ public static class TestHelpers
                 ["Auth:SigningKey"] = "unit-test-signing-key-0123456789abcdef0123456789abcdef"
             })
             .Build();
+
+    /// <summary>[AUTH gate tests] Public wrapper for the deterministic JWT config + a standard user.</summary>
+    public static Microsoft.Extensions.Configuration.IConfiguration AuthConfigForGate() => TestAuthConfig();
+
+    public static User AuthGateUser() => new()
+    {
+        Username = "authuser",
+        Email = "authuser@test.local",
+        FirstName = "Auth",
+        LastName = "User",
+        IsActive = true,
+        IsSuperUser = false
+    };
 }
 

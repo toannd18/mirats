@@ -97,6 +97,9 @@ public static class AuthenticationServiceCollectionExtensions
                         {
                             context.Fail("User is disabled.");
                         }
+                        // [AUTH Phase 1 gap fix] pwd_change enforcement là Middleware riêng
+                        // (PasswordChangeGateMiddleware) — KHÔNG gate ở đây vì context.Fail()
+                        // chỉ ra 401 challenge, trong khi §4.4 yêu cầu 403 MUST_CHANGE_PASSWORD.
                     }
                 };
             });

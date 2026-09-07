@@ -70,6 +70,13 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseAuthentication();
+
+// [AUTH Phase 1 gap fix — phát hiện qua Phase 2 live-verify] MustChangePassword gate (§4.4):
+// session pwd_change=1 CHỈ được /api/v1/users/me + /api/v1/auth/password; mọi endpoint khác
+// → 403 MUST_CHANGE_PASSWORD. Middleware riêng vì context.Fail() trong OnTokenValidated chỉ
+// ra 401 challenge, trong khi thiết kế yêu cầu 403 có JSON body.
+app.UseMiddleware<PasswordChangeGateMiddleware>();
+
 app.UseAuthorization();
 
 // Output cache (Task P) — AFTER UseAuthorization so unauthorized requests short-circuit (403)
