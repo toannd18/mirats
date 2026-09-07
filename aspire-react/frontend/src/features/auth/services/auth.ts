@@ -141,3 +141,14 @@ export async function initAuth(): Promise<boolean> {
   }
   return await refreshAccessToken();
 }
+
+/**
+ * [AUTH Phase 3] Store an access token issued OUTSIDE this module (passkey login in
+ * passkeys.ts) — keeps the token state single-sourced.
+ */
+export function applyAccessToken(token: string): void {
+  accessToken = token;
+  const claims = decodeClaims(token);
+  tokenExpiresAtMs = (claims?.exp ?? 0) * 1000;
+  authState = 'authenticated';
+}

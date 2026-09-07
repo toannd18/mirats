@@ -101,6 +101,66 @@ public class SystemConfigController : ControllerBase
         await _context.SaveChangesAsync(ct);
         return Ok(new { status = "success", message = "Đã lưu cấu hình." });
     }
+
+    // ==================== [AUTH Phase 3] Passkey flag (auth.passkeys.enabled) ====================
+
+    // GET readable by any authenticated user (AccountPage uses it to gate the register UI).
+    [HttpGet("passkeys-enabled")]
+    [Authorize]
+    public async Task<IActionResult> GetPasskeysEnabled(CancellationToken ct)
+    {
+        var setting = await _context.SystemSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Key == IWebAuthnService.PasskeysEnabledSettingKey, ct);
+        var enabled = string.Equals(setting?.Value, "true", StringComparison.OrdinalIgnoreCase);
+        return Ok(new { status = "success", data = new { enabled } });
+    }
+
+    [HttpPut("passkeys-enabled")]
+    [Authorize(Policy = "system.config")]
+    public async Task<IActionResult> SetPasskeysEnabled([FromBody] SetPasskeysEnabledRequest r, CancellationToken ct)
+    {
+        var newValue = r.Enabled ? "true" : "false";
+        var setting = await _context.SystemSettings
+            .FirstOrDefaultAsync(s => s.Key == IWebAuthnService.PasskeysEnabledSettingKey, ct);
+        var oldValue = setting?.Value ?? "false";
+
+        // Same no-op guard as asset-tag-format: unchanged value → no write, no audit row.
+        if (string.Equals(oldValue, newValue, StringComparison.OrdinalIgnoreCase))
+            return Ok(new { status = "success", message = "Đã lưu cấu hình." });
+
+        var userId = GetCurrentUserId();
+        if (setting == null)
+        {
+            setting = new SystemSetting
+            {
+                Key = IWebAuthnService.PasskeysEnabledSettingKey,
+                Value = newValue,
+                Description = "Bật/tắt đăng nhập bằng Passkey (WebAuthn) — AUTH Phase 3",
+                UpdatedBy = userId
+            };
+            _context.SystemSettings.Add(setting);
+        }
+        else
+        {
+            setting.Value = newValue;
+            setting.UpdatedBy = userId;
+            setting.UpdatedAt = DateTime.UtcNow;
+        }
+
+        _actionLogService.LogAction(
+            itemType: ItemType.SystemSetting,
+            itemId: setting.Id,
+            actionType: ActionType.Update,
+            loggedByUserId: userId,
+            companyId: null, // global system configuration — intentionally not company-scoped
+            note: $"Bật đăng nhập bằng Passkey: {oldValue} → {newValue}",
+            logMeta: JsonSerializer.Serialize(new { changes = new { enabled = new { old = oldValue, @new = newValue } } }));
+
+        await _context.SaveChangesAsync(ct);
+        return Ok(new { status = "success", message = "Đã lưu cấu hình." });
+    }
 }
 
 public record SetAssetTagFormatRequest(string Format);
+
+public record SetPasskeysEnabledRequest(bool Enabled);

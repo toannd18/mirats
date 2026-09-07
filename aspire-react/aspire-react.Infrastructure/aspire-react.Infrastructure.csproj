@@ -30,6 +30,8 @@
     <PackageReference Include="Aspire.StackExchange.Redis.OutputCaching" Version="13.5.0" />
     <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
     <PackageReference Include="ClosedXML" Version="0.105.1" />
+    <!-- [AUTH Phase 3] WebAuthn/passkey ceremonies — Infrastructure ONLY (§11.1). -->
+    <PackageReference Include="fido2" Version="4.0.1" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
   </ItemGroup>
 

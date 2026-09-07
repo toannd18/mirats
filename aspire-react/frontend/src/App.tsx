@@ -15,6 +15,7 @@ import {
 import { initAuth, logout, isAuthenticated, isSuperUser, getUserInfo } from './features/auth/services/auth';
 import LoginPage from './features/auth/pages/LoginPage';
 import ChangePasswordPage from './features/auth/pages/ChangePasswordPage';
+import AccountPage from './features/auth/pages/AccountPage';
 import { designTokens } from './theme/designTokens';
 import { usePermissionMap } from './hooks/usePermission';
 import { useCurrentUser, clearCurrentUserCache } from './hooks/useCurrentUser';
@@ -377,6 +378,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               menu={{
                 items: [
                   { key: 'profile', icon: <IdcardOutlined />, label: 'Xem hồ sơ', onClick: () => { if (currentUser?.id) navigate(`/users/${currentUser.id}`); } },
+                  { key: 'account', icon: <SafetyOutlined />, label: 'Tài khoản & Passkey', onClick: () => navigate('/account') },
                   { type: 'divider' },
                   { key: 'logout', icon: <LogoutOutlined />, label: 'Đăng xuất', onClick: () => { clearCurrentUserCache(); logout(); }, danger: true },
                 ],
@@ -459,6 +461,12 @@ function App() {
             <Route path="/" element={
               <ProtectedRoute>
                 <AppLayout><Navigate to="/dashboard" replace /></AppLayout>
+              </ProtectedRoute>
+            } />
+            {/* [AUTH Phase 3] Account page — passkey management */}
+            <Route path="/account" element={
+              <ProtectedRoute>
+                <AppLayout><AccountPage /></AppLayout>
               </ProtectedRoute>
             } />
             <Route path="/dashboard" element={

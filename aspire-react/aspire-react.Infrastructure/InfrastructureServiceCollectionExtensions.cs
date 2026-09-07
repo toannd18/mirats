@@ -69,6 +69,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<aspire_react.Server.Domain.Interfaces.IAuthAttemptService, Authentication.AuthAttemptService>();
         services.AddScoped<aspire_react.Server.Domain.Interfaces.IAuthCookieService, Authentication.AuthCookieService>();
 
+        // [AUTH Phase 3] WebAuthn/passkey ceremonies — fido2-net-lib lives here ONLY (§11.1).
+        services.AddScoped<aspire_react.Server.Domain.Interfaces.IWebAuthnService, Authentication.WebAuthn.Fido2Service>();
+
         return services;
     }
 }

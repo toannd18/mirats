@@ -108,23 +108,8 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthTokenResult
 
         await _attempts.RecordAttemptAsync(usernameLower, ipAddress, true, cancellationToken);
 
-        var mustChange = user.MustChangePassword;
-        var accessToken = _tokenService.IssueAccessToken(user, mustChange);
-
-        var refreshToken = _tokenService.GenerateRefreshToken();
-        _context.UserCredentials.Add(new UserCredential
-        {
-            UserId = user.Id,
-            TokenHash = _tokenService.HashToken(refreshToken),
-            ExpiresAt = DateTime.UtcNow.AddDays(7)
-        });
-        await _context.SaveChangesAsync(cancellationToken);
-
-        return new AuthTokenResult(true,
-            AccessToken: accessToken,
-            RefreshToken: refreshToken,
-            RefreshExpiresAt: DateTime.UtcNow.AddDays(7),
-            MustChangePassword: mustChange);
+        // [AUTH Phase 3] shared issuing (password + passkey login MUST stay identical).
+        return await AuthSessionIssuer.IssueAsync(_context, _tokenService, user, cancellationToken);
     }
 }
 

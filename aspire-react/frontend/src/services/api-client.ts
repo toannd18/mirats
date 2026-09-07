@@ -52,53 +52,62 @@ apiClient.interceptors.request.use(
 
 // Response interceptor — on 401: refresh via the httpOnly cookie and retry once (queueing
 // concurrent failures); give up → sign out. Matches the old Keycloak updateToken(30) loop.
+// [AUTH Phase 3 fix — E2E-found] The ORIGINAL 401 request must retry DIRECTLY after its own
+// refresh; only requests arriving WHILE a refresh is in flight get queued. The previous code
+// pushed the triggering request into the queue AFTER processQueue() had already drained it →
+// the promise never resolved → every first-401 call hung forever.
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+    const url = originalRequest?.url ?? '';
 
-    if (error.response?.status === 401) {
-      if (originalRequest._retry) {
-        console.warn('API returned 401 after token refresh. Redirecting to login.');
+    // Never refresh-loop on the auth endpoints themselves (login/refresh/passkey login are
+    // anonymous; a 401 there is terminal, and passkey login carries its own error surface).
+    const isAuthEndpoint = url.includes('/auth/refresh') || url.includes('/auth/login') || url.includes('/auth/passkeys/login');
+
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthEndpoint) {
+      if (isRefreshing) {
+        // A refresh is already in flight → park this request; it is retried by processQueue.
+        return new Promise((resolve, reject) => {
+          failedQueue.push({
+            resolve: (token: string) => {
+              if (originalRequest.headers) {
+                originalRequest.headers.Authorization = `Bearer ${token}`;
+              }
+              resolve(apiClient(originalRequest));
+            },
+            reject: (err: unknown) => {
+              reject(err);
+            },
+          });
+        });
+      }
+
+      isRefreshing = true;
+      originalRequest._retry = true;
+
+      try {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          const newToken = getToken();
+          processQueue(null, newToken);
+          // Retry the triggering request directly with the fresh token.
+          if (originalRequest.headers) {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          }
+          return apiClient(originalRequest);
+        }
+        processQueue(new Error('Session expired'), null);
         void logout();
         return Promise.reject(error);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        void logout();
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
       }
-
-      if (!isRefreshing) {
-        isRefreshing = true;
-        originalRequest._retry = true;
-
-        try {
-          const refreshed = await refreshAccessToken();
-          if (refreshed) {
-            const newToken = getToken();
-            processQueue(null, newToken);
-          } else {
-            processQueue(null, null);
-          }
-        } catch (refreshError) {
-          processQueue(refreshError, null);
-          void logout();
-          return Promise.reject(refreshError);
-        } finally {
-          isRefreshing = false;
-        }
-      }
-
-      // Queue this request while refresh is in progress, then retry
-      return new Promise((resolve, reject) => {
-        failedQueue.push({
-          resolve: (token: string) => {
-            if (originalRequest.headers) {
-              originalRequest.headers.Authorization = `Bearer ${token}`;
-            }
-            resolve(apiClient(originalRequest));
-          },
-          reject: (err: unknown) => {
-            reject(err);
-          },
-        });
-      });
     }
 
     if (error.response?.status === 403) {

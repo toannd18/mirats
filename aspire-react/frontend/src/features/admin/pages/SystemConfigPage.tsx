@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Form, Input, Button, App, Alert, Typography, Space } from 'antd';
+import { Card, Form, Input, Button, App, Alert, Typography, Space, Switch, Divider } from 'antd';
 import { SaveOutlined, ReloadOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
@@ -7,9 +7,8 @@ import { usePermission } from '../../../hooks/usePermission';
 const { Text } = Typography;
 
 /**
- * Cấu hình hệ thống (QUẢN TRỊ) — Task ASSET-TAG-AUTO.
- * Hiện quản lý format tự sinh Mã tài sản (Asset Tag). Dùng chung bảng SystemSetting,
- * sẵn sàng mở rộng thêm setting khác trong cùng trang.
+ * Cấu hình hệ thống (QUẢN TRỊ) — Task ASSET-TAG-AUTO + [AUTH Phase 3] passkey flag.
+ * Dùng chung bảng SystemSetting: format tự sinh Mã tài sản + bật/tắt đăng nhập Passkey.
  */
 export default function SystemConfigPage() {
   // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
@@ -17,6 +16,8 @@ export default function SystemConfigPage() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [passkeysEnabled, setPasskeysEnabled] = useState(false);
+  const [passkeySaving, setPasskeySaving] = useState(false);
   const canEdit = usePermission('system.config');
 
   const load = async () => {
@@ -24,6 +25,8 @@ export default function SystemConfigPage() {
     try {
       const res = await apiClient.get('/system/config/asset-tag-format');
       form.setFieldsValue({ format: res.data?.data?.format ?? '' });
+      const pk = await apiClient.get('/system/config/passkeys-enabled');
+      setPasskeysEnabled(pk.data?.data?.enabled === true);
     } catch {
       message.error('Không thể tải cấu hình');
     } finally {
@@ -48,6 +51,22 @@ export default function SystemConfigPage() {
       message.error(e?.response?.data?.message || 'Lỗi lưu cấu hình');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const togglePasskeys = async (checked: boolean) => {
+    setPasskeySaving(true);
+    const previous = passkeysEnabled;
+    setPasskeysEnabled(checked);
+    try {
+      await apiClient.put('/system/config/passkeys-enabled', { enabled: checked });
+      message.success(checked ? 'Đã BẬT đăng nhập bằng Passkey' : 'Đã TẮT đăng nhập bằng Passkey');
+    } catch (err: unknown) {
+      setPasskeysEnabled(previous);
+      const e = err as { response?: { data?: { message?: string } } };
+      message.error(e?.response?.data?.message || 'Lỗi lưu cấu hình');
+    } finally {
+      setPasskeySaving(false);
     }
   };
 
@@ -89,6 +108,24 @@ export default function SystemConfigPage() {
           </Space>
         )}
       </Form>
+      <Divider />
+      {/* [AUTH Phase 3] Passkey flag — auth.passkeys.enabled */}
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message="Đăng nhập bằng Passkey (WebAuthn)"
+        description="Khi bật, người dùng có thể đăng ký passkey (vân tay / Face ID / khóa bảo mật) ở trang Tài khoản và đăng nhập không cần mật khẩu. Mặc định: TẮT."
+      />
+      <Space size={12} align="center">
+        <Switch
+          checked={passkeysEnabled}
+          loading={passkeySaving}
+          disabled={!canEdit}
+          onChange={checked => void togglePasskeys(checked)}
+        />
+        <Text>{passkeysEnabled ? 'BẬT — đăng nhập bằng Passkey khả dụng' : 'TẮT — chỉ đăng nhập bằng mật khẩu'}</Text>
+      </Space>
     </Card>
   );
 }

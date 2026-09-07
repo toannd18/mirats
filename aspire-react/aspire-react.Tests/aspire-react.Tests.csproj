@@ -12,6 +12,9 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- [AUTH Phase 3] Runtime copy for Fido2/Fido2.Models (transitive package assets don't
+         flow through the Infrastructure project reference into this test bin). -->
+    <PackageReference Include="fido2" Version="4.0.1" />
   </ItemGroup>
 
   <ItemGroup>
