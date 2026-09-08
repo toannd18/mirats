@@ -63,8 +63,10 @@ const require = createRequire(import.meta.url);
 const pwCore = require(path.join(globalRoot, '@playwright/cli/node_modules/playwright-core'));
 
 // ---------- 1. Admin setup ----------
+// [AUTH Phase 4] CreateUser now REQUIRES an initial password (local-only creation).
 const created = await api('POST', '/api/v1/users', {
-  username: FIXTURE_USER, email: `${FIXTURE_USER}@test.local`, firstName: 'QA', lastName: 'Passkey'
+  username: FIXTURE_USER, email: `${FIXTURE_USER}@test.local`, firstName: 'QA', lastName: 'Passkey',
+  password: 'QaTemp#Phase3x1'
 });
 record('create fixture user', created.status === 201, `user=${FIXTURE_USER}`);
 const userId = created.json?.data?.id;
