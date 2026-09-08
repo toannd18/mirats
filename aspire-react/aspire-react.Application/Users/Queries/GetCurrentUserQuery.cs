@@ -42,6 +42,7 @@ public class GetCurrentUserQueryHandler : IRequestHandler<GetCurrentUserQuery, U
             EmployeeNumber = user.EmployeeNumber,
             JobTitle = user.JobTitle,
             IsSuperUser = user.IsSuperUser,
+            HasPassword = user.PasswordHash != null,
             IsActive = user.IsActive,
             CompanyId = user.CompanyId,
             CompanyName = user.Company?.Name,

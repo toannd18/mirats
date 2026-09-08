@@ -1,13 +1,14 @@
 import { useRef, useState, useCallback, type ReactNode } from 'react';
 import {
-  Button, Space, Tag, Badge, Popconfirm, Tooltip, App, Card, Divider, Input, Select, Typography,
+  Button, Space, Tag, Badge, Popconfirm, Tooltip, App, Card, Divider, Input, Select, Typography, Modal,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, KeyOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import type { UserDto, ReferenceOption } from '../types/users';
 import apiClient from '../../../services/api-client';
+import { adminResetPassword } from '../../auth/services/auth.service';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import UserFormModal from '../components/UserFormModal';
@@ -26,6 +27,12 @@ const UserListPage: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserDto | null>(null);
   const [companyOptions, setCompanyOptions] = useState<ReferenceOption[]>([]);
+
+  // [AUTH Phase 4] Admin reset-password modal state
+  const [resetUser, setResetUser] = useState<UserDto | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetSubmitting, setResetSubmitting] = useState(false);
 
   // ST7b — filter state cho mobile Card view (thay search form ProTable bị "bẹp" ở 375px).
   const [mobileSearch, setMobileSearch] = useState('');
@@ -84,6 +91,37 @@ const UserListPage: React.FC = () => {
     setEditingUser(null);
   };
 
+  // [AUTH Phase 4] Admin reset-password flow — endpoint từ Phase 1, UI B3 này.
+  const openReset = (user: UserDto) => {
+    setResetUser(user);
+    setResetPassword('');
+    setResetOpen(true);
+  };
+
+  const handleResetSubmit = async () => {
+    if (!resetUser) return;
+    if (resetPassword.length < 8) {
+      void message.error('Mật khẩu tạm thời phải có ít nhất 8 ký tự');
+      return;
+    }
+    setResetSubmitting(true);
+    try {
+      const res = await adminResetPassword(resetUser.id, resetPassword);
+      if (res.ok) {
+        void message.success('Đã đặt lại mật khẩu. Người dùng sẽ phải đổi ở lần đăng nhập kế tiếp.');
+        setResetOpen(false);
+        setResetUser(null);
+        actionRef.current?.reload();
+      } else {
+        void message.error(res.message || 'Không thể đặt lại mật khẩu');
+      }
+    } catch {
+      void message.error('Không thể đặt lại mật khẩu');
+    } finally {
+      setResetSubmitting(false);
+    }
+  };
+
   // ST7b — 1 fetch dùng chung: desktop truyền nguyên params của ProTable search
   // (search/companyId/isActive/isSuperUser), mobile truyền từ filter bar riêng.
   const fetchUsers = async (query: Record<string, unknown>) => {
@@ -111,6 +149,16 @@ const UserListPage: React.FC = () => {
           size="small"
           icon={<EditOutlined />}
           onClick={() => handleEdit(record)}
+        />
+      </Tooltip>
+    ),
+    canEdit && (
+      <Tooltip key="resetpw" title="Đặt lại mật khẩu">
+        <Button
+          type="link"
+          size="small"
+          icon={<KeyOutlined />}
+          onClick={() => openReset(record)}
         />
       </Tooltip>
     ),
@@ -210,6 +258,18 @@ const UserListPage: React.FC = () => {
         true: { text: 'Hoạt động', status: 'Success' },
         false: { text: 'Đã khóa', status: 'Error' },
       },
+    },
+    {
+      // [AUTH Phase 4] hasPassword — legacy users thiếu mật khẩu local cần admin reset.
+      title: 'Mật khẩu',
+      dataIndex: 'hasPassword',
+      search: false,
+      width: 100,
+      render: (_, record) => (
+        <Tag color={record.hasPassword ? 'success' : 'warning'}>
+          {record.hasPassword ? 'Có' : 'Chưa có'}
+        </Tag>
+      ),
     },
     {
       title: 'Vai trò',
@@ -409,6 +469,28 @@ const UserListPage: React.FC = () => {
         onSuccess={handleModalSuccess}
         onCancel={handleModalCancel}
       />
+
+      {/* [AUTH Phase 4] Admin reset-password modal */}
+      <Modal
+        title={`Đặt lại mật khẩu — ${resetUser?.username ?? ''}`}
+        open={resetOpen}
+        onOk={() => void handleResetSubmit()}
+        onCancel={() => { setResetOpen(false); setResetUser(null); }}
+        confirmLoading={resetSubmitting}
+        okText="Đặt lại mật khẩu"
+        destroyOnHidden
+      >
+        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          Nhập mật khẩu tạm thời (≥ 8 ký tự) để giao cho người dùng. Họ sẽ bị bắt buộc đổi mật
+          khẩu ở lần đăng nhập kế tiếp; mọi phiên đăng nhập hiện tại bị thu hồi.
+        </Text>
+        <Input.Password
+          placeholder="Mật khẩu tạm thời (tối thiểu 8 ký tự)"
+          value={resetPassword}
+          onChange={(e) => setResetPassword(e.target.value)}
+          autoComplete="new-password"
+        />
+      </Modal>
     </>
   );
 };

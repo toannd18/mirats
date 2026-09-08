@@ -122,6 +122,7 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, Creat
         EmployeeNumber = user.EmployeeNumber,
         JobTitle = user.JobTitle,
         IsSuperUser = user.IsSuperUser,
+        HasPassword = true, // local creation always sets a password
         IsActive = user.IsActive,
         CompanyId = user.CompanyId,
         DepartmentId = user.DepartmentId,

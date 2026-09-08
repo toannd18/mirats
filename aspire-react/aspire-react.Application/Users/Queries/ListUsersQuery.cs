@@ -72,6 +72,7 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, UserListRes
                 JobTitle = u.JobTitle,
                 IsSuperUser = u.IsSuperUser,
                 IsActive = u.IsActive,
+                HasPassword = u.PasswordHash != null,
                 CompanyId = u.CompanyId,
                 CompanyName = u.Company != null ? u.Company.Name : null,
                 DepartmentId = u.DepartmentId,

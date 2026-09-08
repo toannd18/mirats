@@ -10,6 +10,7 @@ export interface UserDto {
   jobTitle: string | null;
   isSuperUser: boolean;
   isActive: boolean;
+  hasPassword?: boolean;
   companyId: string | null;
   companyName: string | null;
   departmentId: string | null;

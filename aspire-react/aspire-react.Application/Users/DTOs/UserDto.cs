@@ -19,6 +19,10 @@ public class UserDto
     public bool IsSuperUser { get; init; }
     public bool IsActive { get; init; }
 
+    /// <summary>[AUTH Phase 4] True khi user đã có mật khẩu local (đăng nhập được bằng
+    /// password/passkey). False = legacy user cần admin reset trước khi dùng auth mới.</summary>
+    public bool HasPassword { get; init; }
+
     // Navigation names instead of just IDs
     public string? CompanyName { get; init; }
     public string? DepartmentName { get; init; }
