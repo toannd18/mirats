@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Xunit;
@@ -23,16 +24,15 @@ public class ConcurrencyRaceAuditTests
     public ConcurrencyRaceAuditTests(ITestOutputHelper output) => _output = output;
 
     private const string BaseUrl = "http://localhost:5428";
-    private const string KcTokenUrl = "https://localhost:8080/realms/aspire-react/protocol/openid-connect/token";
+    private const string LoginUrl = "/api/v1/auth/login";
     private const string AdminUserId = "eb34917f-843f-4f4e-8651-d505cd317824"; // local admin id
     private const int Iterations = 5;
 
-    // [SECRET-ROTATE 2026-08-29] The app-admin password is no longer hard-coded here (the old
-    // value is public in git history). It resolves, in order:
+    // [AUTH Phase 4] Login source switched to the LOCAL /auth/login endpoint (Keycloak token
+    // path retired for tests — D-7). The app-admin password resolves, in order:
     //   1. environment variable MIRATS_TEST_ADMIN_PASSWORD
     //   2. repo-root file `.mirats-test-admin-password` (gitignored — local dev convenience)
-    // When rotating: Keycloak Admin API → reset-password on the realm 'aspire-react' admin
-    // user, then update that file / env var. NEVER commit the real value.
+    // The file now holds the LOCAL admin password (bootstrap-seeded hash), not the Keycloak one.
     private static string AdminPassword
     {
         get
@@ -55,18 +55,12 @@ public class ConcurrencyRaceAuditTests
         {
             if (_token != null) return _token;
         }
-        using var handler = new HttpClientHandler { ServerCertificateCustomValidationCallback = (_, _, _, _) => true };
-        using var kc = new HttpClient(handler);
-        var form = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["grant_type"] = "password",
-            ["client_id"] = "frontend",
-            ["username"] = "admin",
-            ["password"] = AdminPassword
-        });
-        var resp = await kc.PostAsync(KcTokenUrl, form);
-        var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-        _token = json.RootElement.GetProperty("access_token").GetString();
+        var resp = await _http.PostAsJsonAsync(LoginUrl, new { username = "admin", password = AdminPassword });
+        var body = await resp.Content.ReadAsStringAsync();
+        var json = JsonDocument.Parse(body);
+        if (!json.RootElement.TryGetProperty("accessToken", out var token))
+            throw new InvalidOperationException($"LOGIN FAILED (HTTP {(int)resp.StatusCode}): {body.Substring(0, Math.Min(300, body.Length))}");
+        _token = token.GetString();
         return _token!;
     }
 
