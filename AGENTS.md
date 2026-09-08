@@ -1,6 +1,6 @@
 # AGENTS.md
 
-AspireReact: Snipe-IT-style multi-tenant IT asset management. .NET 9/10 + React 19 + Ant Design 6, orchestrated by .NET Aspire 13.4 (Postgres, Redis, Keycloak).
+AspireReact: Snipe-IT-style multi-tenant IT asset management. .NET 9/10 + React 19 + Ant Design 6, orchestrated by .NET Aspire 13.4 (Postgres, Redis). [AUTH MIGRATION 2026-09-07: Keycloak đã bị XÓA HOÀN TOÀN — đăng nhập bằng password tự ký JWT + passkey tùy chọn (local auth).]
 
 ## Mandatory reads first
 - **Read [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md) in full before writing/editing any code.** It is the authoritative, continuously-updated convention source (audit-first, ActionLog, company-scoping, etc.). Code is the source of truth; docs go stale — grep before assuming.
@@ -13,17 +13,18 @@ AspireReact: Snipe-IT-style multi-tenant IT asset management. .NET 9/10 + React 
 
 ## Run / verify
 ```bash
-# Full stack (Aspire orchestrates Postgres, Redis, Keycloak, API, frontend)
+# Full stack (Aspire orchestrates Postgres, Redis, API, frontend — auth hoàn toàn local)
 cd aspire-react/aspire-react.AppHost && dotnet run
-# Frontend http://localhost:5173 · API http://localhost:5428 · Keycloak admin https://localhost:8080/admin
-# Login: admin — password đọc từ file gitignored `.mirats-test-admin-password` ở repo root
-# ([SECRET-ROTATE 2026-08-29] password cũ trong git history đã bị vô hiệu; master admin password ở AppHost user-secrets)
+# Frontend https://localhost:5173 (dev HTTPS bắt buộc) · API http://localhost:5428 / https://localhost:7314
+# Login: admin — mật khẩu local đọc từ file gitignored `.mirats-test-admin-password` ở repo root
+# (file này từ AUTH Phase 4 chứa mật khẩu local auth, KHÔNG còn là mật khẩu Keycloak)
 # Clone mới — setup secrets MỘT lần (không commit giá trị thật):
 #   cd aspire-react/aspire-react.AppHost
-#   dotnet user-secrets set "Parameters:dbPassword" "<pg-password>" ; dotnet user-secrets set "Parameters:kcBootstrapAdminPassword" "<kc-master-password>"
-#   dotnet user-secrets set "Parameters:kcClientSecret" "<sinh trong Keycloak Console > backend-service > Credentials > Regenerate>"
+#   dotnet user-secrets set "Parameters:dbPassword" "<pg-password>"
+#   dotnet user-secrets set "Parameters:authSigningKey" "<chuỗi ngẫu nhiên ≥256-bit>"
+#   dotnet user-secrets set "Parameters:authBootstrapPassword" "<mật khẩu admin ban đầu>"
 #   echo "<app-admin-password>" > ../../.mirats-test-admin-password
-#   → hướng dẫn đầy đủ + lưu ý volume: xem CLAUDE.md "Setup secrets lần đầu"
+#   → hướng dẫn đầy đủ + HTTPS-dev cert: xem CLAUDE.md "Setup secrets lần đầu"
 ```
 ```bash
 cd aspire-react
@@ -41,7 +42,7 @@ pwsh -File scripts/audit-sweeps.ps1
 ```
 
 ## Non-negotiable conventions (see workflow doc for rationale)
-- **User identity**: use claim `local_user_id` only (JIT-provisioned by `IJitUserProvisioningService` in `Infrastructure/Services/JitUserProvisioningService.cs`, invoked from the JWT `OnTokenValidated` handler in `Infrastructure/Authentication/AuthenticationServiceCollectionExtensions.cs` which stamps `local_user_id`; extracted from Program.cs in Task Q). Never use Keycloak `sub`/`preferred_username` as a user FK. Use `ICurrentUserService.GetLocalUserId()` / `IActionLogService.GetCurrentUserIdAsync()`.
+- **User identity**: use claim `local_user_id` only — stamped DIRECTLY at local token issuance (`TokenService` đọc user từ DB; trước đây là JIT-provisioning, đã xóa ở AUTH Phase 5). Never use the OIDC `sub`/`preferred_username` claims as a user FK. Use `ICurrentUserService.GetLocalUserId()` / `IActionLogService.GetCurrentUserIdAsync()`.
 - **ActionLog is mandatory** for every Create/Update/Delete/Checkout/Checkin/Confirm/Close/Reopen/Inspect/Dispose/Import, with `TargetType`, `TargetId`, `CompanyId` (+ `LogMeta.changes` for updates), persisted in the same transaction as the change.
 - **Company-scoping is explicit on BOTH read AND write endpoints** (List/Detail/Create/Update/Delete — Task I/J/K/L2) — the global EF query filter in `AppDbContext` is a no-op. Use `ICompanyScopeService.GetCurrentUserCompanyIdAsync()`; don't rely on the filter.
 - **Permissions**: backend `[Authorize(Policy = "<resource>.<action>")]` (key must exist in `PermissionCatalog`) on every write endpoint; frontend gates every sensitive button with `usePermission('<code>')`. Don't gate primarily on `isSuperUser()`.
@@ -74,7 +75,7 @@ pwsh -File scripts/audit-sweeps.ps1
 - **DateTime Kind**: Postgres `timestamp without time zone` columns MUST be written with `DateTime.SpecifyKind(value, DateTimeKind.Unspecified)`; `with time zone` columns use `DateTime.UtcNow` (Kind=UTC). Wrong Kind → Npgsql throws 500. See `docs/HANDOFF_DATETIME_KIND_AUDIT.md`.
 - **Concurrency**: checkout/allocate must lock rows `FOR UPDATE` inside a transaction (Asset `FromSqlRaw ... FOR UPDATE`, License seat/Accessory/Component/Consumable — Task O-FIX). No lock → stock overcommit / lost update (reproduced empirically).
 - **EF InMemory does NOT enforce real Postgres constraints** (DateTime Kind, transactions/locks, raw SQL, unique indexes) — `dotnet test` PASS is NOT sufficient evidence. Any change touching DateTime, transaction/lock, raw SQL, or constraints MUST be verified by calling the real API on the Aspire stack.
-- **Never reset/modify existing accounts to test** (`admin`/`ndkien`/`st1verify` are real users — changing passwords breaks their sessions, even with a note). When a non-superuser is needed for UI/API verification, create a NEW dedicated test user named clearly TEST/QA (e.g. `qa-<task>-<ts>`), then delete it after (Keycloak + DB). Mandatory since 2026-08-16 (st1verify reset incident in LAYOUT-2).
+- **Never reset/modify existing accounts to test** (`admin`/`ndkien`/`st1verify` are real users — changing passwords breaks their sessions, even with a note). When a non-superuser is needed for UI/API verification, create a NEW dedicated test user named clearly TEST/QA (e.g. `qa-<task>-<ts>`), then delete it after (soft-delete qua API). Mandatory since 2026-08-16 (st1verify reset incident in LAYOUT-2).
 - **DI registration lives in layer extensions, not Program.cs** (Task Q): add services to the matching `Infrastructure/*/...ServiceCollectionExtensions.cs` or `Application/ApplicationServiceCollectionExtensions.cs`. Program.cs is a thin composition root (~93 lines) that only calls the `Add*` extension methods + `StartupDataSeeder.Seed(...)`.
 - **MediatR `ValidationBehavior` is wired** (Task L): FluentValidation validators now actually run in the request pipeline (mapped to 400 by `ValidationExceptionHandler`). Writing a new validator takes effect immediately — no need to call validators manually.
 - **Redis OutputCache** (Task P): 5 reference-data endpoints (categories/manufacturers/suppliers/permissions/companies) are cached via `ReferenceDataCachePolicy` (TTL 300s, Redis-backed via `AddRedisCaching`). When adding/editing an endpoint that writes these groups, invalidate the corresponding cache entry. Do NOT cache business/inventory data (checkout/Qty/stock) with output caching.

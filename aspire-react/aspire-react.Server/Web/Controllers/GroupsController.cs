@@ -40,7 +40,7 @@ public class GroupsController : ControllerBase
     /// Mirrors <see cref="PermissionHandler"/> step 1: realm_access superuser/admin (substring
     /// on the raw claim JSON) or a "permission" claim "superuser" → full bypass.
     /// </summary>
-    private bool IsRealmSuperUser() => User != null && RealmAccessHelper.IsSuperUser(User);
+    private bool IsRealmSuperUser() => User != null && SuperuserClaims.IsSuperUser(User);
 
     [HttpGet]
     public async Task<IActionResult> GetGroups()

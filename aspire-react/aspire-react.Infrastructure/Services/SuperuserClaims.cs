@@ -4,16 +4,15 @@ using System.Text.Json;
 namespace aspire_react.Server.Infrastructure.Services;
 
 /// <summary>
-/// Centralized (EXACT) superuser detection from the JWT <c>realm_access</c> claim.
-/// Keycloak serializes <c>realm_access</c> as a JSON string, e.g. {"roles":["default-roles-aspire-react","admin"]}.
-/// We must match role names EXACTLY ("admin" / "superuser"). A substring check (e.g.
-/// <c>realmAccess.Contains("admin")</c>) would wrongly escalate any realm role whose name merely
-/// CONTAINS those substrings (e.g. "company-admin", "support-admin") to full superuser bypass.
-/// Also honours the legacy "permission"="superuser" claim as the previous code did.
+/// [AUTH Phase 5, renamed from RealmAccessHelper] Centralized (EXACT) superuser detection from
+/// the JWT claims. The local TokenService emits the SAME wire claims the migration's golden
+/// strategy preserved: <c>permission</c>="superuser" and <c>realm_access</c>={"roles":["superuser"]}
+/// (the frontend isSuperUser() reads the same shape). Roles must match EXACTLY ("admin"/
+/// "superuser") — a substring check would wrongly escalate roles like "company-admin".
 /// </summary>
-public static class RealmAccessHelper
+public static class SuperuserClaims
 {
-    /// <summary>True when the principal carries the Keycloak realm role "admin" or "superuser" (exact match).</summary>
+    /// <summary>True when the principal carries the exact role "admin" or "superuser".</summary>
     public static bool IsSuperUser(ClaimsPrincipal? user)
     {
         if (user == null) return false;

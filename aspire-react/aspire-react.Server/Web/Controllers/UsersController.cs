@@ -61,7 +61,7 @@ public class UsersController : ControllerBase
     /// Mirrors <see cref="PermissionHandler"/> step 1: realm_access superuser/admin (substring
     /// on the raw claim JSON) or a "permission" claim "superuser" → full bypass.
     /// </summary>
-    private bool IsRealmSuperUser() => User != null && RealmAccessHelper.IsSuperUser(User);
+    private bool IsRealmSuperUser() => User != null && SuperuserClaims.IsSuperUser(User);
 
     /// <summary>
     /// Returns a paginated list of users with navigation names.
@@ -214,7 +214,7 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// Creates a new user. Syncs one-way to Keycloak before saving to local DB.
+    /// Creates a new user — LOCAL-ONLY (AUTH Phase 4): password ban đầu + MustChangePassword.
     /// </summary>
     [HttpPost]
     [Authorize(Policy = "users.create")]
@@ -279,7 +279,7 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// Updates an existing user. Syncs changes one-way to Keycloak.
+    /// Updates an existing user — LOCAL-ONLY (AUTH Phase 4).
     /// Handles IsSuperUser toggle for group membership.
     /// </summary>
     [HttpPut("{id:guid}")]
@@ -337,7 +337,6 @@ public class UsersController : ControllerBase
             return result.ErrorCode switch
             {
                 "USER_NOT_FOUND" => NotFound(new { status = "error", message = result.Message }),
-                "KEYCLOAK_SYNC_FAILED" => StatusCode(502, new { status = "error", message = result.Message, errorCode = result.ErrorCode }),
                 _ => BadRequest(new { status = "error", message = result.Message, errorCode = result.ErrorCode })
             };
         }
@@ -391,7 +390,7 @@ public class UsersController : ControllerBase
     public record ResetPasswordRequest(string NewPassword);
 
     /// <summary>
-    /// Deactivates a user (soft delete). Syncs disable to Keycloak.
+    /// Deactivates a user (soft delete) — LOCAL-ONLY (AUTH Phase 4).
     /// </summary>
     [HttpDelete("{id:guid}")]
     [Authorize(Policy = "users.delete")]

@@ -15,7 +15,8 @@ namespace aspire_react.Tests;
 /// <summary>
 /// ST9/F41 — User CRUD ActionLog coverage (ST5): CreateUserCommand / UpdateUserCommand /
 /// DeleteUserCommand must write the matching ActionLog row (with CompanyId and the
-/// { changes: { field: { old, new } } } meta for updates), with IKeycloakService mocked.
+/// { changes: { field: { old, new } } } meta for updates). [AUTH Phase 4/5] handlers are
+/// local-only — the former Keycloak mocks were removed together with the sync code.
 /// </summary>
 public class UserActionLogTests
 {

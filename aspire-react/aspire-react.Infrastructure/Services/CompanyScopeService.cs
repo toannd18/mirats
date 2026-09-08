@@ -26,7 +26,7 @@ public class CompanyScopeService : ICompanyScopeService
     {
         var user = _httpContextAccessor.HttpContext?.User;
         if (user == null || user.Identity?.IsAuthenticated != true) return false;
-        return RealmAccessHelper.IsSuperUser(user);
+        return SuperuserClaims.IsSuperUser(user);
     }
 
     public async Task<Guid?> GetCurrentUserCompanyIdAsync()

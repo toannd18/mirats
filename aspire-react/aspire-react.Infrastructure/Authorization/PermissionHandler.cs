@@ -30,9 +30,9 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
             return;
         }
 
-        // 1. Superuser / Admin bypass via Keycloak realm_access roles (EXACT match — a role merely
+        // 1. Superuser / Admin bypass via the superuser claims (EXACT match — a role merely
         //    containing "admin"/"superuser" as a substring must NOT grant superuser).
-        if (RealmAccessHelper.IsSuperUser(context.User))
+        if (SuperuserClaims.IsSuperUser(context.User))
         {
             context.Succeed(requirement);
             return;

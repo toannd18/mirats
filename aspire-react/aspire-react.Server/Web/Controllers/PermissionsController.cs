@@ -52,7 +52,7 @@ public class PermissionsController : ControllerBase
             || localUserId == Guid.Empty)
             return Unauthorized();
 
-        var dto = await _mediator.Send(new CheckPermissionsQuery(localUserId, RealmAccessHelper.IsSuperUser(User)));
+        var dto = await _mediator.Send(new CheckPermissionsQuery(localUserId, SuperuserClaims.IsSuperUser(User)));
 
         return Ok(new
         {

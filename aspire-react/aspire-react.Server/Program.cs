@@ -22,11 +22,11 @@ builder.AddRedisCaching();
 // Application layer: MediatR + FluentValidation + ValidationBehavior (Task L).
 builder.Services.AddApplicationServices();
 
-// Infrastructure: Keycloak admin API, JIT user provisioning, app services, lockout guard.
+// Infrastructure: app services, lockout guard (local auth services live here too).
 builder.Services.AddInfrastructureServices(builder.Configuration);
 
-// Authentication: Keycloak JWT bearer (OnTokenValidated delegates to IJitUserProvisioningService).
-builder.Services.AddKeycloakAuthentication(builder.Configuration);
+// Authentication: single local JWT bearer scheme ("App" — self-signed tokens).
+builder.Services.AddAppAuthentication(builder.Configuration);
 
 // Authorization: permission policies from PermissionCatalog + PermissionHandler.
 builder.Services.AddPermissionAuthorization();

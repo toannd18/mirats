@@ -1,7 +1,6 @@
 using aspire_react.Server.Application.Users.DTOs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
-using aspire_react.Server.Domain.Exceptions;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Application.Common.Interfaces;
 using MediatR;

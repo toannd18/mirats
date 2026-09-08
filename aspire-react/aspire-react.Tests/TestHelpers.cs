@@ -3,7 +3,6 @@ using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.ImportExport;
 using aspire_react.Server.Domain.Entities;
-using aspire_react.Server.Domain.Exceptions;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Caching;
 using aspire_react.Server.Infrastructure.Persistence;
@@ -74,59 +73,6 @@ public static class TestHelpers
         public Task EvictTagsAsync(IEnumerable<string> tags, CancellationToken ct = default)
         {
             Evictions.Add(tags.ToArray());
-            return Task.CompletedTask;
-        }
-    }
-
-    /// <summary>
-    /// In-memory IKeycloakService. Every method is a no-op unless the matching "ShouldThrow"
-    /// flag is set (used to simulate a Keycloak outage for the User CRUD handlers).
-    /// </summary>
-    public sealed class FakeKeycloakService : IKeycloakService
-    {
-        public bool CreateShouldThrow { get; set; }
-        public bool UpdateShouldThrow { get; set; }
-        public int CreateCalls { get; private set; }
-        public int UpdateCalls { get; private set; }
-        public int DisableCalls { get; private set; }
-        public int AddToSuperUserGroupCalls { get; private set; }
-        public int RemoveFromSuperUserGroupCalls { get; private set; }
-
-        public Task EnsureSuperUserGroupExistsAsync(CancellationToken ct = default) => Task.CompletedTask;
-
-        public Task<string> CreateUserAsync(
-            string username, string email, string firstName, string lastName,
-            bool enabled, CancellationToken ct = default)
-        {
-            CreateCalls++;
-            if (CreateShouldThrow) throw new KeycloakApiException("Keycloak unavailable", "KEYCLOAK_ERROR");
-            return Task.FromResult(Guid.NewGuid().ToString());
-        }
-
-        public Task UpdateUserAsync(
-            string username, string email, string firstName, string lastName,
-            bool enabled, CancellationToken ct = default)
-        {
-            UpdateCalls++;
-            if (UpdateShouldThrow) throw new KeycloakApiException("Keycloak sync failed", "KEYCLOAK_SYNC_FAILED");
-            return Task.CompletedTask;
-        }
-
-        public Task DisableUserAsync(string username, CancellationToken ct = default)
-        {
-            DisableCalls++;
-            return Task.CompletedTask;
-        }
-
-        public Task AddUserToSuperUserGroupAsync(string username, CancellationToken ct = default)
-        {
-            AddToSuperUserGroupCalls++;
-            return Task.CompletedTask;
-        }
-
-        public Task RemoveUserFromSuperUserGroupAsync(string username, CancellationToken ct = default)
-        {
-            RemoveFromSuperUserGroupCalls++;
             return Task.CompletedTask;
         }
     }

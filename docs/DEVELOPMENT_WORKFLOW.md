@@ -10,7 +10,7 @@
 > Cập nhật 2026-08-16 (Task Q/R/P): JIT tách sang `IJitUserProvisioningService`; Program.cs → composition root (DI trong extension); seed/migration → `StartupDataSeeder`; Redis output-cache reference-data; bổ sung Patch-semantics/DateTime Kind/Concurrency/EF-InMemory/ValidationBehavior.
 > Cập nhật [AUTH Phase 2] 2026-09-07: **Dev prerequisites mới** — Node ≥ 22.12 + HTTPS-dev bắt buộc (xem §0.1).
 
-## 0.1 Dev prerequisites (bắt buộc từ AUTH Phase 2 — Keycloak replacement)
+## 0.1 Dev prerequisites (bắt buộc từ AUTH Phase 2; AUTH Phase 5 = auth hoàn toàn local, không Keycloak)
 
 Frontend dev server chạy **HTTPS bắt buộc** với **proxy /api → backend HTTPS (127.0.0.1:7314)** — KHÔNG có fallback HTTP (AUTH_MIGRATION_PLAYBOOK §4.2, Option A same-origin).
 
@@ -92,8 +92,7 @@ Frontend dev server chạy **HTTPS bắt buộc** với **proxy /api → backend
 ## 3. Tiêu chuẩn kỹ thuật cho module mới / sửa module cũ
 
 ### 3.1. Định danh user hiện tại (claim)
-- **LUÔN ưu tiên claim `local_user_id`** (do JIT provisioning gắn qua `IJitUserProvisioningService` trong `Infrastructure/Services/JitUserProvisioningService.cs`, được gọi từ `OnTokenValidated` trong `Infrastructure/Authentication/AuthenticationServiceCollectionExtensions.cs` — tách khỏi `Program.cs` từ Task Q). Keycloak `sub` ≠ id user local; dùng `sub` làm FK sẽ gây FK violation hoặc ghi sai người thực hiện.
-- Fallback (chỉ cho luồng legacy): `preferred_username` → tra bảng `Users`. KHÔNG parse `sub` thành user id.
+- **LUÔN ưu tiên claim `local_user_id`** — từ AUTH Phase 5 claim này được stamp TRỰC TIẾP lúc phát hành token (`TokenService.IssueAccessToken` đọc user từ DB; JIT provisioning đã xóa). OIDC `sub` ≠ id user local; dùng `sub` làm FK sẽ gây FK violation hoặc ghi sai người thực hiện (lớp lỗi lịch sử — quy tắc giữ nguyên sau khi Keycloak bị loại bỏ).
 - Helper chuẩn: `ICurrentUserService.GetLocalUserId()` hoặc `IActionLogService.GetCurrentUserIdAsync()`. Không tự viết lại logic đọc claim trong controller mới.
 
 ### 3.2. ActionLog (audit trail)
@@ -128,7 +127,7 @@ Frontend dev server chạy **HTTPS bắt buộc** với **proxy /api → backend
 
 ### 3.4. Phân quyền
 - **Backend (bắt buộc)**: mọi endpoint phải có `[Authorize(Policy = "<resource>.<action>")]` với key tồn tại trong `PermissionCatalog`. Không dùng `[Authorize]` trần cho endpoint ghi dữ liệu.
-- **Frontend (bắt buộc)**: mọi nút hành động nhạy cảm (Xóa / Sửa / Cấp phát / Thu hồi / Đóng / Mở lại / Kiểm tra / Duyệt...) phải gate bằng `usePermission('<permission-code>')`. Không dùng `isSuperUser()` của `keycloak.ts` làm gate chính (chỉ dùng cho logic đặc thù "chỉ Superuser" như Reopen).
+- **Frontend (bắt buộc)**: mọi nút hành động nhạy cảm (Xóa / Sửa / Cấp phát / Thu hồi / Đóng / Mở lại / Kiểm tra / Duyệt...) phải gate bằng `usePermission('<permission-code>')`. Không dùng `isSuperUser()` của `features/auth/services/auth.ts` làm gate chính (chỉ dùng cho logic đặc thù "chỉ Superuser" như Reopen).
 - Thêm permission mới: sửa duy nhất `PermissionCatalog.cs` (policy tự đăng ký + frontend lấy catalog qua `GET /permissions`).
 - **Chống self-lockout — `PermissionLockoutGuard`** (Task J) áp cho: `GroupsController.DeleteGroup`, `UsersController.UpdateUser`, `UsersController.DeleteUser` (guard `WouldDeleteGroupLockoutAsync` / `WouldDemoteSuperUserLockoutAsync` / `WouldDeactivateUserLockoutAsync` — chặn khi thao tác khiến toàn hệ thống không còn ai giữ khả năng quản lý phân quyền; trả `400 SELF_LOCKOUT`).
 - **`UsersController.UpdateUser` yêu cầu policy `admin`** (KHÔNG phải `users.edit`) — đổi ở Task J để chặn privilege escalation (holder `users.edit` từng tự bật `IsSuperUser=true`). Đồng bộ frontend `UserListPage` dùng `usePermission('admin')` cho nút sửa user.
@@ -174,7 +173,7 @@ Frontend dev server chạy **HTTPS bắt buộc** với **proxy /api → backend
 - Module mới có logic nghiệp vụ (guard, allocation, company check, lockout...) phải có test xUnit trong `aspire-react.Tests` (đang dùng EF InMemory + handler/service trực tiếp).
 - Không để test bị skip/comment-out không lý do.
 - ⚠️ **EF InMemory KHÔNG enforce ràng buộc Postgres thật** (DateTime Kind, transaction/lock `FOR UPDATE`, raw SQL, unique index, FK constraint) — `dotnet test` PASS KHÔNG phải bằng chứng đủ. Mọi thay đổi đụng **DateTime Kind, transaction/lock, raw SQL, hoặc DB constraint PHẢI verify bằng gọi API THẬT trên Aspire stack**. Đây là lớp lỗi lặp lại nhiều lần nhất (DateTime Kind chặn Maintenance nhiều phiên; race condition chỉ lộ khi Postgres thật; validator chưa chạy) — xem Phụ lục A.
-- ⚠️ **KHÔNG được reset password / thay đổi tài khoản có sẵn để test** (kể cả khi có ghi chú lại). `admin`/`ndkien`/`st1verify`... là account thật của người dùng/team — đổi mật khẩu sẽ phá phiên đăng nhập hiện có của họ. Khi cần 1 user thường (non-superuser) để verify, **PHẢI tạo user test MỚI riêng, đặt tên rõ TEST/QA** (VD `qa-<task>-<ts>`), dùng xong xóa sạch (Keycloak + DB). Quy tắc bắt buộc từ 2026-08-16 (sau sự cố reset `st1verify` trong LAYOUT-2).
+- ⚠️ **KHÔNG được reset password / thay đổi tài khoản có sẵn để test** (kể cả khi có ghi chú lại). `admin`/`ndkien`/`st1verify`... là account thật của người dùng/team — đổi mật khẩu sẽ phá phiên đăng nhập hiện có của họ. Khi cần 1 user thường (non-superuser) để verify, **PHẢI tạo user test MỚI riêng, đặt tên rõ TEST/QA** (VD `qa-<task>-<ts>`), dùng xong xóa sạch qua API (soft-delete). Quy tắc bắt buộc từ 2026-08-16 (sau sự cố reset `st1verify` trong LAYOUT-2).
 
 ### 3.11. DateTime Kind (Npgsql)
 - Cột Postgres **`timestamp without time zone`** PHẢI ghi `DateTime.SpecifyKind(value, DateTimeKind.Unspecified)` (kể cả `UtcNow`).

@@ -17,7 +17,6 @@
     "@ant-design/pro-components": "^3.1.14-6",
     "antd": "^6.5.3",
     "axios": "^1.19.0",
-    "keycloak-js": "^26.2.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "react-router-dom": "^7.18.2"

@@ -6,30 +6,16 @@ using aspire_react.Server.Infrastructure.Services;
 namespace aspire_react.Server.Infrastructure;
 
 /// <summary>
-/// Registers infrastructure services (Keycloak admin API, JIT user provisioning, current-user,
-/// action-log, allocation services, company scope, cache/accessor, lockout guard). Extracted from
-/// Program.cs (Task Q) — behavior and lifetimes unchanged.
+/// Registers infrastructure services (current-user, action-log, allocation services, company
+/// scope, cache/accessor, lockout guard, local auth + WebAuthn). Extracted from Program.cs
+/// (Task Q) — behavior and lifetimes unchanged. [AUTH Phase 5] The Keycloak admin API, JIT
+/// provisioning and their HttpClient were removed when the migration completed.
 /// </summary>
 public static class InfrastructureServiceCollectionExtensions
 {
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
     {
-        // Keycloak Admin API Options (configured from the "Keycloak" config section)
-        services.Configure<KeycloakOptions>(configuration.GetSection(KeycloakOptions.SectionName));
-
-        // Named HttpClient for Keycloak Admin API
-        services.AddHttpClient("KeycloakAdmin", client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(30);
-        });
-
-        // Keycloak Service as Singleton (needs token caching across requests)
-        services.AddSingleton<IKeycloakService, KeycloakService>();
-
-        // JIT user provisioning — used by the Keycloak JWT OnTokenValidated handler (scoped AppDbContext).
-        services.AddScoped<IJitUserProvisioningService, JitUserProvisioningService>();
-
-        // Current User Service — reads local_user_id claim set by JIT provisioning
+        // Current User Service — reads local_user_id claim (stamped at local token issuance)
         services.AddScoped<ICurrentUserService, CurrentUserService>();
 
         // Action Logging Service (scoped — shares AppDbContext transaction)
@@ -61,9 +47,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<PermissionLockoutGuard>();
         services.AddScoped<aspire_react.Server.Domain.Interfaces.IPermissionLockoutGuard, PermissionLockoutGuard>();
 
-        // [AUTH Phase 1] Local password authentication services (Keycloak replacement — see
-        // AUTH_MIGRATION_PLAYBOOK §11.1: contracts in Domain/Interfaces, framework-heavy
-        // implementations in Infrastructure/Authentication).
+        // [AUTH Phase 1] Local password authentication services (see AUTH_MIGRATION_PLAYBOOK
+        // §11.1: contracts in Domain/Interfaces, framework-heavy implementations in
+        // Infrastructure/Authentication).
         services.AddScoped<aspire_react.Server.Domain.Interfaces.IPasswordHasherService, Authentication.PasswordHasherService>();
         services.AddScoped<aspire_react.Server.Domain.Interfaces.ITokenService, Authentication.TokenService>();
         services.AddScoped<aspire_react.Server.Domain.Interfaces.IAuthAttemptService, Authentication.AuthAttemptService>();

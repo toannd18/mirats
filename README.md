@@ -12,7 +12,7 @@ AspireReact là hệ thống quản lý tài sản IT cấp doanh nghiệp, hỗ
 | **Backend** | C# .NET 9, ASP.NET Core Web API, MediatR, FluentValidation |
 | **Database** | PostgreSQL 18 (EF Core 9, Npgsql) |
 | **Cache** | Redis 7 |
-| **Auth** | Keycloak 26 (OpenID Connect, JWT) |
+| **Auth** | Local password auth (self-signed JWT + PBKDF2) + WebAuthn Passkeys tùy chọn — [AUTH MIGRATION 2026-09-07: Keycloak đã xóa hoàn toàn] |
 | **Frontend** | React 19 + TypeScript 5 + Vite |
 | **UI** | Ant Design 6 |
 | **Testing** | xUnit, Testcontainers, Playwright |
@@ -21,7 +21,7 @@ AspireReact là hệ thống quản lý tài sản IT cấp doanh nghiệp, hỗ
 ## Yêu cầu hệ thống
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [Node.js 20+](https://nodejs.org/)
+- [Node.js 22.12+](https://nodejs.org/) (dev HTTPS + trust cert cho Vite)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
 ## Cài đặt và chạy
@@ -31,22 +31,21 @@ AspireReact là hệ thống quản lý tài sản IT cấp doanh nghiệp, hỗ
 git clone <repo-url>
 cd "Aspire Project"
 
-# Khởi động toàn bộ stack (PostgreSQL, Redis, Keycloak, Backend, Frontend)
+# Khởi động toàn bộ stack (PostgreSQL, Redis, Backend, Frontend — auth local)
 cd aspire-react/aspire-react.AppHost
 dotnet run
 ```
 
 Truy cập:
-- **Frontend**: http://localhost:5173
+- **Frontend (dev HTTPS)**: https://localhost:5173
 - **API (HTTP)**: http://localhost:5428
 - **API (HTTPS)**: https://localhost:7314
-- **Keycloak Admin**: https://localhost:8080/admin
 - **Aspire Dashboard**: URL hiển thị trong terminal khi khởi động
 
 ### Tài khoản mặc định (dev)
 
 - **Username**: `admin`
-- **Password**: do bạn tự đặt qua biến `INITIAL_ADMIN_PASSWORD` trong `.env` — repo **không hard-code mật khẩu thật**. Hướng dẫn chi tiết xem [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (mục "Cài đặt & khởi tạo lần đầu").
+- **Password local auth**: được seed 1 lần từ user-secret `Parameters:authBootstrapPassword` (khi admin chưa có hash) — file gitignored `.mirats-test-admin-password` ở repo root chứa cùng giá trị để tiện test. Admin reset password cho user khác qua UI (Users → "Đặt lại mật khẩu"). Hướng dẫn chi tiết xem [CLAUDE.md](CLAUDE.md) (mục "Setup secrets lần đầu") và `docs/AUTH_MIGRATION_PLAYBOOK.md`.
 
 ## Cấu trúc thư mục
 
@@ -62,7 +61,6 @@ Aspire Project/
 └── aspire-react/
     ├── aspire-react.sln
     ├── aspire.config.json
-    ├── aspire-react-realm.json
     ├── aspire-react.AppHost/
     ├── aspire-react.ServiceDefaults/
     ├── aspire-react.Server/

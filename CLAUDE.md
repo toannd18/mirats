@@ -15,7 +15,7 @@ The actual solution lives under `aspire-react/` (root has only docs, screenshots
 Key non-negotiables from that doc (see it for full detail and rationale):
 
 - **Audit before coding.** Grep/read the actual code and report current state before proposing changes — never assume from memory, old reports, or documentation (docs go stale; code is the only source of truth).
-- **Current user identity**: always use claim `local_user_id` (JIT-provisioned by `IJitUserProvisioningService` — invoked from the JWT `OnTokenValidated` handler in `Infrastructure/Authentication/AuthenticationServiceCollectionExtensions.cs`, which stamps `local_user_id`). Never use Keycloak `sub` or `preferred_username` as a user FK. Use `ICurrentUserService.GetLocalUserId()` / `IActionLogService.GetCurrentUserIdAsync()`.
+- **Current user identity**: always use claim `local_user_id` — stamped DIRECTLY at local token issuance (`TokenService.IssueAccessToken` reads the user from DB; the former JIT provisioning was removed in AUTH Phase 5). Never use the OIDC `sub` or `preferred_username` claims as a user FK. Use `ICurrentUserService.GetLocalUserId()` / `IActionLogService.GetCurrentUserIdAsync()`.
 - **ActionLog is mandatory** for every Create/Update/Delete/Checkout/Checkin/Confirm/Close/Reopen/Inspect/Dispose/Import, with `TargetType`, `TargetId`, `CompanyId` of the affected record, and `LogMeta = { changes: { field: { old, new } } }` for updates. Must be persisted in the same transaction as the data change.
 - **Company-scoping is explicit on BOTH read AND write endpoints** (List/Detail/Create/Update/Delete — Task I/J/K/L2) — the global EF query filter in `AppDbContext` is currently a no-op (`GetUserCompanyIdsAsync()` returns `[]`). Use `ICompanyScopeService.GetCurrentUserCompanyIdAsync()`; don't rely on the filter. (Read out-of-scope → 404; Create out-of-scope → `400 COMPANY_MISMATCH`.)
 - **Permissions**: backend needs `[Authorize(Policy = "<resource>.<action>")]` (key must exist in `PermissionCatalog`) on every write endpoint; frontend gates every sensitive action button with `usePermission('<code>')`. Don't use `isSuperUser()` as the primary gate — reserve it for genuinely superuser-only actions (e.g. Reopen maintenance). Anti self-lockout via `PermissionLockoutGuard` on Group/User admin ops (Task J); `UsersController.UpdateUser` requires policy `admin` (not `users.edit`) — mirror `usePermission('admin')` in `UserListPage`.
@@ -48,31 +48,28 @@ Key non-negotiables from that doc (see it for full detail and rationale):
 
 All backend/solution commands run from `aspire-react/` (where `aspire-react.sln` lives); frontend commands run from `aspire-react/frontend/`.
 
-### Run the full stack (Aspire orchestrates Postgres, Redis, Keycloak, backend, frontend)
+### Run the full stack (Aspire orchestrates Postgres, Redis, backend, frontend — auth hoàn toàn local từ AUTH Phase 5)
 ```bash
 cd aspire-react/aspire-react.AppHost
 dotnet run
 ```
-Frontend: http://localhost:5173 · API: http://localhost:5428 (HTTP) / https://localhost:7314 (HTTPS) · Keycloak admin: https://localhost:8080/admin · dev login: user `admin`, password đọc từ file gitignored `.mirats-test-admin-password` ở repo root (rotated 2026-08-29 [SECRET-ROTATE] — giá trị cũ trong git history đã bị vô hiệu; Keycloak master admin password lưu ở AppHost user-secrets `Parameters:kcBootstrapAdminPassword`).
+Frontend: **https://localhost:5173** (dev HTTPS bắt buộc — xem `frontend/scripts/dev-server.mjs`) · API: http://localhost:5428 (HTTP) / https://localhost:7314 (HTTPS) · dev login: user `admin`, mật khẩu **local auth** đọc từ file gitignored `.mirats-test-admin-password` ở repo root (từ AUTH Phase 4 file này chứa mật khẩu local, không còn liên quan Keycloak — đã xóa toàn bộ ở Phase 5).
 
 ### Setup secrets lần đầu (người clone mới — làm MỘT lần, KHÔNG commit giá trị thật)
 ```bash
 cd aspire-react/aspire-react.AppHost
 dotnet user-secrets init
 dotnet user-secrets set "Parameters:dbPassword" "<postgres-password-của-bạn>"
-dotnet user-secrets set "Parameters:kcBootstrapAdminPassword" "<keycloak-master-admin-password-của-bạn>"
-# kcClientSecret: sinh bằng cơ chế chính thức của Keycloak (KHÔNG tự bịa) — Keycloak Admin Console
-#   > realm aspire-react > Clients > backend-service > Credentials > Regenerate, hoặc qua Admin API:
-#   POST /admin/realms/aspire-react/clients/{clientId}/client-secret
-dotnet user-secrets set "Parameters:kcClientSecret" "<secret-vừa-sinh>"
+dotnet user-secrets set "Parameters:authSigningKey" "<chuỗi ngẫu nhiên ≥ 256-bit cho HS256>"
+dotnet user-secrets set "Parameters:authBootstrapPassword" "<mật khẩu admin ban đầu — seed 1 lần khi admin chưa có hash>"
 echo "<app-admin-password-của-bạn>" > ../../.mirats-test-admin-password   # gitignored; code đọc có .Trim() nên newline cuối vô hại
 ```
 Lưu ý:
-- `kcBootstrapAdminPassword` chỉ seed Keycloak master admin **lần đầu khi volume `keycloak-data` rỗng**; nếu volume cũ còn, đổi nó không đổi password đang chạy — reset qua Keycloak Admin API (`PUT /admin/realms/master/users/{id}/reset-password`).
-- `kcClientSecret` được AppHost inject vào Server (`Keycloak__ClientSecret`) và vào container Keycloak (`KEYCLOAK_BACKEND_CLIENT_SECRET`) — bản import realm mới sẽ resolve placeholder `${KEYCLOAK_BACKEND_CLIENT_SECRET}`; với volume cũ, secret active phải rotate qua Admin API (đã làm 2026-08-29 [SECRET-ROTATE]).
+- `authBootstrapPassword` chỉ seed password local cho user `admin` **khi admin chưa có `PasswordHash`** — đã có hash thì giá trị này bị bỏ qua (idempotent).
+- HTTPS-dev: cert ASP.NET dev được export ra `certs-dev/localhost.pem` (`dotnet dev-certs https -ep ... --format Pem --no-password`) — dùng cho cả Vite TLS lẫn `NODE_EXTRA_CA_CERTS` (Node không đọc Windows cert store). `npm run dev` fail loudly nếu thiếu.
 - Postgres password phải giữ nguyên giá trị qua các lần restart (volume `postgres-data` gắn với password lúc tạo).
 
-Prereqs: .NET 10 SDK, Node.js 20+, Docker Desktop (containers for Postgres/Redis/Keycloak).
+Prereqs: .NET 10 SDK, Node.js ≥ 22.12, Docker Desktop (containers for Postgres/Redis).
 
 ### Backend build/test
 ```bash
@@ -114,17 +111,17 @@ Checks: claim misuse (sub/preferred_username without local_user_id), frontend en
 
 Backend follows Clean Architecture inside `aspire-react/aspire-react.Server/`:
 
-- **`Domain/`** — Entities (`Domain/Entities/`), Enums (`Domain/Enums/`), interfaces (`ICurrentUserService`, `ICompanyScopeService`-style contracts, `IActionLogService`, `IApplicationDbContext`, `IAuditable`, `ICompanyable`, `IKeycloakService`). No framework dependencies.
-- **`Application/`** — Commands/queries/handlers/DTOs/validators, organized per feature (`Accessories/`, `Assets/`, `Users/`, `Common/`). Uses MediatR (CQRS) + FluentValidation. `ApplicationServiceCollectionExtensions.cs` = `AddApplicationServices` (MediatR + FluentValidation + `ValidationBehavior` pipeline).
-- **`Infrastructure/`** — `Persistence/` (EF Core `AppDbContext`, `AppDbContextFactory`, `PermissionMigration`, `StartupDataSeeder`, `PersistenceServiceCollectionExtensions.AddPersistence`), `Authorization/` (`PermissionCatalog` — single source of truth for policy keys, `PermissionHandler`, `PermissionLockoutGuard`, `PermissionRequirement`, `AuthorizationServiceCollectionExtensions.AddPermissionAuthorization`), `Authentication/` (`AuthenticationServiceCollectionExtensions.AddKeycloakAuthentication` — JWT bearer + JIT hookup), `Caching/` (`CachingServiceCollectionExtensions.AddRedisCaching` — Redis output-cache store + `ReferenceDataCachePolicy` for reference-data endpoints), `Services/` (`ActionLogService`, `CompanyScopeService`, `ComponentAllocationService`, `ConsumableAllocationService`, `CurrentUserService`, `JitUserProvisioningService`, `KeycloakService`, `RealmAccessHelper`). `InfrastructureServiceCollectionExtensions.cs` = `AddInfrastructureServices` (Keycloak admin API, JIT, app services, lockout guard).
+- **`Domain/`** — Entities (`Domain/Entities/`), Enums (`Domain/Enums/`), interfaces (`ICurrentUserService`, `ICompanyScopeService`-style contracts, `IActionLogService`, `IApplicationDbContext`, `IAuditable`, `ICompanyable`, `IPasswordHasherService`, `ITokenService`, `IAuthAttemptService`, `IAuthCookieService`, `IWebAuthnService`). No framework dependencies.
+- **`Application/`** — Commands/queries/handlers/DTOs/validators, organized per feature (`Accessories/`, `Assets/`, `Users/`, `Auth/`, `Common/`). Uses MediatR (CQRS) + FluentValidation. `ApplicationServiceCollectionExtensions.cs` = `AddApplicationServices` (MediatR + FluentValidation + `ValidationBehavior` pipeline).
+- **`Infrastructure/`** — `Persistence/` (EF Core `AppDbContext`, `AppDbContextFactory`, `PermissionMigration`, `StartupDataSeeder`, `PersistenceServiceCollectionExtensions.AddPersistence`), `Authorization/` (`PermissionCatalog` — single source of truth for policy keys, `PermissionHandler`, `PermissionLockoutGuard`, `PermissionRequirement`, `AuthorizationServiceCollectionExtensions.AddPermissionAuthorization`), `Authentication/` (`AuthenticationServiceCollectionExtensions.AddAppAuthentication` — single local JWT scheme "App"; `PasswordHasherService`, `TokenService`, `AuthAttemptService`, `AuthCookieService`, `PasswordChangeGateMiddleware`, `WebAuthn/Fido2Service`, `SuperuserClaims`), `Caching/` (`CachingServiceCollectionExtensions.AddRedisCaching` — Redis output-cache store + `ReferenceDataCachePolicy` for reference-data endpoints), `Services/` (`ActionLogService`, `CompanyScopeService`, `ComponentAllocationService`, `ConsumableAllocationService`, `CurrentUserService`). `InfrastructureServiceCollectionExtensions.cs` = `AddInfrastructureServices` (app services + local auth + WebAuthn, lockout guard).
 - **`Web/Controllers/`** — one controller per resource (Assets, Accessories, Components, ComponentUnits, Consumables, Licenses, AssetMaintenances, Systems/SystemInfo, Users, Groups, Companies, Departments, CustomFields, ImportExport, Labels, Dashboard, Reports, Permissions, ActionLogs, Admin).
-- **`Program.cs`** — thin composition root only: calls the `Add*` extension methods (Persistence/Application/Infrastructure/Authentication/Authorization), `StartupDataSeeder.Seed(app.Services)` (migrate + seed + legacy-superuser migration), and wires the HTTP pipeline (CORS, auth, controllers, health, file server). All DI registration and JIT logic live in the extension files.
+- **`Program.cs`** — thin composition root only: calls the `Add*` extension methods (Persistence/Application/Infrastructure/Authentication/Authorization), `StartupDataSeeder.Seed(app.Services)` (migrate + seed + legacy-superuser migration), and wires the HTTP pipeline (CORS, auth, PasswordChangeGate, controllers, health, file server). All DI registration lives in the extension files.
 - **`Migrations/`** — EF Core migrations; `InitialBaseline` (2026-08-14) is the schema baseline, applied without re-running against the live DB (see workflow doc §5 for how that was done — don't repeat that dance for normal schema changes, just `migrations add` + `database update`).
 
-Request flow: Browser → Keycloak (OIDC login, JWT) → Vite dev server (5173) → ASP.NET Core API → `JwtBearerHandler` validates token → `PermissionHandler` checks policy → Controller → MediatR Command/Query → Handler → EF Core → PostgreSQL. Redis backs output caching.
+Request flow: Browser → LoginPage (local password / passkey) → Vite dev server (HTTPS 5173) → ASP.NET Core API → `JwtBearerHandler` validates self-signed JWT ("App") → `PasswordChangeGateMiddleware` + `PermissionHandler` check → Controller → MediatR Command/Query → Handler → EF Core → PostgreSQL. Redis backs output caching.
 
 Solution structure (`aspire-react/aspire-react.sln`):
-- `aspire-react.AppHost` — Aspire orchestration (`AppHost.cs`): registers Postgres (+pgAdmin, data volume), Redis, Keycloak (realm import from `aspire-react-realm.json`, bootstrap admin creds), the Server project (with health check + service refs), and the Vite frontend (pinned to port 5173 for stable Keycloak redirect URIs). `server.PublishWithContainerFiles(webfrontend, "wwwroot")` bakes the built frontend into the server's published container.
+- `aspire-react.AppHost` — Aspire orchestration (`AppHost.cs`): registers Postgres (+pgAdmin, data volume), Redis, the Server project (with health check + service refs + local auth secrets), and the Vite frontend (HTTPS dev, port 5173). `server.PublishWithContainerFiles(webfrontend, "wwwroot")` bakes the built frontend into the server's published container.
 - `aspire-react.ServiceDefaults` — shared OpenTelemetry/health-check/resilience wiring (`Extensions.cs`).
 - `aspire-react.Server` — the Web API described above.
 - `aspire-react.Tests` — xUnit + EF InMemory tests, one file per feature area.
@@ -133,7 +130,7 @@ Solution structure (`aspire-react/aspire-react.sln`):
 Frontend (`aspire-react/frontend/src/`):
 - `pages/` — one page component per route/feature (list + detail + form pages per resource).
 - `components/<feature>/` — feature-scoped shared components; `components/common/` for cross-cutting ones (e.g. `CompanyTreeSelect.tsx` — the shared company dropdown supporting child-company selection, used by every form; don't write a flat company Select by hand).
-- `services/` — one Axios-based service module per resource, plus `api-client.ts` (singleton Axios instance; request interceptor attaches Keycloak Bearer token + auto-refresh; response interceptor handles 401 and normalizes error shape to `{status, message, error_code}`) and `keycloak.ts`.
+- `services/` — one Axios-based service module per resource, plus `api-client.ts` (singleton Axios instance; request interceptor attaches the local Bearer token + 401→refresh→retry; response interceptor normalizes error shape to `{status, message, error_code}`) and `features/auth/services/` (auth state, passkeys, password flows — AUTH Phase 2/3).
 - `hooks/usePermission.ts` — `usePermission(code)` / `usePermissionMap()`, backed by a module-level cache of `GET /permissions/check` (fetched once per session; superuser always passes; fail-closed on error).
 - `types/asset.ts` — canonical enum-normalization helpers; check here before writing a new enum comparison.
 
