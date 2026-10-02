@@ -1,36 +1,33 @@
 using System.Security.Claims;
-using System.Text.Json;
 using aspire_react.Server.Application.Accessories.Commands;
 using aspire_react.Server.Application.Accessories.Queries;
-using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
-using aspire_react.Server.Infrastructure.Persistence;
-using aspire_react.Server.Infrastructure.Services;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Web.Controllers;
 
 [ApiController]
 [Route("api/v1/accessories")]
+/// <summary>
+/// [FIX C / N2 remainder 2026-10-02] THIN 100% — this controller used to be the last one running EF
+/// queries directly (List/GetById/Update/GetCheckouts, and Update wrote no ActionLog). All four are
+/// now Queries/Commands under Application/Accessories, so the constructor only needs IMediator (plus
+/// ICurrentUserService for the `local_user_id` claim). N2 covered List/GetById/Update; item C moved
+/// the remaining GetCheckouts history endpoint.
+/// </summary>
 public class AccessoriesController : ControllerBase
 {
-    private readonly AppDbContext _context;
     private readonly IMediator _mediator;
     private readonly ICurrentUserService _currentUserService;
-    private readonly ICompanyScopeService _companyScope;
-    public AccessoriesController(AppDbContext context, IMediator mediator, ICurrentUserService currentUserService, ICompanyScopeService companyScope)
+
+    public AccessoriesController(IMediator mediator, ICurrentUserService currentUserService)
     {
-        _context = context;
         _mediator = mediator;
         _currentUserService = currentUserService;
-        _companyScope = companyScope;
     }
-
-    private Task<Guid?> GetUserCompanyIdAsync() => _companyScope.GetCurrentUserCompanyIdAsync();
 
     // ==================== LIST ====================
     // [FIX-N2 2026-10-02] Moved to ListAccessoriesQuery — verbatim logic (filters, company scope,
@@ -221,76 +218,22 @@ public class AccessoriesController : ControllerBase
     }
 
     // ==================== GET CHECKOUTS HISTORY ====================
+    // [FIX C 2026-10-02] Moved to GetAccessoryCheckoutsQuery (same scope rule, projection, ordering
+    // and per-row target-name resolution) — this was the last EF-direct action of the controller.
 
     [HttpGet("{id:guid}/checkouts")]
     [Authorize(Policy = "accessories.view")]
     public async Task<IActionResult> GetCheckouts(Guid id)
     {
-        // Company scoping: a regular user may only view the checkouts of an accessory in their company.
-        var userCompanyId = await GetUserCompanyIdAsync();
-        var visible = await _context.Accessories.AsNoTracking()
-            .AnyAsync(a => a.Id == id && (userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value));
-        if (!visible) return NotFound(new { status = "error", message = "Accessory not found." });
+        var result = await _mediator.Send(new GetAccessoryCheckoutsQuery(id));
 
-        var checkouts = await _context.AccessoryCheckouts
-            .Include(ch => ch.CreatedByUser)
-            .Where(ch => ch.AccessoryId == id)
-            .OrderByDescending(ch => ch.CheckedOutAt)
-            .Select(ch => new
-            {
-                ch.Id,
-                ch.AccessoryId,
-                ch.CheckoutType,
-                ch.TargetId,
-                ch.AssignedQty,
-                ch.ReturnedQty,
-                RemainingOut = ch.AssignedQty - ch.ReturnedQty,
-                ch.Note,
-                ch.CheckedOutAt,
-                CreatedByUserId = ch.CreatedByUserId,
-                CreatedByName = ch.CreatedByUser != null ? ch.CreatedByUser.Username : null,
-                CreatedByFirstName = ch.CreatedByUser != null ? ch.CreatedByUser.FirstName : null,
-                CreatedByLastName = ch.CreatedByUser != null ? ch.CreatedByUser.LastName : null
-            })
-            .ToListAsync();
+        if (!result.Found)
+            return NotFound(new { status = "error", message = "Accessory not found." });
 
-        var enriched = checkouts.Select(ch => new
-        {
-            ch.Id,
-            ch.AccessoryId,
-            ch.CheckoutType,
-            ch.TargetId,
-            TargetName = ResolveTargetName(ch.CheckoutType, ch.TargetId),
-            ch.AssignedQty,
-            ch.ReturnedQty,
-            ch.RemainingOut,
-            ch.Note,
-            ch.CheckedOutAt,
-            ch.CreatedByUserId,
-            ch.CreatedByName,
-            ch.CreatedByFirstName,
-            ch.CreatedByLastName
-        }).ToList();
-
-        return Ok(new { status = "success", data = enriched });
+        return Ok(new { status = "success", data = result.Items });
     }
 
     // ==================== HELPERS ====================
-
-    private string? ResolveTargetName(AccessoryCheckoutType type, Guid targetId)
-    {
-        return type switch
-        {
-            AccessoryCheckoutType.User => _context.Users.Where(u => u.Id == targetId)
-                .AsNoTracking()
-                .Select(u => (u.FirstName + " " + u.LastName).Trim() != "" ? (u.FirstName + " " + u.LastName).Trim() : u.Username)
-                .FirstOrDefault(),
-            AccessoryCheckoutType.Department => _context.Departments.Where(d => d.Id == targetId).AsNoTracking().Select(d => d.Name).FirstOrDefault(),
-            AccessoryCheckoutType.Location => _context.Locations.Where(l => l.Id == targetId).AsNoTracking().Select(l => l.Name).FirstOrDefault(),
-            AccessoryCheckoutType.SystemPosition => _context.SystemPositions.Where(sp => sp.Id == targetId).AsNoTracking().Select(sp => sp.Name).FirstOrDefault(),
-            _ => null
-        };
-    }
 
     private Guid GetCurrentUserId()
     {

@@ -489,5 +489,65 @@ public class AccessoryTests
         Assert.Contains("Updated accessory", log.Note);
         Assert.Contains("name", log.LogMeta); // changes map records what actually changed
     }
+
+    // ==================== GET CHECKOUTS HISTORY (FIX C) ====================
+
+    /// <summary>
+    /// [FIX C 2026-10-02] GetCheckouts moved from AccessoriesController to
+    /// GetAccessoryCheckoutsQueryHandler. Same hide-existence scope rule: an accessory of another
+    /// company looks like "not found" (the controller maps Found=false → 404).
+    /// </summary>
+    [Fact]
+    public async Task GetAccessoryCheckouts_OutOfScope_NotFound()
+    {
+        await using var ctx = TestHelpers.CreateContext(nameof(GetAccessoryCheckouts_OutOfScope_NotFound));
+        var (companyA, _) = await SeedCompanyAndCategoryAsync(ctx);
+        var accessoryId = await SeedAccessoryAsync(ctx, companyA);
+        var otherCompany = new Company { Name = "CT-OTHER" };
+        ctx.Companies.Add(otherCompany);
+        await ctx.SaveChangesAsync();
+
+        var handler = new GetAccessoryCheckoutsQueryHandler(ctx,
+            new TestHelpers.FakeScope { CompanyId = otherCompany.Id });
+
+        var result = await handler.Handle(new GetAccessoryCheckoutsQuery(accessoryId), CancellationToken.None);
+
+        Assert.False(result.Found);
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task GetAccessoryCheckouts_ReturnsRows_WithResolvedTargetNameAndRemainingOut()
+    {
+        await using var ctx = TestHelpers.CreateContext(nameof(GetAccessoryCheckouts_ReturnsRows_WithResolvedTargetNameAndRemainingOut));
+        var (companyId, _) = await SeedCompanyAndCategoryAsync(ctx);
+        var accessoryId = await SeedAccessoryAsync(ctx, companyId);
+        var userId = await SeedUserAsync(ctx, companyId, "co-target");
+        ctx.AccessoryCheckouts.Add(new AccessoryCheckout
+        {
+            AccessoryId = accessoryId,
+            CheckoutType = AccessoryCheckoutType.User,
+            TargetId = userId,
+            AssignedQty = 3,
+            ReturnedQty = 1,
+            Note = "history row"
+        });
+        await ctx.SaveChangesAsync();
+
+        // superuser scope: sees every company
+        var handler = new GetAccessoryCheckoutsQueryHandler(ctx, new TestHelpers.FakeScope { Super = true });
+
+        var result = await handler.Handle(new GetAccessoryCheckoutsQuery(accessoryId), CancellationToken.None);
+
+        Assert.True(result.Found);
+        var row = Assert.Single(result.Items);
+        Assert.Equal(accessoryId, row.AccessoryId);
+        Assert.Equal(userId, row.TargetId);
+        Assert.Equal("A B", row.TargetName);       // "FirstName LastName" (verbatim resolution)
+        Assert.Equal(3, row.AssignedQty);
+        Assert.Equal(1, row.ReturnedQty);
+        Assert.Equal(2, row.RemainingOut);
+        Assert.Equal("history row", row.Note);
+    }
 }
 
