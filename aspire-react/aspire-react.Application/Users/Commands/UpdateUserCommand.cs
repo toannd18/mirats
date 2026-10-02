@@ -12,6 +12,24 @@ namespace aspire_react.Server.Application.Users.Commands;
 /// [AUTH Phase 4] Command to update an existing user — LOCAL-ONLY (no Keycloak sync; D-3).
 /// IsSuperUser is a purely local flag now.
 /// </summary>
+/// <remarks>
+/// [FIX-N1 2026-10-02] Patch-safety (Task M1/M2 convention): a field that is ABSENT from the
+/// payload is never written — the stored value is preserved (before this fix CompanyId /
+/// DepartmentId / LocationId / EmployeeNumber / JobTitle were assigned unconditionally, so a
+/// partial payload silently wiped them — the exact "wiped real data" bug class of BUG-E/N).
+/// Three-valued convention for the nullable Guid fields (CompanyId, DepartmentId, LocationId),
+/// reusing the project-wide "Guid.Empty = floater/none" sentinel already established in
+/// CompanyScopeService (Guid.Empty for a company-less regular user), AssetMaintenance.CompanyId
+/// (Guid.Empty = floater) and ImportCommands (Guid.Empty → COMPANY_REQUIRED):
+///   absent (JSON null)  → KEEP the stored value
+///   Guid.Empty          → CLEAR to null (CompanyId → company-less floater)
+///   a real Guid         → SET it (CompanyId is additionally scope-checked, see FIX-N5)
+/// For the two string fields (EmployeeNumber, JobTitle) the convention is the usual patch one:
+/// absent → KEEP, sent empty string → cleared to "" (same semantics BUG-N documented for Notes).
+/// [FIX-N5 2026-10-02] Company-scoping for the NEW CompanyId (Task L2 / CreateUser pattern):
+/// a regular user may only assign a company equal to their own scope or clear to floater;
+/// a superuser (scope null) is unrestricted. Validated BEFORE any mutation.
+/// </remarks>
 public record UpdateUserCommand : IRequest<UpdateUserResult>
 {
     public Guid Id { get; init; }
@@ -39,15 +57,18 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
 {
     private readonly IApplicationDbContext _context;
     private readonly IActionLogService _actionLogService;
+    private readonly ICompanyScopeService _companyScope;
     private readonly ILogger<UpdateUserCommandHandler> _logger;
 
     public UpdateUserCommandHandler(
         IApplicationDbContext context,
         IActionLogService actionLogService,
+        ICompanyScopeService companyScope,
         ILogger<UpdateUserCommandHandler> logger)
     {
         _context = context;
         _actionLogService = actionLogService;
+        _companyScope = companyScope;
         _logger = logger;
     }
 
@@ -66,6 +87,20 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
             return new UpdateUserResult(false, "User not found.", ErrorCode: "USER_NOT_FOUND");
         }
 
+        // [FIX-N5] Company-scoping for the NEW CompanyId — checked BEFORE any mutation (Task L2 /
+        // CreateUser pattern). A regular user may only assign their own company; the Guid.Empty
+        // sentinel (clear → floater) is always allowed, mirroring CreateUser's "own company or
+        // floater" rule; for a superuser GetCurrentUserCompanyIdAsync() returns null → unrestricted.
+        if (request.CompanyId.HasValue && request.CompanyId.Value != Guid.Empty
+            && (await _companyScope.GetCurrentUserCompanyIdAsync()) is { } actorCompanyId
+            && request.CompanyId.Value != actorCompanyId)
+        {
+            return new UpdateUserResult(
+                false,
+                "Bạn chỉ được gán người dùng cho công ty của mình.",
+                ErrorCode: "COMPANY_MISMATCH");
+        }
+
         var previousIsSuperUser = user.IsSuperUser;
         var previousEmail = user.Email;
         var previousIsActive = user.IsActive;
@@ -77,14 +112,18 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
         user.FirstName = request.FirstName.Trim();
         user.LastName = request.LastName.Trim();
         user.Email = request.Email.Trim().ToLowerInvariant();
-        user.EmployeeNumber = request.EmployeeNumber?.Trim();
-        user.JobTitle = request.JobTitle?.Trim();
+        // [FIX-N1] Patch semantics for the two free-text fields: ABSENT → keep the stored value
+        // (before the fix they were assigned unconditionally → a partial payload wiped them).
+        if (request.EmployeeNumber is not null) user.EmployeeNumber = request.EmployeeNumber.Trim();
+        if (request.JobTitle is not null) user.JobTitle = request.JobTitle.Trim();
         // Task M2 patch semantics: only apply flags that were explicitly sent (absent → keep current).
         if (request.IsSuperUser.HasValue) user.IsSuperUser = request.IsSuperUser.Value;
         if (request.IsActive.HasValue) user.IsActive = request.IsActive.Value;
-        user.CompanyId = request.CompanyId;
-        user.DepartmentId = request.DepartmentId;
-        user.LocationId = request.LocationId;
+        // [FIX-N1] Patch semantics for the nullable Guid fields: ABSENT → keep; Guid.Empty sentinel
+        // → clear to null (CompanyId becomes a company-less floater); real Guid → set.
+        if (request.CompanyId.HasValue) user.CompanyId = NullIfSentinel(request.CompanyId);
+        if (request.DepartmentId.HasValue) user.DepartmentId = NullIfSentinel(request.DepartmentId);
+        if (request.LocationId.HasValue) user.LocationId = NullIfSentinel(request.LocationId);
 
         // [AUTH Phase 4] LOCAL-ONLY update (D-3): the Keycloak sync block (UpdateUserAsync +
         // superuser group add/remove) is removed — IsSuperUser is a purely local flag now.
@@ -141,4 +180,11 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
 
         return new UpdateUserResult(true, "User updated successfully.", User: dto);
     }
+
+    /// <summary>
+    /// [FIX-N1] Applies the project-wide "Guid.Empty = floater/none" sentinel: Guid.Empty → null
+    /// (clear), any other value → itself. Callers invoke this only when the field was sent.
+    /// </summary>
+    private static Guid? NullIfSentinel(Guid? value)
+        => value.HasValue && value.Value != Guid.Empty ? value.Value : null;
 }

@@ -63,7 +63,7 @@ public class TaskM2PatchSafetyTests
         await ctx.SaveChangesAsync();
 
         var handler = new UpdateUserCommandHandler(ctx,
-            TestHelpers.CreateActionLogService(ctx, ActorId), NullLogger<UpdateUserCommandHandler>.Instance);
+            TestHelpers.CreateActionLogService(ctx, ActorId), SuperScope, NullLogger<UpdateUserCommandHandler>.Instance);
 
         // Partial payload: no IsSuperUser / IsActive â†’ must keep the existing true/true.
         var result = await handler.Handle(new UpdateUserCommand
@@ -97,7 +97,7 @@ public class TaskM2PatchSafetyTests
         await ctx.SaveChangesAsync();
 
         var handler = new UpdateUserCommandHandler(ctx,
-            TestHelpers.CreateActionLogService(ctx, ActorId), NullLogger<UpdateUserCommandHandler>.Instance);
+            TestHelpers.CreateActionLogService(ctx, ActorId), SuperScope, NullLogger<UpdateUserCommandHandler>.Instance);
 
         var result = await handler.Handle(new UpdateUserCommand
         {

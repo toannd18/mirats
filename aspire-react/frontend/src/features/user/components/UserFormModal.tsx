@@ -34,6 +34,11 @@ interface FormValues {
 
 // ==================== Component ====================
 
+// [FIX-N1] Project-wide "Guid.Empty = floater/none" sentinel (mirrors CompanyScopeService /
+// AssetMaintenance.CompanyId): on UPDATE an empty Company/Department/Location select must send the
+// sentinel so the backend CLEARS it, instead of omitting the field (= keep the stored value).
+const EMPTY_GUID = '00000000-0000-0000-0000-000000000000';
+
 const selectProps: SelectProps = {
   showSearch: true, allowClear: true, optionFilterProp: 'label',
   size: 'middle', style: { width: '100%' },
@@ -143,13 +148,15 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         email: values.email?.trim().toLowerCase(),
         firstName: values.firstName?.trim(),
         lastName: values.lastName?.trim(),
-        employeeNumber: values.employeeNumber?.trim() || null,
-        jobTitle: values.jobTitle?.trim() || null,
+        // [FIX-N1] Update is three-valued (patch semantics): OMITTED = keep, Guid.Empty = clear to
+        // floater/none, real id = set. On create the API's null = floater semantics apply as before.
+        employeeNumber: isEditing ? (values.employeeNumber?.trim() ?? '') : (values.employeeNumber?.trim() || null),
+        jobTitle: isEditing ? (values.jobTitle?.trim() ?? '') : (values.jobTitle?.trim() || null),
         isSuperUser: values.isSuperUser,
         isActive: values.isActive,
-        companyId: values.companyId || null,
-        departmentId: values.departmentId || null,
-        locationId: values.locationId || null,
+        companyId: isEditing ? (values.companyId || EMPTY_GUID) : (values.companyId || null),
+        departmentId: isEditing ? (values.departmentId || EMPTY_GUID) : (values.departmentId || null),
+        locationId: isEditing ? (values.locationId || EMPTY_GUID) : (values.locationId || null),
         // [AUTH Phase 4] initial password — create mode only (local auth; user must change it
         // at first login). Never sent on update.
         ...(isEditing ? {} : { password: values.password }),

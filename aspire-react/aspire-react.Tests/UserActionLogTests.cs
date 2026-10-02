@@ -41,8 +41,12 @@ public class UserActionLogTests
     private static CreateUserCommandHandler CreateHandler(AppDbContext ctx, Guid actorId)
         => new(ctx, new PasswordHasherService(), TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<CreateUserCommandHandler>.Instance);
 
+    // [FIX-N5] UpdateUserCommandHandler now takes ICompanyScopeService. These tests assert the
+    // ActionLog / LogMeta shape (one of them deliberately moves the user to ANOTHER company), so the
+    // handler is built with a superuser scope to keep that intent; the company-scoping rules of the
+    // new CompanyId have their own dedicated tests in UserUpdatePatchSafetyTests.
     private static UpdateUserCommandHandler UpdateHandler(AppDbContext ctx, Guid actorId)
-        => new(ctx, TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<UpdateUserCommandHandler>.Instance);
+        => new(ctx, TestHelpers.CreateActionLogService(ctx, actorId), new TestHelpers.FakeScope { Super = true }, NullLogger<UpdateUserCommandHandler>.Instance);
 
     private static DeleteUserCommandHandler DeleteHandler(AppDbContext ctx, Guid actorId)
         => new(ctx, TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<DeleteUserCommandHandler>.Instance);
