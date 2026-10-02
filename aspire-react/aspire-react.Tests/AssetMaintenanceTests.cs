@@ -326,7 +326,7 @@ public class AssetMaintenanceTests
         var handler = new ListAllMaintenancesQueryHandler(ctx, new FakeScope { Super = false, CompanyId = companyA.Id });
         var result = await handler.Handle(new ListAllMaintenancesQuery(null, null), CancellationToken.None);
 
-        Assert.Equal(1, result.Items.Count);
+        Assert.Single(result.Items);
         Assert.Equal("MAINT-A", result.Items[0].Title);
     }
 

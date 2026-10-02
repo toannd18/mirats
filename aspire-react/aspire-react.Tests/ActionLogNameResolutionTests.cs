@@ -130,9 +130,13 @@ public class ActionLogNameResolutionTests
         await db.SaveChangesAsync();
         db.ActionLogs.Add(new ActionLog
         {
-            ItemType = ItemType.Asset, ItemId = asset.Id, ActionType = ActionType.Checkout,
-            CreatedBy = creator.Id, CompanyId = null,
-            TargetType = AssignmentTargetType.User, TargetId = target.Id,
+            ItemType = ItemType.Asset,
+            ItemId = asset.Id,
+            ActionType = ActionType.Checkout,
+            CreatedBy = creator.Id,
+            CompanyId = null,
+            TargetType = AssignmentTargetType.User,
+            TargetId = target.Id,
             Note = "Cấp phát"
         });
         await db.SaveChangesAsync();
@@ -163,17 +167,25 @@ public class ActionLogNameResolutionTests
         // → location-name fallback trong nhánh SystemPosition (verbatim).
         db.ActionLogs.Add(new ActionLog
         {
-            ItemType = ItemType.Asset, ItemId = asset.Id, ActionType = ActionType.Checkin,
-            CreatedBy = creator.Id, CompanyId = null,
-            TargetType = AssignmentTargetType.SystemPosition, TargetId = Guid.NewGuid(),
+            ItemType = ItemType.Asset,
+            ItemId = asset.Id,
+            ActionType = ActionType.Checkin,
+            CreatedBy = creator.Id,
+            CompanyId = null,
+            TargetType = AssignmentTargetType.SystemPosition,
+            TargetId = Guid.NewGuid(),
             Note = "Checkin history"
         });
         // Riêng 1 log với TargetId = location id (fallback chain tìm được location).
         db.ActionLogs.Add(new ActionLog
         {
-            ItemType = ItemType.Asset, ItemId = asset.Id, ActionType = ActionType.Audit,
-            CreatedBy = creator.Id, CompanyId = null,
-            TargetType = null, TargetId = location.Id, // TargetType null → fallback chain toàn bộ
+            ItemType = ItemType.Asset,
+            ItemId = asset.Id,
+            ActionType = ActionType.Audit,
+            CreatedBy = creator.Id,
+            CompanyId = null,
+            TargetType = null,
+            TargetId = location.Id, // TargetType null → fallback chain toàn bộ
             Note = "Audit history"
         });
         await db.SaveChangesAsync();

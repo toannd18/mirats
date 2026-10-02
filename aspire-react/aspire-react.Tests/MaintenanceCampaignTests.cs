@@ -205,13 +205,21 @@ public class MaintenanceCampaignTests
         };
         c.DeviceSnapshots.Add(new MaintenanceCampaignDeviceSnapshot
         {
-            AssetId = fx.AssetA.Id, AssetTag = "AST-001", AssetName = "Server A", Serial = "SN-AAA",
-            SystemPositionId = fx.Pos1.Id, SystemPositionName = "Vị trí 1"
+            AssetId = fx.AssetA.Id,
+            AssetTag = "AST-001",
+            AssetName = "Server A",
+            Serial = "SN-AAA",
+            SystemPositionId = fx.Pos1.Id,
+            SystemPositionName = "Vị trí 1"
         });
         c.DeviceSnapshots.Add(new MaintenanceCampaignDeviceSnapshot
         {
-            AssetId = fx.AssetB.Id, AssetTag = "AST-002", AssetName = "Switch B", Serial = "SN-BBB",
-            SystemPositionId = fx.Pos2.Id, SystemPositionName = "Vị trí 2"
+            AssetId = fx.AssetB.Id,
+            AssetTag = "AST-002",
+            AssetName = "Switch B",
+            Serial = "SN-BBB",
+            SystemPositionId = fx.Pos2.Id,
+            SystemPositionName = "Vị trí 2"
         });
         db.MaintenanceCampaigns.Add(c);
         await db.SaveChangesAsync();
@@ -434,25 +442,38 @@ public class MaintenanceCampaignTests
         // Campaign events (Create + Complete) with TargetSystemInfoId — the MC-3 expansion.
         db.ActionLogs.Add(new ActionLog
         {
-            ItemType = ItemType.MaintenanceCampaign, ItemId = campaignId, ActionType = ActionType.Create,
-            CreatedBy = creator, CompanyId = fx.Company.Id,
-            TargetSystemInfoId = fx.System.Id, TargetSystemInfoName = fx.System.Name,
+            ItemType = ItemType.MaintenanceCampaign,
+            ItemId = campaignId,
+            ActionType = ActionType.Create,
+            CreatedBy = creator,
+            CompanyId = fx.Company.Id,
+            TargetSystemInfoId = fx.System.Id,
+            TargetSystemInfoName = fx.System.Name,
             Note = "Tạo đợt bảo dưỡng"
         });
         db.ActionLogs.Add(new ActionLog
         {
-            ItemType = ItemType.MaintenanceCampaign, ItemId = campaignId, ActionType = ActionType.Complete,
-            CreatedBy = creator, CompanyId = fx.Company.Id,
-            TargetSystemInfoId = fx.System.Id, TargetSystemInfoName = fx.System.Name,
+            ItemType = ItemType.MaintenanceCampaign,
+            ItemId = campaignId,
+            ActionType = ActionType.Complete,
+            CreatedBy = creator,
+            CompanyId = fx.Company.Id,
+            TargetSystemInfoId = fx.System.Id,
+            TargetSystemInfoName = fx.System.Name,
             Note = "Hoàn thành đợt bảo dưỡng"
         });
         // Existing system-position asset event (the original filter class).
         db.ActionLogs.Add(new ActionLog
         {
-            ItemType = ItemType.Asset, ItemId = fx.AssetA.Id, ActionType = ActionType.Checkout,
-            CreatedBy = creator, CompanyId = fx.Company.Id,
-            TargetType = AssignmentTargetType.SystemPosition, TargetId = fx.Pos1.Id,
-            TargetSystemInfoId = fx.System.Id, TargetSystemInfoName = fx.System.Name,
+            ItemType = ItemType.Asset,
+            ItemId = fx.AssetA.Id,
+            ActionType = ActionType.Checkout,
+            CreatedBy = creator,
+            CompanyId = fx.Company.Id,
+            TargetType = AssignmentTargetType.SystemPosition,
+            TargetId = fx.Pos1.Id,
+            TargetSystemInfoId = fx.System.Id,
+            TargetSystemInfoName = fx.System.Name,
             Note = "Lắp đặt vào vị trí 1"
         });
         // Noise: a campaign log of ANOTHER system must stay filtered out.
@@ -460,9 +481,14 @@ public class MaintenanceCampaignTests
         var otherCampaign = await CreateCampaignAsync(db, fx);
         db.ActionLogs.Add(new ActionLog
         {
-            ItemType = ItemType.MaintenanceCampaign, ItemId = otherCampaign, ActionType = ActionType.Create,
-            CreatedBy = creator, CompanyId = fx.Company.Id,
-            TargetSystemInfoId = otherSys.Id, TargetSystemInfoName = otherSys.Name, Note = "Khác hệ thống"
+            ItemType = ItemType.MaintenanceCampaign,
+            ItemId = otherCampaign,
+            ActionType = ActionType.Create,
+            CreatedBy = creator,
+            CompanyId = fx.Company.Id,
+            TargetSystemInfoId = otherSys.Id,
+            TargetSystemInfoName = otherSys.Name,
+            Note = "Khác hệ thống"
         });
         await db.SaveChangesAsync();
 
