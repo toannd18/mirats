@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using aspire_react.Server.Application.Accessories.Commands;
 using aspire_react.Server.Application.Assets.Commands;
 using aspire_react.Server.Application.Categories.Commands;
 using aspire_react.Server.Application.Users.Commands;
@@ -152,12 +153,8 @@ public class TaskM2PatchSafetyTests
     // Accessory â€” patch semantics + CompanyId lock after checkout
     // =========================================================================
 
-    private static AccessoriesController BuildAccessories(AppDbContext ctx)
-    {
-        var c = new AccessoriesController(ctx, new TestHelpers.ThrowingMediator(), new TestHelpers.FakeCurrentUser(), SuperScope);
-        AttachUser(c, ActorId);
-        return c;
-    }
+    private static UpdateAccessoryCommandHandler BuildAccessoryUpdateHandler(AppDbContext ctx)
+        => new(ctx, SuperScope);
 
     [Fact]
     public async Task Accessory_Update_WithoutFields_PreservesOthers()
@@ -174,9 +171,15 @@ public class TaskM2PatchSafetyTests
         ctx.Accessories.Add(acc);
         await ctx.SaveChangesAsync();
 
-        var controller = BuildAccessories(ctx);
-        var result = await controller.Update(acc.Id, new UpdateAccessoryRequest(Name: "New Acc"));
-        Assert.IsType<OkObjectResult>(result);
+        // [FIX-N2] Update moved to UpdateAccessoryCommandHandler — same patch-safety substance.
+        var handler = BuildAccessoryUpdateHandler(ctx);
+        var result = await handler.Handle(new UpdateAccessoryCommand
+        {
+            Id = acc.Id,
+            Name = "New Acc",
+            CurrentUserId = ActorId
+        }, CancellationToken.None);
+        Assert.True(result.Success);
 
         var reloaded = await ctx.Accessories.SingleAsync(x => x.Id == acc.Id);
         Assert.Equal("New Acc", reloaded.Name);
@@ -212,10 +215,16 @@ public class TaskM2PatchSafetyTests
         });
         await ctx.SaveChangesAsync();
 
-        var controller = BuildAccessories(ctx);
-        var result = await controller.Update(acc.Id, new UpdateAccessoryRequest(CompanyId: Guid.NewGuid()));
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Contains("FIELD_LOCKED", System.Text.Json.JsonSerializer.Serialize(bad.Value));
+        var handler = BuildAccessoryUpdateHandler(ctx);
+        var result = await handler.Handle(new UpdateAccessoryCommand
+        {
+            Id = acc.Id,
+            CompanyId = Guid.NewGuid(),
+            CurrentUserId = ActorId
+        }, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("FIELD_LOCKED", result.ErrorCode);
     }
 
     // =========================================================================

@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Accessories.Commands;
+using aspire_react.Server.Application.Accessories.Queries;
 using aspire_react.Server.Application.Common.Behaviors;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -403,7 +404,10 @@ public class AccessoryTests
         Assert.Equal(companyId, log.CompanyId);
     }
 
-    // ==================== COMPANY SCOPE (controller-level list) ====================
+    // ==================== COMPANY SCOPE (list) ====================
+    // [FIX-N2 2026-10-02] The list moved from AccessoriesController to ListAccessoriesQueryHandler,
+    // so these two tests drive the handler directly — same substance (scope filter + visible rows),
+    // same [Fact] count (controller is now a thin Send() map, per the MediatR playbook §5.7).
 
     [Fact]
     public async Task GetAccessories_RegularUser_SeesOnlyOwnCompanyAndFloaters()
@@ -418,13 +422,12 @@ public class AccessoryTests
             new Accessory { Name = "Chuột F", Qty = 5, MinAmt = 1, CompanyId = null });
         await ctx.SaveChangesAsync();
 
-        var controller = new AccessoriesController(ctx, new TestHelpers.ThrowingMediator(), new TestHelpers.FakeCurrentUser(),
+        var handler = new ListAccessoriesQueryHandler(ctx,
             new TestHelpers.FakeScope { Super = false, CompanyId = companyA.Id });
 
-        var result = await controller.GetAccessories(null, null, null);
+        var result = await handler.Handle(new ListAccessoriesQuery(null, null, null, 1, 20), CancellationToken.None);
 
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var names = TestHelpers.ReadDataStringArray(ok.Value, "name");
+        var names = result.Items.Select(i => i.Name).ToList();
         Assert.Contains("Chuột A", names);
         Assert.Contains("Chuột F", names);
         Assert.DoesNotContain("Chuột B", names);
@@ -442,15 +445,49 @@ public class AccessoryTests
             new Accessory { Name = "Chuột B", Qty = 5, MinAmt = 1, CompanyId = companyB.Id });
         await ctx.SaveChangesAsync();
 
-        var controller = new AccessoriesController(ctx, new TestHelpers.ThrowingMediator(), new TestHelpers.FakeCurrentUser(),
-            new TestHelpers.FakeScope { Super = true });
+        var handler = new ListAccessoriesQueryHandler(ctx, new TestHelpers.FakeScope { Super = true });
 
-        var result = await controller.GetAccessories(null, null, null);
+        var result = await handler.Handle(new ListAccessoriesQuery(null, null, null, 1, 20), CancellationToken.None);
 
-        var ok = Assert.IsType<OkObjectResult>(result);
-        var names = TestHelpers.ReadDataStringArray(ok.Value, "name");
+        var names = result.Items.Select(i => i.Name).ToList();
         Assert.Contains("Chuột A", names);
         Assert.Contains("Chuột B", names);
+    }
+
+    // ==================== UPDATE — ActionLog (FIX-N2) ====================
+
+    /// <summary>
+    /// [FIX-N2 2026-10-02] Bug-repro for the audit finding: the old controller action updated the
+    /// accessory with EF directly and wrote NO ActionLog (its own comment claimed otherwise).
+    /// The command now implements ILoggableCommand, so driving it through the REAL ActionLogBehavior
+    /// persists an Update entry with the accessory's company — same shape as Create/Delete.
+    /// </summary>
+    [Fact]
+    public async Task Update_WritesActionLog_UpdateWithCompanyId()
+    {
+        await using var ctx = TestHelpers.CreateContext(nameof(Update_WritesActionLog_UpdateWithCompanyId));
+        var (companyId, _) = await SeedCompanyAndCategoryAsync(ctx);
+        var accessoryId = await SeedAccessoryAsync(ctx, companyId);
+
+        var actionLog = TestHelpers.CreateActionLogService(ctx, ActorId);
+        var handler = new UpdateAccessoryCommandHandler(ctx, new TestHelpers.FakeScope { Super = true });
+        var behavior = new ActionLogBehavior<UpdateAccessoryCommand, UpdateAccessoryResult>(actionLog, ctx);
+        var cmd = new UpdateAccessoryCommand
+        {
+            Id = accessoryId,
+            Name = "Đã đổi tên",
+            CurrentUserId = ActorId
+        };
+
+        var result = await behavior.Handle(cmd, ct => handler.Handle(cmd, ct), CancellationToken.None);
+
+        Assert.True(result.Success);
+        var log = await ctx.ActionLogs.SingleAsync(l => l.ItemType == ItemType.Accessory && l.ActionType == ActionType.Update);
+        Assert.Equal(accessoryId, log.ItemId);
+        Assert.Equal(ActorId, log.CreatedBy);
+        Assert.Equal(companyId, log.CompanyId);
+        Assert.Contains("Updated accessory", log.Note);
+        Assert.Contains("name", log.LogMeta); // changes map records what actually changed
     }
 }
 

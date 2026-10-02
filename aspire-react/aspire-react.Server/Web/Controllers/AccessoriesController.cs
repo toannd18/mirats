@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using aspire_react.Server.Application.Accessories.Commands;
+using aspire_react.Server.Application.Accessories.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -32,93 +33,45 @@ public class AccessoriesController : ControllerBase
     private Task<Guid?> GetUserCompanyIdAsync() => _companyScope.GetCurrentUserCompanyIdAsync();
 
     // ==================== LIST ====================
+    // [FIX-N2 2026-10-02] Moved to ListAccessoriesQuery — verbatim logic (filters, company scope,
+    // remaining/low-stock math, pagination shape); the controller is now a thin Send() map.
 
     [HttpGet]
     [Authorize(Policy = "accessories.view")]
     public async Task<IActionResult> GetAccessories([FromQuery] string? search, [FromQuery] Guid? categoryId,
         [FromQuery] Guid? locationId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        var query = _context.Accessories.Include(a => a.Checkouts).Include(a => a.Category)
-            .Include(a => a.Location).Include(a => a.Company).AsNoTracking();
+        var result = await _mediator.Send(new ListAccessoriesQuery(search, categoryId, locationId, page, pageSize));
 
-        if (!string.IsNullOrWhiteSpace(search))
+        return Ok(new
         {
-            var s = search.ToLower();
-            query = query.Where(a => a.Name.ToLower().Contains(s) || (a.ItemNo != null && a.ItemNo.ToLower().Contains(s)));
-        }
-        if (categoryId.HasValue) query = query.Where(a => a.CategoryId == categoryId);
-        if (locationId.HasValue) query = query.Where(a => a.LocationId == locationId);
-
-        var userCompanyId = await GetUserCompanyIdAsync();
-        query = query.Where(a => userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value);
-
-        var total = await query.CountAsync();
-        var items = await query.OrderBy(a => a.Name).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(a => new
+            status = "success",
+            data = result.Items,
+            pagination = new
             {
-                a.Id,
-                a.Name,
-                a.ItemNo,
-                a.Notes,
-                a.Qty,
-                a.MinAmt,
-                a.CompanyId,
-                CompanyName = a.Company != null ? a.Company.Name : null,
-                Remaining = a.Qty - a.Checkouts.Sum(ch => ch.AssignedQty - ch.ReturnedQty),
-                CheckedOutQty = a.Checkouts.Sum(ch => ch.AssignedQty - ch.ReturnedQty),
-                IsLowStock = (a.Qty - a.Checkouts.Sum(ch => ch.AssignedQty - ch.ReturnedQty)) <= a.MinAmt,
-                Category = a.Category == null ? null : new { a.Category.Id, a.Category.Name },
-                Location = a.Location == null ? null : new { a.Location.Id, a.Location.Name }
-            }).ToListAsync();
-
-        return Ok(new { status = "success", data = items, pagination = new { page, pageSize, totalItems = total, totalPages = (int)Math.Ceiling((double)total / pageSize), hasNextPage = page * pageSize < total, hasPreviousPage = page > 1 } });
+                page,
+                pageSize,
+                totalItems = result.Total,
+                totalPages = (int)Math.Ceiling((double)result.Total / pageSize),
+                hasNextPage = page * pageSize < result.Total,
+                hasPreviousPage = page > 1
+            }
+        });
     }
 
     // ==================== GET BY ID ====================
+    // [FIX-N2 2026-10-02] Moved to GetAccessoryByIdQuery (same Includes + scoped 404 + projection).
 
     [HttpGet("{id:guid}")]
     [Authorize(Policy = "accessories.view")]
     public async Task<IActionResult> GetAccessory(Guid id)
     {
-        var userCompanyId = await GetUserCompanyIdAsync();
-        var a = await _context.Accessories.Include(x => x.Checkouts).Include(x => x.Category)
-            .Include(x => x.Manufacturer).Include(x => x.Supplier).Include(x => x.Location)
-            .Include(x => x.Company).AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
-        if (a == null || (userCompanyId.HasValue && a.CompanyId.HasValue && a.CompanyId.Value != userCompanyId.Value))
+        var result = await _mediator.Send(new GetAccessoryByIdQuery(id));
+
+        if (result.Accessory is null)
             return NotFound(new { status = "error", message = "Accessory not found." });
 
-        var remaining = a.Qty - a.Checkouts.Sum(ch => ch.AssignedQty - ch.ReturnedQty);
-        return Ok(new
-        {
-            status = "success",
-            data = new
-            {
-                a.Id,
-                a.Name,
-                a.ItemNo,
-                a.Qty,
-                a.MinAmt,
-                a.ModelNumber,
-                a.OrderNumber,
-                a.PurchaseDate,
-                a.PurchaseCost,
-                a.Notes,
-                a.CategoryId,
-                a.ManufacturerId,
-                a.SupplierId,
-                a.LocationId,
-                a.CompanyId,
-                Remaining = remaining,
-                PercentRemaining = a.Qty > 0 ? Math.Round((double)remaining / a.Qty * 100, 2) : 0,
-                IsLowStock = remaining <= a.MinAmt,
-                CheckedOutQty = a.Checkouts.Sum(ch => ch.AssignedQty - ch.ReturnedQty),
-                Category = a.Category == null ? null : new { a.Category.Id, a.Category.Name },
-                Manufacturer = a.Manufacturer == null ? null : new { a.Manufacturer.Id, a.Manufacturer.Name },
-                Supplier = a.Supplier == null ? null : new { a.Supplier.Id, a.Supplier.Name },
-                Location = a.Location == null ? null : new { a.Location.Id, a.Location.Name },
-                Company = a.Company == null ? null : new { a.Company.Id, a.Company.Name }
-            }
-        });
+        return Ok(new { status = "success", data = result.Accessory });
     }
 
     // ==================== CREATE (via CQRS Command) ====================
@@ -156,48 +109,49 @@ public class AccessoriesController : ControllerBase
             new { status = "success", message = result.Message, data = new { Id = result.AccessoryId, Name = r.Name } });
     }
 
-    // ==================== UPDATE (Direct — same as before, logs via centralized service through SaveChanges) ====================
+    // ==================== UPDATE ====================
+    // [FIX-N2 2026-10-02] Moved to UpdateAccessoryCommand (ILoggableCommand) — the action had NO
+    // ActionLog at all before; ActionLogBehavior now persists it in the same transaction as the
+    // data change. Guards/order/bodies are verbatim (404 hide-existence → FIELD_LOCKED after
+    // checkout history → 400 without error_code while items are checked out → M2 patch assigns).
 
     [HttpPut("{id:guid}")]
     [Authorize(Policy = "accessories.edit")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateAccessoryRequest r)
     {
-        var a = await _context.Accessories.FindAsync(id);
-        if (a == null) return NotFound(new { status = "error", message = "Accessory not found." });
+        var result = await _mediator.Send(new UpdateAccessoryCommand
+        {
+            Id = id,
+            Name = r.Name,
+            ItemNo = r.ItemNo,
+            Qty = r.Qty,
+            MinAmt = r.MinAmt,
+            CategoryId = r.CategoryId,
+            ManufacturerId = r.ManufacturerId,
+            SupplierId = r.SupplierId,
+            LocationId = r.LocationId,
+            CompanyId = r.CompanyId,
+            ModelNumber = r.ModelNumber,
+            OrderNumber = r.OrderNumber,
+            PurchaseCost = r.PurchaseCost,
+            PurchaseDate = r.PurchaseDate,
+            Notes = r.Notes,
+            Image = r.Image,
+            CurrentUserId = GetCurrentUserId()
+        });
 
-        // Company scoping: a regular user may only edit accessories of their own company (or floater).
-        var userCompanyId = await GetUserCompanyIdAsync();
-        if (userCompanyId.HasValue && a.CompanyId.HasValue && a.CompanyId.Value != userCompanyId.Value)
-            return NotFound(new { status = "error", message = "Accessory not found." });
+        if (!result.Success)
+        {
+            return result.ErrorCode switch
+            {
+                "NOT_FOUND" => NotFound(new { status = "error", message = result.Message }),
+                // No error_code (active checkouts) — verbatim body of the pre-migration action.
+                null => BadRequest(new { status = "error", message = result.Message }),
+                _ => BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode })
+            };
+        }
 
-        // CompanyId-lock after any checkout history (mirrors Consumable/License): past checkouts were
-        // tied to the old company. Patch-aware — only when CompanyId is explicitly sent and differs.
-        if (r.CompanyId.HasValue && r.CompanyId.Value != a.CompanyId
-            && await _context.AccessoryCheckouts.AnyAsync(ch => ch.AccessoryId == id))
-            return BadRequest(new { status = "error", message = "Phụ kiện đã từng được cấp phát — không thể đổi công ty.", error_code = "FIELD_LOCKED" });
-
-        var hasActiveCheckouts = await _context.AccessoryCheckouts.AnyAsync(ch => ch.AccessoryId == id && ch.AssignedQty > ch.ReturnedQty);
-        if (hasActiveCheckouts)
-            return BadRequest(new { status = "error", message = "Không thể sửa phụ kiện đang có thiết bị đang được cấp phát." });
-
-        // Task M2 patch semantics: only fields explicitly sent are applied.
-        if (!string.IsNullOrWhiteSpace(r.Name)) a.Name = r.Name;
-        if (r.ItemNo is not null) a.ItemNo = r.ItemNo;
-        if (r.Qty.HasValue) a.Qty = r.Qty.Value;
-        if (r.MinAmt.HasValue) a.MinAmt = r.MinAmt.Value;
-        if (r.CategoryId is not null) a.CategoryId = r.CategoryId;
-        if (r.ManufacturerId is not null) a.ManufacturerId = r.ManufacturerId;
-        if (r.SupplierId is not null) a.SupplierId = r.SupplierId;
-        if (r.LocationId is not null) a.LocationId = r.LocationId;
-        if (r.CompanyId.HasValue) a.CompanyId = r.CompanyId.Value;
-        if (r.ModelNumber is not null) a.ModelNumber = r.ModelNumber;
-        if (r.OrderNumber is not null) a.OrderNumber = r.OrderNumber;
-        if (r.PurchaseCost is not null) a.PurchaseCost = r.PurchaseCost;
-        if (r.PurchaseDate is not null) a.PurchaseDate = r.PurchaseDate;
-        if (r.Notes is not null) a.Notes = r.Notes;
-        if (r.Image is not null) a.Image = r.Image;
-        await _context.SaveChangesAsync();
-        return Ok(new { status = "success", message = "Accessory updated." });
+        return Ok(new { status = "success", message = result.Message });
     }
 
     // ==================== DELETE (via CQRS Command) ====================
