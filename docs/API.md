@@ -1,7 +1,9 @@
 # AspireReact API Reference
 
 > Base URL: `http://localhost:5428/api/v1` (HTTP) hoặc `https://localhost:7314/api/v1` (HTTPS)
-> Auth: JWT Bearer token từ Keycloak
+> Auth: **JWT tự ký (local auth)** — `POST /api/v1/auth/login` (password) hoặc `/api/v1/auth/passkeys/login`
+> → `Authorization: Bearer <accessToken>`; refresh token nằm trong cookie httpOnly `refreshToken`.
+> (Keycloak đã bị xóa hoàn toàn ở AUTH Phase 5.)
 
 ## Authentication
 
@@ -37,9 +39,76 @@ Tất cả endpoint yêu cầu header `Authorization: Bearer <token>` trừ các
 | `GET` | `/api/v1/users/me` | Authenticated |
 | `GET` | `/api/v1/users/{id:guid}` | `users.view` |
 | `POST` | `/api/v1/users` | `users.create` |
-| `PUT` | `/api/v1/users/{id:guid}` | `users.edit` |
+| `PUT` | `/api/v1/users/{id:guid}` | `admin` (không phải `users.edit` — xem ghi chú bên dưới) |
 | `DELETE` | `/api/v1/users/{id:guid}` | `users.delete` |
 | `PUT` | `/api/v1/users/{id:guid}/groups` | `admin` | Gán nhóm cho user (thay thế toàn bộ); **chống self-lockout** (`SELF_LOCKOUT`) + ghi ActionLog |
+
+### `PUT /api/v1/users/{id:guid}` — patch semantics & sentinel `Guid.Empty`
+
+> Policy của endpoint này là **`admin`** (không phải `users.edit` — `UsersController.UpdateUser`),
+> giống `PUT /users/{id}/groups`. Người gọi thường (không superuser) còn phải cùng công ty với user
+> bị sửa, nếu không → `404` (hide-existence).
+
+Update là **patch**: field **không gửi** → giữ nguyên giá trị hiện có. Với 3 field tham chiếu kiểu
+`Guid?`, JSON `null` **không phân biệt được** với "không gửi", nên muốn **xoá** tham chiếu thì client
+gửi **sentinel `Guid.Empty`**:
+
+| Giá trị gửi | Ý nghĩa |
+|---|---|
+| *(không có field trong JSON)* | **Giữ nguyên** giá trị hiện có |
+| `"00000000-0000-0000-0000-000000000000"` (`Guid.Empty`) | **Xoá về null** — `companyId` → user thành *floater* (không thuộc công ty nào); `departmentId`/`locationId` → bỏ gán |
+| GUID thật | Gán giá trị đó |
+
+Hai field text (`employeeNumber`, `jobTitle`): không gửi → giữ nguyên; gửi chuỗi rỗng `""` → xoá nội dung.
+
+Ràng buộc phía server (người gọi thường; **superuser bỏ qua toàn bộ** các check phạm vi):
+
+- `companyId` mới phải **thuộc phạm vi người gọi** (công ty của mình hoặc công ty con) → nếu không:
+  `400` `COMPANY_MISMATCH`. Sentinel floater luôn được phép.
+- `departmentId`/`locationId` mới: phải **tồn tại** → nếu không: `400` `RESOURCE_NOT_FOUND`;
+  nếu trỏ tới một công ty thật thì công ty đó phải thuộc phạm vi người gọi → nếu không:
+  `400` `COMPANY_MISMATCH`.
+- `firstName`/`lastName`/`email` là **bắt buộc** (không nullable) — payload phải gửi đủ 3 field này.
+
+**Ví dụ 1 — payload tối thiểu (chỉ đổi tên; công ty/phòng ban/địa điểm giữ nguyên):**
+
+```http
+PUT /api/v1/users/3f1c9a4e-7b2d-4c88-9f01-2a5b6c7d8e9f HTTP/1.1
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "id": "3f1c9a4e-7b2d-4c88-9f01-2a5b6c7d8e9f",
+  "firstName": "Nguyen",
+  "lastName": "Van B",
+  "email": "nva@example.com"
+}
+```
+
+**Ví dụ 2 — chuyển user thành *floater* và bỏ phòng ban/địa điểm:**
+
+```http
+PUT /api/v1/users/3f1c9a4e-7b2d-4c88-9f01-2a5b6c7d8e9f HTTP/1.1
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "id": "3f1c9a4e-7b2d-4c88-9f01-2a5b6c7d8e9f",
+  "firstName": "Nguyen",
+  "lastName": "Van B",
+  "email": "nva@example.com",
+  "companyId": "00000000-0000-0000-0000-000000000000",
+  "departmentId": "00000000-0000-0000-0000-000000000000",
+  "locationId": "00000000-0000-0000-0000-000000000000"
+}
+```
+
+→ `200` với `data.companyId/departmentId/locationId = null`.
+
+> Quy ước sentinel `Guid.Empty` này đã dùng sẵn trong dự án (`CompanyScopeService` trả `Guid.Empty`
+> cho user không công ty; `AssetMaintenance.CompanyId = Guid.Empty` = floater). Trước bản fix
+> 2026-10-02, payload thiếu field **xoá** `companyId`/`departmentId`/`locationId`/`employeeNumber`/
+> `jobTitle` (BACKLOG N1); ai cần "xoá có chủ đích" thì gửi sentinel như trên.
 
 ---
 
