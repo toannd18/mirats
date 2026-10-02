@@ -22,7 +22,7 @@ Server State: dùng đúng pattern đang tồn tại trong codebase (service lay
 Local State: useState/useReducer.
 API & DATA FETCHING
 Singleton Axios instance (services/api-client.ts hoặc tương đương đã có).
-Request interceptor tự attach Bearer token (Keycloak) + tự refresh token.
+Request interceptor tự attach Bearer token (local auth — JWT tự ký) + tự refresh token (cookie httpOnly `/auth/refresh`).
 Response interceptor xử lý 401 (queue retry / redirect login) + normalize backend error message theo format {status, message, error_code}.
 FILE STRUCTURE & COMPONENT DESIGN
 Feature-based folder structure (src/pages/, src/components/<feature>/, src/services/).

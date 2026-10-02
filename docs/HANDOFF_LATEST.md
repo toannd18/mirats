@@ -1,4 +1,30 @@
-﻿# HANDOFF LATEST — Tổng kết toàn bộ phiên làm việc (Session Summary & Handoff)
+# HANDOFF LATEST — Tổng kết toàn bộ phiên làm việc (Session Summary & Handoff)
+
+## ⚠️ CẬP NHẬT 2026-10-02 — file này dừng ở 2026-08-28
+
+> **Tài liệu này là ghi chép LỊCH SỬ, không còn mô tả trạng thái hiện tại.** Nội dung dưới đây dừng
+> ở mốc **2026-08-28** (MC-9/MC-10 + reset database/Keycloak).
+>
+> **(a) Sau mốc đó đã có 2 chiến dịch lớn KHÔNG được ghi trong file này:**
+> 1. **MediatR/CQRS hoá controller** (2026-09-01 → 09-05): controller mỏng, handler + FluentValidation
+>    `ValidationBehavior` + `ILoggableCommand`/`ActionLogBehavior`; ActionLog một entry atomic.
+> 2. **Xóa HOÀN TOÀN Keycloak** (AUTH migration 2026-09-06 → 09-07, Phase 5): thay bằng **auth local**
+>    — password PBKDF2 + JWT tự ký HS256 (`Infrastructure/Authentication/TokenService.cs`) + passkey
+>    WebAuthn tùy chọn; refresh token 7 ngày trong cookie httpOnly. **KHÔNG còn** `KeycloakService`,
+>    realm JSON, container Keycloak, `VITE_KEYCLOAK_*`, hay JIT provisioning
+>    (`JitUserProvisioningService` đã xóa; `local_user_id` do `TokenService` stamp trực tiếp).
+>    Mọi mục về Keycloak/JIT dưới đây chỉ còn giá trị lịch sử.
+>
+> **(b) Nguồn sự thật HIỆN TẠI:** code trong `aspire-react/` (code thắng mọi tài liệu) +
+> [docs/BACKLOG.md](BACKLOG.md) (mục **§AUDIT 2026-10-02**) + [docs/DEPLOYMENT.md](DEPLOYMENT.md)
+> và [docs/API.md](API.md) (đã cập nhật theo auth local + MediatR). Bảng mã lỗi hiện hành:
+> [docs/ERROR_CODES.md](ERROR_CODES.md) (quét lại 2026-10-02).
+>
+> **(c) Các mục bên dưới (## 1 …) chỉ còn giá trị lịch sử** — dùng để tra "vì sao code được viết
+> như vậy", KHÔNG dùng để suy ra hành vi hiện tại (ví dụ: Keycloak, JIT provisioning, cấu trúc
+> controller trước MediatR đều đã thay đổi).
+
+---
 
 > **Ngày:** 2026-08-14 · **Lộ trình:** ST1 → ST10 (Audit & Nâng cấp hệ thống)
 > **Stack:** .NET 10 Web API + React 18/AntD v6 (Vite) + .NET Aspire (AppHost) + PostgreSQL 18 + Keycloak 26

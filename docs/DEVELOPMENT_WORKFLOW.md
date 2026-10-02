@@ -341,7 +341,7 @@ Lý do chuyển đổi: dự án đã lớn (nhiều module, `Program.cs` phình
 
 | Khái niệm | Vị trí |
 |---|---|
-| JIT provisioning (local user từ token) | `Infrastructure/Services/JitUserProvisioningService.cs` (`IJitUserProvisioningService`) — gọi từ `Infrastructure/Authentication/AuthenticationServiceCollectionExtensions.cs` (OnTokenValidated) |
+| `local_user_id` stamp lúc phát hành token | `Infrastructure/Authentication/TokenService.cs` (`IssueAccessToken` đọc user từ DB, stamp `local_user_id` trực tiếp). Auth local đăng ký tại `Infrastructure/Authentication/AuthenticationServiceCollectionExtensions.cs` (`AddAppAuthentication`, scheme "App"). **JIT provisioning đã XÓA ở AUTH Phase 5** — KHÔNG còn `JitUserProvisioningService.cs` / `IJitUserProvisioningService` / hook `OnTokenValidated` tạo user |
 | Seed + migrate khởi động | `Infrastructure/Persistence/StartupDataSeeder.cs` (KHÔNG còn `DbInitializer.cs` — đã xóa Task R) |
 | Redis output-cache (reference-data) | `Infrastructure/Caching/CachingServiceCollectionExtensions.cs` + `ReferenceDataCachePolicy.cs` |
 | Permission catalog (single source of truth) | `Infrastructure/Authorization/PermissionCatalog.cs` |

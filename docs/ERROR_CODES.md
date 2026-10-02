@@ -2,8 +2,10 @@
 
 > **Nguồn sự thật duy nhất** của tài liệu này là **code**: mọi error_code được quét trực tiếp từ
 > `aspire-react.Application/` (handlers) + `aspire-react.Server/Web/Controllers/` (controller-level
-> guards) + `aspire-react.Infrastructure/Services/` (Keycloak/allocation services). Lần quét gần
-> nhất: **2026-09-05**, sau khi hoàn tất chiến dịch MediatR migration + dọn dẹp backlog BUG-E→N.
+> guards) + `aspire-react.Infrastructure/Authentication/` (auth sống hiện tại: `TokenService`,
+> `PasswordChangeGateMiddleware`, `WebAuthn/Fido2Service`, `AuthAttemptService`) +
+> `aspire-react.Infrastructure/Services/` (allocation services). Lần quét gần nhất: **2026-10-02**,
+> sau AUTH Phase 5 (Keycloak đã bị xóa hoàn toàn — auth local JWT tự ký + passkey tùy chọn).
 >
 > Cập nhật tài liệu này khi: thêm endpoint mới có error_code, thêm/thay error_code trong handler,
 > hoặc đổi shape lỗi của một controller. Code vẫn là nguồn chuẩn nếu tài liệu lệch.
@@ -25,8 +27,8 @@ thống nhất nếu chưa sửa đồng bộ frontend:**
 
 | Controller | Endpoints | Ghi chú |
 |---|---|---|
-| `GroupsController` | Create/Update/Delete/UpdateGroupPermissions | `SELF_LOCKOUT`, `SYSTEM_GROUP_LOCKED`, `KEYCLOAK_*` nếu có |
-| `UsersController` | CreateUser/UpdateUser/DeleteUser/UpdateUserGroups | `SELF_LOCKOUT`, `KEYCLOAK_*` (trừ UpdateUserGroups dùng `error_code` — xem 1.7) |
+| `GroupsController` | Create/Update/Delete/UpdateGroupPermissions | `SELF_LOCKOUT`, `SYSTEM_GROUP_LOCKED` |
+| `UsersController` | CreateUser/UpdateUser/DeleteUser/UpdateUserGroups | `SELF_LOCKOUT` (trừ UpdateUserGroups dùng `error_code` — xem 1.7) |
 
 **Mọi controller khác dùng `error_code` (snake_case).** Thêm controller mới → mặc định `error_code`.
 
@@ -58,8 +60,15 @@ if (userCompanyId.HasValue && request.CompanyId.HasValue && request.CompanyId.Va
 - **Superuser** (scope = null): bỏ qua, tạo cho company bất kỳ.
 - Blocked request **không tạo row và không tạo ActionLog** (BuildLogEntry trả null khi `!Success`).
 
+`COMPANY_MISMATCH` (400) nay áp dụng cho **cả `PUT /users/{id}`** — không chỉ Create: scope của
+`CompanyId` **MỚI** trong request được kiểm tra trước mọi mutation (`UpdateUserCommand`; `Guid.Empty`
+= sentinel "clear → floater" luôn được phép), kèm `DepartmentId`/`LocationId` tham chiếu. Tham chiếu
+**không tồn tại** (DepartmentId/LocationId) trả `RESOURCE_NOT_FOUND` (400) — cùng file
+`Application/Users/Commands/UserReferenceScope.cs` dùng chung cho Create + Update.
+
 Áp dụng tại: Departments, Locations (BUG-G), Consumables, Accessories, Components (kèm
-`COMPANY_REQUIRED`/`INVALID_COMPANY`), SystemInfos, Assets (Create), Users (controller-guard),
+`COMPANY_REQUIRED`/`INVALID_COMPANY`), SystemInfos, Assets (Create), Users (Create + Update — trong
+handler, không còn controller-guard),
 MaintenanceTemplates (kèm `INVALID_COMPANY`), MaintenanceCampaigns executors
 (`EXECUTOR_COMPANY_MISMATCH` — so company của executor với company của **hệ thống**, không phải
 của user), Licenses seats (`LICENSE_COMPANY_MISMATCH` — so với company của **license**),
@@ -84,8 +93,7 @@ Dup-check **không hồi tố**: chỉ áp dụng cho request mới; dữ liệu
 |---|---|---|
 | `RESULT_CONCURRENT_WRITE` | `POST /maintenance/campaigns/{id}/results` | BUG-D retry-merge cạn 3 lần retry do race INSERT-vs-INSERT trên unique key (DeviceSnapshot × Item × Param). Không phải 500 — client được yêu cầu thử lại. |
 
-Ngoài ra **UsersController CreateUser** map `KEYCLOAK_USERNAME_EXISTS` / `KEYCLOAK_EMAIL_EXISTS`
-→ **409** (pre-migration precedent, đồng bộ Keycloak conflict semantics).
+Đây là **case 409 duy nhất** của API.
 
 ### 1.6 Response lỗi KHÔNG có error_code (chỉ `status` + `message`)
 
@@ -101,6 +109,9 @@ Ngoài ra **UsersController CreateUser** map `KEYCLOAK_USERNAME_EXISTS` / `KEYCL
   PARAM_NOT_FOUND của MaintenanceTemplates vẫn 404 + message riêng (không error_code).
 - **403** Forbid() mọi controller: body rỗng.
 - **401**: từ authentication layer (không phải controller), body rỗng/ProblemDetails.
+- **401 auth controller (`/auth/*`)**: `{status,message}` **KHÔNG có error_code** — xem section Auth
+  (`USER_NOT_FOUND` ở `/auth/password` + passkeys, refresh cookie hết hạn/hỏng). Đây là **khác biệt
+  có chủ ý** với `USER_NOT_FOUND` 404 của `PUT`/`DELETE /users/{id}`.
 
 Quy ước: **error_code gắn với lỗi có thể phân loại máy được** (FE switch-case); lỗi "con người
 đọc message là đủ" (empty-name, dup-name hiển thị trực tiếp) nhiều chỗ không gắn — verbatim.
@@ -113,6 +124,34 @@ Endpoint duy nhất của UsersController dùng **`error_code` snake** (không p
 ---
 
 ## 2. Tra cứu theo Controller
+
+### Auth (`/api/v1/auth`) — **error_code snake_case** (auth local, không còn Keycloak)
+
+Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`AuthCommands.cs`,
+`PasswordCommands.cs`, `WebAuthnCommands.cs`) + `Infrastructure/Authentication/`
+(`PasswordChangeGateMiddleware.cs`, `WebAuthn/Fido2Service.cs`).
+
+| Code | HTTP | Endpoint | Điều kiện |
+|---|---|---|---|
+| `INVALID_CREDENTIALS` | 400 | POST /auth/login | Sai username **hoặc** sai password **hoặc** user inactive/chưa có `PasswordHash` — message **generic** ("Sai tên đăng nhập hoặc mật khẩu."), không lộ user enumeration |
+| `INVALID_CREDENTIALS` | 400 | POST /auth/password | `CurrentPassword` không khớp (message "Mật khẩu hiện tại không đúng.") |
+| `INVALID_CREDENTIALS` | **401** | POST /auth/passkeys/login | Assertion fail: challenge hết hạn (`PASSKEY_ASSERTION_EXPIRED`), JSON hỏng (`PASSKEY_MALFORMED_RESPONSE`) hoặc credential/user không hợp lệ — handler **gộp tất cả** thành `INVALID_CREDENTIALS` (401, chống enumeration) |
+| `ACCOUNT_LOCKED` | 400 | POST /auth/login | (a) IP bị chặn burst, hoặc (b) per-username lockout leo thang còn hiệu lực (fail lần 5 → 60s, lần 6+ → 2^n, cap 15 phút; dựa trên `AuthAttemptService`). Message "Tài khoản tạm thời bị khóa do đăng nhập sai nhiều lần..." |
+| `MUST_CHANGE_PASSWORD` | **403** | **MỌI endpoint** (trừ `/users/me` + `/auth/password`) | Session mang claim `pwd_change=1` — `PasswordChangeGateMiddleware` chặn trước authorization. Message "Bạn phải đổi mật khẩu trước khi sử dụng hệ thống." |
+| `PASSKEYS_DISABLED` | **403** | POST /auth/passkeys/login/options, POST /auth/passkeys/login | Feature flag WebAuthn đang tắt (`IWebAuthnService.IsEnabledAsync()` false) — rejected TRƯỚC khi xử lý assertion |
+| `PASSKEY_REGISTRATION_EXPIRED` | 400 | POST /auth/passkeys/register | Không tìm thấy `CredentialCreateOptions` trong cache cho user (hết TTL / chưa gọi `/register/options`) |
+| `PASSKEY_ALREADY_REGISTERED` | 400 | POST /auth/passkeys/register | `credentialId` đã đăng ký. ⚠️ Handler + `AuthController.PasskeyRegisterErrorText` **có** map mã này, nhưng `Fido2Service` hiện **không ném** nó: uniqueness callback fail → `Fido2VerificationException` → trả `PASSKEY_VERIFICATION_FAILED` |
+| `PASSKEY_MALFORMED_RESPONSE` | 400 | POST /auth/passkeys/register | `AttestationJson` không deserialize được thành `AuthenticatorAttestationRawResponse` |
+| `PASSKEY_VERIFICATION_FAILED` | 400 | POST /auth/passkeys/register | Attestation/signature/format verification fail (`Fido2VerificationException`) — không leak chi tiết |
+| `PASSKEY_ASSERTION_EXPIRED` | — | POST /auth/passkeys/login | Ném bởi `Fido2Service` khi challenge assertion hết hạn/không có trong cache, **nhưng bị handler gộp** thành `INVALID_CREDENTIALS` (401) — client không bao giờ thấy mã này |
+| `USER_NOT_FOUND` | **401** | POST /auth/password, POST /auth/passkeys/register/options | User từ claim `local_user_id` không tồn tại/inactive → body `{status,message}` **KHÔNG có error_code**. ⚠️ **Khác** `USER_NOT_FOUND` 404 của Users PUT/DELETE |
+| (không có error_code) | 401 | POST /auth/refresh, POST /auth/passkeys/login | Refresh cookie thiếu/hết hạn/tái sử dụng (reuse-detection revoke mọi session) → `{status,message}` không error_code |
+| (không có error_code) | 404 | DELETE /auth/passkeys/{id} | Passkey không tồn tại hoặc thuộc user khác (hide-existence; handler trả `RESOURCE_NOT_FOUND` nhưng controller **không** gắn error_code) |
+| (FluentValidation — **không phải** error_code) | 400 | POST /auth/password | `newPassword` < 8 ký tự → body `{status,message:"Validation failed.",errors}` từ `ValidationExceptionHandler` |
+
+**Không có error_code** (chỉ `status`+`message`): POST /auth/logout luôn 200 `{status:"success"}`
+(idempotent); POST /auth/login `ACCOUNT_LOCKED`/`INVALID_CREDENTIALS` **có** error_code, nhưng POST
+/auth/refresh + POST /auth/passkeys/login 401 thì không.
 
 ### Assets (`/api/v1/assets`)
 
@@ -221,19 +260,20 @@ Endpoint duy nhất của UsersController dùng **`error_code` snake** (không p
 | `SELF_LOCKOUT` | 400 | DELETE /{id}, PUT permissions | Tự khóa quyền quản trị của chính mình (PermissionLockoutGuard) |
 | (BUG-K empty/dup name) | 400 | POST, PUT /{id} | "Group name is required." / "A group with this name already exists." — không errorCode |
 
-### Users (`/api/v1/users`) — **errorCode camelCase** (trừ UpdateUserGroups: `error_code` snake)
+### Users (`/api/v1/users`) — **errorCode camelCase** (trừ UpdateUserGroups + scope/reference: `error_code` snake)
+
+> [AUTH Phase 5] CreateUser nay LOCAL-ONLY: password do admin cấp + `MustChangePassword=true`.
 
 | Code | HTTP | Endpoint | Điều kiện |
 |---|---|---|---|
-| `USER_NOT_FOUND` | 404 | PUT /{id}, DELETE /{id} | User không tồn tại hoặc ngoài scope |
-| `SELF_LOCKOUT` | 400 | PUT /{id}, DELETE /{id}, PUT {id}/groups | Hạ/vô hiệu hóa superuser/quản trị cuối cùng |
-| `GROUP_NOT_FOUND` | 400 | PUT {id}/groups | Group không tồn tại (error_code snake — quirk) |
-| `VALIDATION_ERROR` | 400 | POST | Keycloak password policy fail (message từ Keycloak) |
-| `KEYCLOAK_USERNAME_EXISTS` | 409 | POST | Username đã tồn tại trong Keycloak |
-| `KEYCLOAK_EMAIL_EXISTS` | 409 | POST | Email đã tồn tại |
-| `KEYCLOAK_CREATE_FAILED` / `KEYCLOAK_ID_RETRIEVAL_FAILED` | 502 | POST | Keycloak API fail |
-| `KEYCLOAK_SYNC_FAILED` / `KEYCLOAK_UPDATE_FAILED` / `KEYCLOAK_ERROR` | 502 | PUT | Sync fail |
-| `COMPANY_MISMATCH` | 400 | POST | Regular user tạo user cho company khác (controller-guard) |
+| `USER_NOT_FOUND` | 404 | PUT /{id}, DELETE /{id} | User không tồn tại hoặc ngoài scope (body **không** errorCode) — **khác** `USER_NOT_FOUND` 401 của `/auth/*` |
+| `SELF_LOCKOUT` | 400 | PUT /{id}, DELETE /{id} | Hạ/vô hiệu hóa superuser/quản trị cuối cùng (`errorCode` camelCase) |
+| `SELF_LOCKOUT` | 400 | PUT {id}/groups | Cùng guard, nhưng `error_code` snake (quirk §1.7) |
+| `GROUP_NOT_FOUND` | 400 | PUT {id}/groups | Group không tồn tại (`error_code` snake — quirk) |
+| `COMPANY_MISMATCH` | 400 | POST, **PUT /{id}** | Create: regular user tạo user cho company khác. Update: scope của `CompanyId` **MỚI** (sentinel `Guid.Empty` = clear→floater được phép) — body `error_code` snake |
+| `RESOURCE_NOT_FOUND` | 400 | POST, **PUT /{id}** | `DepartmentId`/`LocationId` tham chiếu **không tồn tại** (`UserReferenceScope`, BUG-H precedent) — body `error_code` snake |
+| `VALIDATION_ERROR` | 400 | POST | **Chỉ còn** password ban đầu < 8 ký tự (message tiếng Việt "Mật khẩu ban đầu phải có ít nhất 8 ký tự.") — body **không** error_code |
+| (FluentValidation) | 400 | POST, PUT /{id} | Create: trùng **username/email** ("Username already exists." / "Email already exists.") + mọi rule format → `{status,message:"Validation failed.",errors:{...}}` từ `ValidationExceptionHandler` (chạy qua MediatR `ValidationBehavior`). Update: `email` trùng user khác → "Email already in use by another user." (username không đổi được nên không có rule trùng username) |
 
 ### ImportExport (`/api/v1/import/*`, `/export/*`)
 
@@ -411,6 +451,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 > Định dạng: `CODE` — controller (HTTP)
 
 - `ACCESSORY_HAS_CHECKOUTS` — Accessories (400)
+- `ACCOUNT_LOCKED` — Auth login (400)
 - `ALREADY_ARCHIVED` — Assets (400)
 - `ALREADY_CONFIRMED` — Assets (400)
 - `ALREADY_DELETED` — ComponentUnits (400)
@@ -432,7 +473,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `CATEGORY_REQUIRED` — Components, Licenses (400)
 - `CHECKOUT_NOT_FOUND` — Accessories (400)
 - `COMPANY_IN_USE` — Companies (400)
-- `COMPANY_MISMATCH` — Departments, Locations, Consumables, Accessories, Components, SystemInfos, Assets (Create + Checkout), MaintenanceTemplates, MaintenanceCampaigns (executors: `EXECUTOR_COMPANY_MISMATCH`), Licenses (`LICENSE_COMPANY_MISMATCH`), AssetMaintenances (`ASSIGNEE_COMPANY_MISMATCH`), ComponentAllocation (`COMPONENT_COMPANY_REQUIRED`), ConsumableAllocation (`CONSUMABLE_COMPANY_MISMATCH`), Users (400) — **tất cả 400**
+- `COMPANY_MISMATCH` — Departments, Locations, Consumables, Accessories, Components, SystemInfos, Assets (Create + Checkout), MaintenanceTemplates, MaintenanceCampaigns (executors: `EXECUTOR_COMPANY_MISMATCH`), Licenses (`LICENSE_COMPANY_MISMATCH`), AssetMaintenances (`ASSIGNEE_COMPANY_MISMATCH`), ComponentAllocation (`COMPONENT_COMPANY_REQUIRED`), ConsumableAllocation (`CONSUMABLE_COMPANY_MISMATCH`), Users (Create + Update, 400) — **tất cả 400**
 - `COMPANY_REQUIRED` — ImportExport (400), Components (400)
 - `COMPONENT_COMPANY_REQUIRED` — Components (allocation) (400)
 - `COMPONENT_HAS_ALLOCATION_HISTORY` — Components (400)
@@ -468,12 +509,12 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `INVALID_QUANTITY` — Components, Consumables (400)
 - `INVALID_RETURN_QTY` — Accessories (400)
 - `INVALID_STANDARD_PARAM` — MaintenanceCampaigns (400)
+- `INVALID_CREDENTIALS` — Auth login (400), Auth password (400), Auth passkeys/login (**401**)
 - `INVALID_SUPPLIER` — AssetMaintenances (400)
 - `INVALID_TARGET_TYPE` — Licenses (400)
 - `ITEM_NAME_REQUIRED` — MaintenanceTemplates (400)
 - `ITEM_NOT_FOUND` — MaintenanceTemplates (404)
 - `ITEM_ORDER_TAKEN` — MaintenanceTemplates (400)
-- `KEYCLOAK_*` — Users (400/409/502; errorCode camelCase)
 - `LICENSE_COMPANY_MISMATCH` — Licenses seats (400)
 - `LICENSE_IN_USE` — Licenses (400)
 - `LICENSE_NOT_REASSIGNABLE` — Licenses (400)
@@ -484,6 +525,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `MAX_5_ASSIGNEES` — AssetMaintenances (400)
 - `MISSING_TARGET` — Components (400)
 - `MODEL_IN_USE` — AssetModels (400)
+- `MUST_CHANGE_PASSWORD` — **mọi endpoint** trừ `/users/me` + `/auth/password` (**403**; middleware)
 - `NO_AVAILABLE_SEATS` — Licenses (400)
 - `NO_CURRENT_VERSION` — MaintenanceCampaigns (400)
 - `NO_TEMPLATE` — MaintenanceCampaigns (400)
@@ -492,8 +534,10 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `NOT_SERIAL` — Components (400)
 - `PARAM_NOT_FOUND` — MaintenanceTemplates (404)
 - `PARAM_REQUIRED` — MaintenanceTemplates (400)
+- `PASSKEY_ALREADY_REGISTERED` / `PASSKEY_MALFORMED_RESPONSE` / `PASSKEY_REGISTRATION_EXPIRED` / `PASSKEY_VERIFICATION_FAILED` — Auth passkeys/register (400). `PASSKEY_ASSERTION_EXPIRED` bị handler gộp thành `INVALID_CREDENTIALS` (401)
+- `PASSKEYS_DISABLED` — Auth passkeys login (login/options + login) (**403**)
 - `POSITION_IN_USE_BY_CHECKLIST` — SystemInfos (400)
-- `RESOURCE_NOT_FOUND` — AssetModels (400, BUG-H)
+- `RESOURCE_NOT_FOUND` — AssetModels (400, BUG-H), Users Create/Update (DepartmentId/LocationId, 400)
 - `RESULT_CONCURRENT_WRITE` — MaintenanceCampaigns (**409** — duy nhất)
 - `RESULT_NOT_FOUND` — MaintenanceCampaigns (404)
 - `RESULT_TARGET_REQUIRED` — MaintenanceCampaigns (400)
@@ -518,7 +562,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `TEMPLATE_VERSION_IN_USE` — MaintenanceTemplates (400)
 - `THRESHOLD_OPERATOR_REQUIRED` / `THRESHOLD_VALUE_REQUIRED` — MaintenanceTemplates (400)
 - `TITLE_REQUIRED` — AssetMaintenances (400)
-- `USER_NOT_FOUND` — Users (404; camelCase errorCode)
-- `VALIDATION_ERROR` — Users (400)
+- `USER_NOT_FOUND` — Users PUT/DELETE (404, camelCase errorCode — body không errorCode), Auth `/auth/password` + passkeys/register/options (**401**, không error_code)
+- `VALIDATION_ERROR` — Users (400 — chỉ password ban đầu < 8 ký tự)
 - `VERSION_ALREADY_PUBLISHED` — MaintenanceTemplates (400)
 - `VERSION_NOT_FOUND` — MaintenanceTemplates (404)

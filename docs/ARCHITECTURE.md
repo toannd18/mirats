@@ -27,7 +27,7 @@
 | CQRS | MediatR 14 |
 | Validation | FluentValidation 12 |
 | ORM | Entity Framework Core 9 / Npgsql |
-| Auth | Keycloak 26 OIDC + JWT Bearer |
+| Auth | Local auth — JWT tự ký HS256 (`TokenService`, 15 phút) + passkey WebAuthn tùy chọn; refresh token 7 ngày trong cookie httpOnly (Keycloak đã xóa hoàn toàn ở AUTH Phase 5) |
 | Frontend | React 19 + TypeScript + Vite + Ant Design 6 |
 | Cache | Redis 7 (StackExchange.Redis) |
 
@@ -36,7 +36,8 @@
 ```
 Browser (localhost:5173)
   │
-  ├── HTTPS ─── Keycloak (localhost:8080) ── JWT Token
+  ├── POST /api/v1/auth/login (username + password) ──► JWT tự ký HS256 + refresh cookie httpOnly
+  │   hoặc POST /api/v1/auth/passkeys/login (WebAuthn, tùy chọn)
   │
   └── HTTP ──── Vite Dev Server
                     │
@@ -46,21 +47,24 @@ Browser (localhost:5173)
                     │
           ┌─────────┼──────────┐
           ▼         ▼          ▼
-     PostgreSQL    Redis    Keycloak
-     (5432)       (6379)   (8080)
+     PostgreSQL    Redis    (không còn IdP ngoài —
+     (5432)       (6379)    auth local trong API)
 ```
 
 ## Request Flow
 
 ```
-1. User → Keycloak Login → JWT Token
+1. User → POST /api/v1/auth/login (username + password) hoặc /auth/passkeys/login (WebAuthn) → JWT tự ký HS256 (15 phút) + refresh token 7 ngày (cookie httpOnly)
 2. Frontend → Backend API with Authorization: Bearer <JWT>
-3. Middleware: JwtBearerHandler validates token
-4. PermissionHandler checks policies (40+ policies)
-5. Controller → MediatR Command/Query → Handler
-6. Handler → EF Core → PostgreSQL
-7. Response → JSON { status, data, pagination }
+3. Middleware: JwtBearerHandler validates self-signed token (scheme "App")
+4. PasswordChangeGateMiddleware: session mang pwd_change=1 → 403 MUST_CHANGE_PASSWORD (trừ /users/me + /auth/password)
+5. PermissionHandler checks policies (40+ policies)
+6. Controller → MediatR Command/Query → Handler
+7. Handler → EF Core → PostgreSQL
+8. Response → JSON { status, data, pagination }
 ```
+
+Refresh: 401 → `POST /api/v1/auth/refresh` (cookie httpOnly, rotation + reuse-detection) → access token mới.
 
 ## Key Design Patterns
 
@@ -79,6 +83,11 @@ UserPermission.Grant     → Succeed
 GroupPermission.Grant    → Succeed
 Default                  → Deny
 ```
+
+> `realm_access`/`permission` không còn do Keycloak phát hành: `TokenService` tự gắn hai claim này
+> khi user local có `IsSuperUser=true` (giữ nguyên tên claim cũ để `PermissionHandler` +
+> `isSuperUser()` phía frontend đọc được không đổi). Nguồn sự thật của quyền là claim `local_user_id`
+> → `Users.IsSuperUser` + `UserPermission`/`GroupPermission`.
 
 ### Concurrency Lock (Asset Checkout)
 ```csharp
