@@ -1,0 +1,34 @@
+# Mirats / AspireReact — line endings & diff normalization
+#
+# QUYẾT ĐỊNH (2026-10-02, đợt 2 mục I): **LF everywhere**.
+#
+# Vì sao LF (không phải CRLF):
+#   * Nội dung repo VỐN ĐÃ là LF: `git ls-files --eol` cho 581/581 file text = `i/lf`. Không có
+#     gì để "chuyển đổi" trong index — chỉ có working tree trên Windows bị CRLF.
+#   * CI chạy `ubuntu-latest`, image Docker là Linux, và `dotnet format` (gate `Format check`) đọc
+#     `end_of_line` từ `.editorconfig` → LF là chuẩn chung, không phụ thuộc OS dev.
+#   * Trước đây máy dev Windows để `core.autocrlf=true` → working tree CRLF trong khi index LF.
+#     Hệ quả thật: `dotnet format --verify-no-changes` **fail ở local nhưng pass trên CI** (và
+#     ngược lại) ⇒ gate local không dự đoán được CI. Đó chính là lý do phải cố định bằng file này.
+#   * Frontend KHÔNG dùng Prettier (chỉ ESLint, không ép EOL) → không có ràng buộc CRLF phía FE.
+#
+# Cách dùng: không cần làm gì — git tự áp dụng. Nếu bạn không muốn phụ thuộc attributes:
+#   `git config core.autocrlf false` (xem docs/DEVELOPMENT_WORKFLOW.md §"Line endings & git config").
+
+* text=auto eol=lf
+
+# Binary — không bao giờ đổi line endings / không diff như text
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.xlsx binary
+*.dump binary
+*.tar binary
+*.zip binary
+
+# Script chỉ chạy trên Windows: giữ CRLF cho đúng kỳ vọng của consumer
+*.bat text eol=crlf
+*.cmd text eol=crlf

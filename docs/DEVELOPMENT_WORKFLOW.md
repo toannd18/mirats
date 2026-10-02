@@ -29,6 +29,18 @@ Frontend dev server chạy **HTTPS bắt buộc** với **proxy /api → backend
 5. Vite proxy target là `https://127.0.0.1:7314` (KHÔNG dùng `localhost` — Node resolve
    localhost→IPv6 `::1` trước trong khi ASP.NET dev bind IPv4 → ECONNREFUSED).
 6. Backend chạy qua AppHost profile HTTPS (`https://localhost:7314` có sẵn trong launchSettings).
+7. **Git — line endings LUÔN là LF** (bắt buộc từ đợt 2 mục I, 2026-10-02). Repo có `.gitattributes`
+   (`* text=auto eol=lf`) + `.editorconfig` (`end_of_line = lf`) ⇒ working tree là LF trên MỌI OS.
+   - Máy dev Windows **không cần làm gì** (attributes thắng `core.autocrlf`). Muốn tường minh:
+     `git config core.autocrlf false`.
+   - Kiểm tra: `git ls-files --eol` phải ra **`i/lf w/lf`** cho mọi file text. Nếu thấy `w/crlf`/`w/mixed`
+     thì checkout lại cho sạch (VD `git rm --cached -r . > $null; git reset --hard`) rồi kiểm lại.
+   - **Vì sao LF:** index của repo vốn đã 100% LF (581/581 file text), CI chạy `ubuntu-latest`, image
+     Docker là Linux, và frontend KHÔNG dùng Prettier (chỉ ESLint — không ép EOL). Trước đây
+     `core.autocrlf=true` làm working tree Windows thành CRLF ⇒ `dotnet format --verify-no-changes`
+     **fail ở local nhưng pass trên CI** (gate local không dự đoán được CI — xem §1.9).
+   - Nhắc lại quy tắc cứng: file có tiếng Việt **chỉ** sửa bằng tool `edit`/`write` (không dùng
+     PowerShell `Get-Content`/`Set-Content`) — xem AGENTS.md §mojibake.
 
 ---
 
@@ -72,6 +84,40 @@ Frontend dev server chạy **HTTPS bắt buộc** với **proxy /api → backend
 - 2 người cùng mất quyền cùng lúc: guard phải tính "người cuối cùng còn giữ quyền" trên toàn hệ thống, không chỉ trên user hiện tại.
 - Migrate dữ liệu không được thu hẹp quyền hiện có (chỉ THÊM membership — xem `PermissionMigration`).
 - Audit trail: bản ghi đã phát sinh giao dịch thì không được hard-delete làm mất lịch sử (xem mục 3.5).
+
+### 1.9. Gate bắt buộc TRƯỚC commit + xác nhận CI THẬT sau push (quy tắc cứng, từ 2026-10-02)
+
+**Trước MỖI commit, chạy ĐỦ 6 gate dưới đây — commit nào fail gate thì KHÔNG được commit:**
+
+```bash
+cd aspire-react
+dotnet format aspire-react.sln --verify-no-changes --no-restore      # 1. format (whitespace+style+analyzers)
+dotnet build aspire-react.sln --configuration Release --no-restore  # 2. build Release
+dotnet test aspire-react.sln --configuration Release --no-build --filter "Category!=Concurrency"  # 3. unit tests
+cd frontend
+npm run lint                                                        # 4. FE lint (0 error)
+npm run build                                                       # 5. FE build
+cd ../..
+pwsh -File scripts/audit-sweeps.ps1                                 # 6. sweep 4 lớp lỗi (từ repo root)
+```
+
+**Sau MỖI lượt `git push`, kiểm CI THẬT rồi mới coi là xong** (máy này không có `gh` CLI — dùng REST API công khai):
+
+```bash
+curl -s "https://api.github.com/repos/toannd18/mirats/actions/runs?per_page=3"
+curl -s "https://api.github.com/repos/toannd18/mirats/actions/runs/<run-id>/jobs"
+```
+
+- **Cả 3 job phải `completed` + `conclusion=success`** (Backend — Build & Test · Frontend — Build & Lint ·
+  Docker — Build Images). "Dự kiến xanh" / "local đã pass" **KHÔNG** được dùng làm bằng chứng CI.
+- **Lý do có quy tắc này (bài học thật):** suốt một thời gian dài gate `Format check` đỏ trên CI mà
+  không ai biết, vì job `Docker` khai báo `needs: [backend-build-test, frontend-build-lint]` ⇒ **bị skip**
+  mỗi run ⇒ lỗi build image (Dockerfile thiếu 3 project sau khi tách 4-layer) **chưa bao giờ được CI phát
+  hiện**. Gate local khi đó cũng không dự đoán được CI (khác biệt line endings CRLF/LF + 2 file wrap +
+  `xUnit2013`). Chi tiết: `docs/BACKLOG.md` §AUDIT 2026-10-02.
+- Chẩn đoán nhanh khi format đỏ: chạy từng phần —
+  `dotnet format whitespace|style|analyzers aspire-react.sln --verify-no-changes --no-restore`
+  (exit 0 = sạch; exit 2 = còn thay đổi cần áp dụng).
 
 ---
 

@@ -1,0 +1,35 @@
+# Mirats / AspireReact — EditorConfig (nguồn chuẩn cho `dotnet format` + editor/IDE)
+#
+# Vì sao có file này (2026-10-02, đợt 2 mục I):
+#   * Trước đây repo KHÔNG có .editorconfig ⇒ `dotnet format` dùng mặc định của Roslyn (và suy
+#     đoán line endings theo từng file) ⇒ file trộn CRLF/LF làm gate `Format check` fail ở local
+#     trong khi CI (Linux, LF) lại sạch. File này chốt `end_of_line = lf` cho mọi file.
+#   * Cố ý **KHÔNG đặt `charset`**: 32 file tracked có BOM UTF-8 (chủ yếu `Migrations/*.cs` do EF
+#     sinh ra). Ép `charset = utf-8` (no-BOM) sẽ biến các file đó thành vi phạm format và phải sửa
+#     migration đã áp dụng — không cần thiết và rủi ro cao.
+#   * `trim_trailing_whitespace` và `insert_final_newline` **cố ý KHÔNG bật**: đo thực tế cho thấy
+#     75 file tracked đang thiếu newline cuối file → bật sẽ biến chúng thành vi phạm gate và đòi một
+#     commit whitespace 75 file (nhiễu `git blame`) mà KHÔNG cần cho mục tiêu của mục I (chốt LF để
+#     gate local == CI). Nếu muốn chuẩn hoá việc này, làm thành một task riêng có commit whitespace
+#     độc lập (`dotnet format whitespace` + review diff chỉ-thêm-newline).
+
+root = true
+
+[*]
+end_of_line = lf
+indent_style = space
+
+[*.cs]
+indent_size = 4
+
+[*.{csproj,props,targets,sln,esproj}]
+indent_size = 2
+
+[*.{ts,tsx,js,jsx,mjs,cjs,json,css,scss,html,yml,yaml}]
+indent_size = 2
+
+[*.{md,markdown}]
+trim_trailing_whitespace = false
+
+[*.{ps1,psm1,sh}]
+indent_size = 2
