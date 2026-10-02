@@ -52,6 +52,19 @@
 3. **`docs/HANDOFF_LATEST.md` (và `docs/sql/`, `backups/*.sql`)** còn mojibake lịch sử/dump — cố ý
    không sửa (là ghi chép sự cố); `backups/*.sql` là artifact backup, không phải code.
 
+### 🚧 OPEN (LOW) — chờ xử lý
+
+1. **Gộp 2 block `modelBuilder.Entity<LicenseSeat>` trùng nhau trong `AppDbContext`** (L585 và L648 —
+   cùng phát hiện #1 ở trên).
+   - **Tiêu chí nghiệm thu:** sau khi gộp, `dotnet ef migrations has-pending-model-changes --project
+     aspire-react.Server` phải trả **"No changes have been made to the model since the last migration."**
+     — tức gộp xong KHÔNG được sinh model diff, không cần migration mới.
+   - **Ghi chú khi làm:** block **L585** chứa navigation `License` (`WithMany(l => l.LicenseSeats)` +
+     cascade); block **L648** chứa index (`LicenseId`; unique `LicenseId`+`SeatNumber`), default
+     `SeatNumber`, kiểu cột `CreatedAt`/`UpdatedAt` và check constraint `CK_license_seats_single_target`
+     (đã chuyển sang `ToTable(t => t.HasCheckConstraint(...))` ở N17) → gộp phải giữ **đủ cả hai nhóm**,
+     và vẫn phải chạy đủ 6 gate trước khi commit.
+
 ### 🤖 Đề xuất đưa `ConcurrencyRaceAuditTests` vào CI (mục D — CHƯA sửa `ci.yml`)
 
 - **Hiện trạng:** test cần stack thật + quyền admin, tag `Category=Concurrency`, mặc định chỉ chạy tay.
