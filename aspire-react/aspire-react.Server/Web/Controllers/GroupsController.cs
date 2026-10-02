@@ -98,6 +98,12 @@ public class GroupsController : ControllerBase
     [HttpPut("{id:guid}/permissions")]
     public async Task<IActionResult> UpdateGroupPermissions(Guid id, [FromBody] List<PermissionEntry> permissions)
     {
+        // [FIX-N10 2026-10-02] Guard BEFORE mapping: a request with an absent/`null` permissions field
+        // used to throw NullReferenceException right here (raw 500). An explicit empty array is still
+        // valid and means "remove all permissions" (full-replace endpoint).
+        if (permissions is null)
+            return BadRequest(new { status = "error", message = "Danh sách quyền không được để trống (gửi [] để xóa hết quyền)." });
+
         var result = await _mediator.Send(new UpdateGroupPermissionsCommand(
             id,
             permissions.Select(p => new GroupPermissionEntry(p.PermissionKey, p.Value)).ToList(),

@@ -123,7 +123,14 @@ export default function CompanyListPage() {
       }
 
       if (editingId) {
-        await apiClient.put(`/companies/${editingId}`, values);
+        // [FIX-N3] PUT /companies/{id} is now patch-based: a field that is absent keeps its stored
+        // value, so an omitted `parentId` no longer re-roots the company. To REMOVE the parent the
+        // client sends the Guid.Empty sentinel (same convention as PUT /users/{id}); create keeps the
+        // API's plain null semantics.
+        await apiClient.put(`/companies/${editingId}`, {
+          ...values,
+          parentId: values.parentId || '00000000-0000-0000-0000-000000000000',
+        });
         message.success('Đã cập nhật');
       } else {
         await apiClient.post('/companies', values);

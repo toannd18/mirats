@@ -22,7 +22,7 @@ public record GroupPermissionEntry(string PermissionKey, PermissionValue Value);
 /// </summary>
 public record UpdateGroupPermissionsCommand(
     Guid Id,
-    IReadOnlyList<GroupPermissionEntry> Permissions,
+    IReadOnlyList<GroupPermissionEntry>? Permissions,
     Guid CurrentUserId,
     bool ActorIsRealmSuperUser)
     : IRequest<GroupResult>, ILoggableCommand<GroupResult>
@@ -65,7 +65,14 @@ public class UpdateGroupPermissionsCommandHandler : IRequestHandler<UpdateGroupP
         if (group == null)
             return new GroupResult(false, "Group not found.", "NOT_FOUND");
 
-        var drafts = request.Permissions
+        // [FIX-N10 2026-10-02] An ABSENT `permissions` field (JSON body `{}` or `null`) used to throw
+        // a NullReferenceException → raw 500. It is a client error, not "clear everything": the
+        // endpoint is full-replace, so an explicit EMPTY ARRAY still means "remove all permissions".
+        var permissions = request.Permissions;
+        if (permissions is null)
+            return new GroupResult(false, "Danh sách quyền không được để trống (gửi [] để xóa hết quyền).");
+
+        var drafts = permissions
             .Select(p => new GroupPermissionDraft(p.PermissionKey, p.Value))
             .ToList();
 
@@ -82,7 +89,7 @@ public class UpdateGroupPermissionsCommandHandler : IRequestHandler<UpdateGroupP
 
         _context.GroupPermissions.RemoveRange(group.GroupPermissions);
 
-        foreach (var perm in request.Permissions)
+        foreach (var perm in permissions)
         {
             _context.GroupPermissions.Add(new GroupPermission
             {
@@ -99,7 +106,7 @@ public class UpdateGroupPermissionsCommandHandler : IRequestHandler<UpdateGroupP
                 permissions = new
                 {
                     old = oldPermissions,
-                    @new = request.Permissions.Select(p => new { p.PermissionKey, p.Value })
+                    @new = permissions.Select(p => new { p.PermissionKey, p.Value })
                 }
             }
         });

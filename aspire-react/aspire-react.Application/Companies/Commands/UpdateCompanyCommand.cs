@@ -13,13 +13,17 @@ namespace aspire_react.Server.Application.Companies.Commands;
 /// [Giai đoạn 3] PUT /api/v1/companies/{id} (extracted from CompaniesController.Update — SEC-FIX S5).
 /// Company-scoping verbatim: regular user may only update companies inside their subtree
 /// (own + descendants); superuser → any; out-of-scope → NOT_FOUND (hide existence).
-/// Semantics verbatim: Name/ParentId assigned unconditionally (full-put for those two — a null
-/// parentId re-roots the company); Code keeps its old value when the request sends whitespace.
-/// NOCO reserved → 400; duplicate code (when changed) → 400; circular re-parent (self or any
-/// descendant as parent) → 400 (GetDescendantIdsAsync BFS — verbatim).
+/// [FIX-N3 2026-10-02] PATCH semantics (Task M1/M2 convention) — before this fix Name and ParentId
+/// were assigned unconditionally, so a partial payload:
+///   * absent Name  → null → DB NOT NULL violation (raw 500 from Postgres);
+///   * absent ParentId → null → the company was silently RE-ROOTED (lost its parent).
+/// Now: Name absent → keep (blank-when-sent → 400); Name colliding with another company → 400
+/// (unique index used to surface as 500); ParentId absent → keep, `Guid.Empty` sentinel → clear
+/// (re-root), real Guid → set. Code keeps its old patch rule (whitespace → keep) + NOCO/dup checks.
+/// NOCO reserved → 400; circular re-parent (self or any descendant as parent) → 400 (BFS verbatim).
 /// ILoggableCommand (LogMeta ×3: name/code/parentId) + ICacheInvalidatingCommand (on success only).
 /// </summary>
-public record UpdateCompanyCommand(Guid Id, string Name, Guid? ParentId, string? Code, Guid CurrentUserId)
+public record UpdateCompanyCommand(Guid Id, string? Name, Guid? ParentId, string? Code, Guid CurrentUserId)
     : IRequest<CompanyResult>, ILoggableCommand<CompanyResult>, ICacheInvalidatingCommand<CompanyResult>
 {
     public IEnumerable<string> CacheTagsToInvalidate => new[] { CacheTags.Companies };
@@ -65,22 +69,43 @@ public class UpdateCompanyCommandHandler : IRequestHandler<UpdateCompanyCommand,
             return new CompanyResult(false, "Not found", "NOT_FOUND");
 
         var before = new { c.Name, c.Code, c.ParentId };
-        c.Name = request.Name;
-        c.ParentId = request.ParentId;
+
         // Code is editable on update; validate NOCO + uniqueness when it changes.
         var code = string.IsNullOrWhiteSpace(request.Code) ? c.Code : request.Code.Trim().ToUpperInvariant();
         if (code == "NOCO")
             return new CompanyResult(false, "\"NOCO\" là mã dành riêng cho tài sản không thuộc công ty, không được dùng.");
         if (code != c.Code && await _context.Companies.AnyAsync(x => x.Code == code && x.Id != request.Id, cancellationToken))
             return new CompanyResult(false, $"Mã công ty '{code}' đã tồn tại.");
-        c.Code = code;
+
+        // [FIX-N3] Name: absent → keep; sent blank → 400; sent colliding with another company → 400
+        // (the unique index on Name used to surface a rename collision as a raw 500).
+        var newName = c.Name;
+        if (request.Name is not null)
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+                return new CompanyResult(false, "Tên công ty không được để trống.");
+            newName = request.Name.Trim();
+            if (newName != c.Name
+                && await _context.Companies.AnyAsync(x => x.Name == newName && x.Id != request.Id, cancellationToken))
+                return new CompanyResult(false, $"Tên công ty '{newName}' đã tồn tại.");
+        }
+
+        // [FIX-N3] ParentId: absent → keep; Guid.Empty sentinel → clear (re-root); real Guid → set.
+        var newParentId = request.ParentId.HasValue
+            ? (request.ParentId.Value == Guid.Empty ? (Guid?)null : request.ParentId.Value)
+            : c.ParentId;
+
         // Prevent circular reference: cannot set parent to itself or its children
-        if (request.ParentId.HasValue)
+        if (newParentId.HasValue)
         {
             var descendantIds = await GetDescendantIdsAsync(request.Id, cancellationToken);
-            if (request.ParentId == request.Id || descendantIds.Contains(request.ParentId.Value))
+            if (newParentId == request.Id || descendantIds.Contains(newParentId.Value))
                 return new CompanyResult(false, "Không thể chọn chính nó hoặc công ty con làm cha.");
         }
+
+        c.Name = newName;
+        c.ParentId = newParentId;
+        c.Code = code;
         await _context.SaveChangesAsync(cancellationToken);
 
         var logMeta = JsonSerializer.Serialize(new
