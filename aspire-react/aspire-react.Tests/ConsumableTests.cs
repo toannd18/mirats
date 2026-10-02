@@ -37,13 +37,13 @@ public class ConsumableTests
     }
 
     private static ActionLogService CreateActionLogService(AppDbContext ctx)
-        => new(ctx, new HttpContextAccessor()); // HttpContext null â†’ claim fallback skipped when userId provided
+        => new(ctx, new HttpContextAccessor()); // HttpContext null → claim fallback skipped when userId provided
 
     private static async Task<(Guid companyId, Guid categoryId)> SeedCompanyAndCategoryAsync(AppDbContext ctx)
     {
-        var company = new Company { Name = "CÃ´ng ty Test" };
+        var company = new Company { Name = "Công ty Test" };
         ctx.Companies.Add(company);
-        var category = new Category { Name = "Háº¡t máº¡ng", CategoryType = CategoryType.Consumable };
+        var category = new Category { Name = "Hạt mạng", CategoryType = CategoryType.Consumable };
         ctx.Categories.Add(category);
         await ctx.SaveChangesAsync();
         return (company.Id, category.Id);
@@ -55,7 +55,7 @@ public class ConsumableTests
         var (defaultCompanyId, categoryId) = await SeedCompanyAndCategoryAsync(ctx);
         var c = new Consumable
         {
-            Name = "Háº¡t máº¡ng RJ 45",
+            Name = "Hạt mạng RJ 45",
             Qty = qty,
             MinAmt = 1,
             CategoryId = categoryId,
@@ -73,8 +73,8 @@ public class ConsumableTests
         {
             Username = username,
             Email = $"{username}@test.local",
-            FirstName = "Nguyá»…n",
-            LastName = "VÄƒn A",
+            FirstName = "Nguyễn",
+            LastName = "Văn A",
             CompanyId = companyId
         };
         ctx.Users.Add(user);
@@ -110,7 +110,7 @@ public class ConsumableTests
         var actorId = await SeedUserAsync(ctx, companyId, "admin");
         var service = new ConsumableAllocationService(ctx, CreateActionLogService(ctx), new SuperUserScope());
 
-        var result = await service.CheckoutAsync(consumableId, userId, quantity: 3, note: "cáº¥p cho váº­n hÃ nh", actorId);
+        var result = await service.CheckoutAsync(consumableId, userId, quantity: 3, note: "cấp cho vận hành", actorId);
 
         Assert.True(result.Success);
         var checkout = await ctx.ConsumableCheckouts.SingleAsync(ch => ch.ConsumableId == consumableId);
@@ -119,7 +119,7 @@ public class ConsumableTests
 
         var log = await ctx.ActionLogs.SingleAsync(l => l.ItemType == ItemType.Consumable && l.ActionType == ActionType.Checkout);
         Assert.Equal(ActionType.Checkout, log.ActionType);
-        // Complete audit trail â€” the receiving user + company must be recorded (gap Ä‘Ã£ Ä‘Æ°á»£c sá»­a).
+        // Complete audit trail — the receiving user + company must be recorded (gap đã được sửa).
         Assert.Equal(AssignmentTargetType.User, log.TargetType);
         Assert.Equal(userId, log.TargetId);
         Assert.Equal(companyId, log.CompanyId);
@@ -153,7 +153,7 @@ public class ConsumableTests
     {
         await using var ctx = CreateContext(nameof(Checkout_CrossCompany_Blocked_NoCheckoutNoLog));
         var (consumableId, companyId) = await SeedConsumableAsync(ctx, qty: 10, status: ConsumableStatus.Confirmed);
-        var otherCompany = new Company { Name = "CÃ´ng ty KhÃ¡c" };
+        var otherCompany = new Company { Name = "Công ty Khác" };
         ctx.Companies.Add(otherCompany);
         await ctx.SaveChangesAsync();
         var foreignUser = await SeedUserAsync(ctx, otherCompany.Id, "foreign");
@@ -273,7 +273,7 @@ public class ConsumableTests
         var controller = await CreateControllerAsync(ctx, adminId);
 
         var result = await controller.Create(new CreateConsumableRequest(
-            "Giáº¥y in A4", null, 100, 10,
+            "Giấy in A4", null, 100, 10,
             CategoryId: categoryId, ManufacturerId: null, SupplierId: null,
             LocationId: null, CompanyId: companyId,
             ModelNumber: null, OrderNumber: null,

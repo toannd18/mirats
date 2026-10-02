@@ -18,7 +18,7 @@ using Xunit;
 namespace aspire_react.Tests;
 
 /// <summary>
-/// Task M2 â€” patch-safety for the latent group (User, Asset.Name, Accessory, Admin reference-data):
+/// Task M2 — patch-safety for the latent group (User, Asset.Name, Accessory, Admin reference-data):
 /// a partial payload (missing a field) must NOT wipe the field back to false/0/empty.
 /// </summary>
 public class TaskM2PatchSafetyTests
@@ -45,7 +45,7 @@ public class TaskM2PatchSafetyTests
     private static readonly TestHelpers.FakeScope SuperScope = new() { Super = true };
 
     // =========================================================================
-    // User â€” missing isSuperUser/isActive must NOT strip admin/deactivate
+    // User — missing isSuperUser/isActive must NOT strip admin/deactivate
     // =========================================================================
 
     [Fact]
@@ -67,7 +67,7 @@ public class TaskM2PatchSafetyTests
         var handler = new UpdateUserCommandHandler(ctx,
             SuperScope, new PermissionLockoutGuard(ctx), NullLogger<UpdateUserCommandHandler>.Instance);
 
-        // Partial payload: no IsSuperUser / IsActive â†’ must keep the existing true/true.
+        // Partial payload: no IsSuperUser / IsActive → must keep the existing true/true.
         var result = await handler.Handle(new UpdateUserCommand
         {
             Id = user.Id,
@@ -122,7 +122,7 @@ public class TaskM2PatchSafetyTests
     }
 
     // =========================================================================
-    // Asset.Name â€” missing name must NOT wipe the existing name
+    // Asset.Name — missing name must NOT wipe the existing name
     // =========================================================================
 
     [Fact]
@@ -155,7 +155,7 @@ public class TaskM2PatchSafetyTests
     }
 
     // =========================================================================
-    // Accessory â€” patch semantics + CompanyId lock after checkout
+    // Accessory — patch semantics + CompanyId lock after checkout
     // =========================================================================
 
     private static UpdateAccessoryCommandHandler BuildAccessoryUpdateHandler(AppDbContext ctx)
@@ -233,7 +233,7 @@ public class TaskM2PatchSafetyTests
     }
 
     // =========================================================================
-    // Admin reference-data â€” patch semantics (Category as representative)
+    // Admin reference-data — patch semantics (Category as representative)
     // =========================================================================
 
     [Fact]

@@ -7,9 +7,9 @@ using Xunit;
 namespace aspire_react.Tests;
 
 /// <summary>
-/// Task V â€” Company-scoping cho GET /companies (cÃ¹ng lá»›p lá»—i Ä‘Ã£ fix á»Ÿ Departments.GetAll Task K /
-/// GetLocations Task U): user thÆ°á»�ng CHá»ˆ tháº¥y subtree cÃ´ng ty cá»§a mÃ¬nh; Superuser (hoáº·c user thÆ°á»�ng
-/// khÃ´ng cÃ³ cÃ´ng ty) tháº¥y toÃ n bá»™ cÃ¢y. Verify qua controller trá»±c tiáº¿p trÃªn EF InMemory.
+/// Task V — Company-scoping cho GET /companies (cùng lớp lỗi đã fix ở Departments.GetAll Task K /
+/// GetLocations Task U): user thường CHỈ thấy subtree công ty của mình; Superuser (hoặc user thường
+/// không có công ty) thấy toàn bộ cây. Verify qua controller trực tiếp trên EF InMemory.
 /// [Giai đoạn 3] Companies migrated to MediatR — tests now drive ListCompaniesQueryHandler directly
 /// with FakeScope (same scope substance; the controller is a thin Send() map).
 /// </summary>
@@ -72,7 +72,7 @@ public class CompanyTreeScopeTests
         db.Companies.AddRange(parent, childA, childB, grandchild);
         await db.SaveChangesAsync();
 
-        // User belongs to Child A â†’ sees only Child A + its descendants, NOT Parent or Child B.
+        // User belongs to Child A → sees only Child A + its descendants, NOT Parent or Child B.
         var roots = await Build(db, new TestHelpers.FakeScope { Super = false, CompanyId = childA.Id })
             .Handle(new ListCompaniesQuery(), CancellationToken.None);
         var names = FlattenNames(roots);

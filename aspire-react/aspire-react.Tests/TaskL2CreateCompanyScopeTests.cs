@@ -16,9 +16,9 @@ using Xunit;
 namespace aspire_react.Tests;
 
 /// <summary>
-/// Task L2 â€” Company-scoping cho endpoint CREATE (Asset, Consumable, Component, Accessory, Department):
-/// user thÆ°á»ng chá»‰ Ä‘Æ°á»£c táº¡o báº£n ghi cho company cá»§a mÃ¬nh (hoáº·c floater); Superuser táº¡o cho company báº¥t ká»³.
-/// Má»—i endpoint verify 2 chiá»u: cháº·n Ä‘Ãºng company mismatch (400), cho phÃ©p company khá»›p, Superuser khÃ´ng bá»‹ áº£nh hÆ°á»Ÿng.
+/// Task L2 — Company-scoping cho endpoint CREATE (Asset, Consumable, Component, Accessory, Department):
+/// user thường chỉ được tạo bản ghi cho company của mình (hoặc floater); Superuser tạo cho company bất kỳ.
+/// Mỗi endpoint verify 2 chiều: chặn đúng company mismatch (400), cho phép company khớp, Superuser không bị ảnh hưởng.
 /// </summary>
 public class TaskL2CreateCompanyScopeTests
 {

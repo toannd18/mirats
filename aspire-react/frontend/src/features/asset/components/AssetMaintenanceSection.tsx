@@ -87,7 +87,16 @@ export default function AssetMaintenanceSection({ assetId }: { assetId: string }
       let companyId: string | undefined;
       try {
         const a = await assetService.get(assetId);
-        companyId = (a.data?.data as { companyId?: string | null })?.companyId ?? undefined;
+        // [FIX-N8 2026-10-02] GET /assets/{id} exposes a NESTED `company: { id, name }`
+        // (AssetCompanyRefDto) — there is NO flat `companyId` on the DTO, so the previous read
+        // always produced undefined: the company filter was silently skipped and the
+        // "Người phụ trách" dropdown listed users from EVERY company. Read company.id (flat
+        // `companyId` kept as a fallback for leaner payloads).
+        const d = a.data?.data as {
+          company?: { id?: string } | null;
+          companyId?: string | null;
+        } | undefined;
+        companyId = d?.company?.id ?? d?.companyId ?? undefined;
       } catch { /* non-critical */ }
       const params: Record<string, unknown> = { pageSize: 500 };
       if (companyId) params.companyId = companyId;

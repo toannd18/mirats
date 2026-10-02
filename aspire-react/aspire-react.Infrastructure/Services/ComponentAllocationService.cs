@@ -375,7 +375,7 @@ public class ComponentAllocationService : IComponentAllocationService
         });
 
         await _context.SaveChangesAsync(ct);
-        return new ComponentOperationResult(true, $"�?A� c��-p nh��-t tr���ng thA�i unit thA�nh {status}.");
+        return new ComponentOperationResult(true, $"Đã cập nhật trạng thái unit thành {status}.");
     }
 
     public async Task<ComponentOperationResult> DeleteUnitAsync(Guid unitId, Guid createdById, CancellationToken ct = default)

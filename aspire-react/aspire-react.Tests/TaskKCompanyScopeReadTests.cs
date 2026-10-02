@@ -132,7 +132,7 @@ public class TaskKCompanyScopeReadTests
         await SeedUserAsync(db, "uA", ctA);
         await SeedUserAsync(db, "uB", ctB);
 
-        // Regular user passes companyId=CT-B but scope is forced to CT-A â†’ uB still hidden.
+        // Regular user passes companyId=CT-B but scope is forced to CT-A → uB still hidden.
         var handler = BuildListUsersHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         var result = await handler.Handle(new ListUsersQuery(null, ctB), CancellationToken.None);
         var data = result.Items.Select(u => u.Username).ToList();
@@ -228,7 +228,7 @@ public class TaskKCompanyScopeReadTests
         db.Departments.AddRange(deptA, deptB, deptFloater);
         await db.SaveChangesAsync();
 
-        // No companyId query param at all â†’ scope still forced to CT-A.
+        // No companyId query param at all → scope still forced to CT-A.
         var handler = BuildListDepartmentsHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         var list = await handler.Handle(new ListDepartmentsQuery(null), CancellationToken.None);
         var names = list.Select(x => x.Name).ToList();
@@ -300,7 +300,7 @@ public class TaskKCompanyScopeReadTests
             new Location { Name = "LOC-F", CompanyId = null });
         await db.SaveChangesAsync();
 
-        // No companyId query param â†’ scope still forced to CT-A.
+        // No companyId query param → scope still forced to CT-A.
         var handler = BuildListLocationsHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         var list = await handler.Handle(new ListLocationsQuery(null), CancellationToken.None);
         var names = list.Select(x => x.Name).ToList();

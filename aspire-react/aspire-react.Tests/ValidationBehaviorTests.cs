@@ -9,7 +9,7 @@ using Xunit;
 namespace aspire_react.Tests;
 
 /// <summary>
-/// Task L â€” unit tests for the new <see cref="ValidationBehavior{TRequest,TResponse}"/>: it must run
+/// Task L — unit tests for the new <see cref="ValidationBehavior{TRequest,TResponse}"/>: it must run
 /// registered validators and throw on failure (so the API maps them to a clean 400), and pass through
 /// when valid. The behavior itself is exercised directly (MediatR's real pipeline is covered by API tests).
 /// </summary>

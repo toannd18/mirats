@@ -10,7 +10,7 @@ namespace aspire_react.Tests;
 
 /// <summary>
 /// Unit tests for the Component allocation/return/stock-in business rules.
-/// Uses EF Core InMemory provider (service methods do not use raw SQL or real transactions â€”
+/// Uses EF Core InMemory provider (service methods do not use raw SQL or real transactions —
 /// the controller owns the ambient transaction, so the service itself is testable here).
 /// </summary>
 public class ComponentAllocationServiceTests
@@ -37,7 +37,7 @@ public class ComponentAllocationServiceTests
     private static async Task<(Guid componentId, Guid assetId)> SeedAsync(
         AppDbContext ctx, TrackingType trackingType, int qty = 0, string[]? serials = null)
     {
-        var company = new Company { Name = "CÃ´ng ty Test" };
+        var company = new Company { Name = "Công ty Test" };
         ctx.Companies.Add(company);
 
         var component = new Component { Name = "RAM 16GB", TrackingType = trackingType, Qty = qty, MinAmt = 1, CompanyId = company.Id };
@@ -59,7 +59,7 @@ public class ComponentAllocationServiceTests
                 });
             }
             component.Qty += serials.Length;
-            await ctx.SaveChangesAsync(); // AppDbContext sets CreatedAt=UtcNow on Added â€” then we fix it below
+            await ctx.SaveChangesAsync(); // AppDbContext sets CreatedAt=UtcNow on Added — then we fix it below
 
             // SaveChanges overwrites CreatedAt on Added entities, so assign distinct increasing
             // timestamps afterwards (Modified state preserves CreatedAt) to make FIFO deterministic.
@@ -84,7 +84,7 @@ public class ComponentAllocationServiceTests
         var (componentId, assetId) = await SeedAsync(ctx, TrackingType.Bulk, qty: 10);
         var service = new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx));
 
-        var result = await service.AllocateAsync(componentId, assetId, quantity: 3, serialNo: null, note: "gáº¯n server", UserId);
+        var result = await service.AllocateAsync(componentId, assetId, quantity: 3, serialNo: null, note: "gắn server", UserId);
 
         Assert.True(result.Success);
         var component = await ctx.Components.Include(c => c.Assignments).SingleAsync(c => c.Id == componentId);
@@ -116,7 +116,7 @@ public class ComponentAllocationServiceTests
         var service = new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx));
         await service.AllocateAsync(componentId, assetId, quantity: 5, serialNo: null, note: null, UserId);
 
-        var result = await service.ReturnAsync(componentId, assetId, quantity: 2, serialNo: null, note: "tráº£ vá»", UserId);
+        var result = await service.ReturnAsync(componentId, assetId, quantity: 2, serialNo: null, note: "trả về", UserId);
 
         Assert.True(result.Success);
         var component = await ctx.Components.Include(c => c.Assignments).SingleAsync(c => c.Id == componentId);
@@ -147,7 +147,7 @@ public class ComponentAllocationServiceTests
         var (componentId, _) = await SeedAsync(ctx, TrackingType.Serial, qty: 0);
         var service = new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx));
 
-        var result = await service.StockInAsync(componentId, new[] { "SN-001", "SN-002", "SN-003" }, "nháº­p lÃ´ 1", UserId);
+        var result = await service.StockInAsync(componentId, new[] { "SN-001", "SN-002", "SN-003" }, "nhập lô 1", UserId);
 
         Assert.True(result.Success);
         Assert.Equal(3, await ctx.ComponentUnits.CountAsync(u => u.ComponentId == componentId && u.Status == ComponentUnitStatus.InStock));
@@ -246,7 +246,7 @@ public class ComponentAllocationServiceTests
         var service = new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx));
         await service.AllocateAsync(componentId, assetId, quantity: 0, serialNo: "SN-001", note: null, UserId);
 
-        var result = await service.ReturnAsync(componentId, assetId, quantity: 0, serialNo: "SN-001", note: "tráº£ vá»", UserId);
+        var result = await service.ReturnAsync(componentId, assetId, quantity: 0, serialNo: "SN-001", note: "trả về", UserId);
 
         Assert.True(result.Success);
         var unit = await ctx.ComponentUnits.SingleAsync(u => u.SerialNo == "SN-001");
@@ -278,7 +278,7 @@ public class ComponentAllocationServiceTests
         await service.AllocateAsync(componentId, assetId, quantity: 0, serialNo: "SN-001", note: null, UserId);
         var unitId = (await ctx.ComponentUnits.SingleAsync(u => u.SerialNo == "SN-001")).Id;
 
-        var result = await service.SetUnitStatusAsync(unitId, ComponentUnitStatus.Damaged, "há»ng do nÆ°á»›c", UserId);
+        var result = await service.SetUnitStatusAsync(unitId, ComponentUnitStatus.Damaged, "hỏng do nước", UserId);
 
         Assert.True(result.Success);
         var unit = await ctx.ComponentUnits.SingleAsync(u => u.Id == unitId);
@@ -295,14 +295,14 @@ public class ComponentAllocationServiceTests
         var service = new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx));
         await service.AllocateAsync(componentId, assetId, quantity: 0, serialNo: "SN-001", note: null, UserId);
 
-        // Return via serialNo WITHOUT assetId â€” the path that previously logged TargetId = null
+        // Return via serialNo WITHOUT assetId — the path that previously logged TargetId = null
         // (Task N: the log must record the REAL asset the serial was returned from, not the null request assetId).
         var result = await service.ReturnAsync(componentId, assetId: null, quantity: 0, serialNo: "SN-001", note: null, UserId);
 
         Assert.True(result.Success);
         var log = await ctx.ActionLogs.SingleAsync(l => l.ItemType == ItemType.ComponentUnit && l.ActionType == ActionType.Checkin);
         Assert.NotNull(log.TargetId);
-        Assert.Equal(assetId, log.TargetId.Value); // NOT null â€” the actual asset the serial was allocated to
+        Assert.Equal(assetId, log.TargetId.Value); // NOT null — the actual asset the serial was allocated to
     }
 
     // ==================== Company scoping rules ====================
@@ -369,7 +369,7 @@ public class ComponentAllocationServiceTests
         var result = await service.DeleteUnitAsync(unitId, UserId);
 
         Assert.True(result.Success);
-        // The global query filter (DeletedAt == null) hides the soft-deleted unit â€” use IgnoreQueryFilters to read it.
+        // The global query filter (DeletedAt == null) hides the soft-deleted unit — use IgnoreQueryFilters to read it.
         var unit = await ctx.ComponentUnits.IgnoreQueryFilters().SingleAsync(u => u.Id == unitId);
         Assert.NotNull(unit.DeletedAt);
         Assert.Null(unit.CurrentAssetId);
@@ -390,7 +390,7 @@ public class ComponentAllocationServiceTests
             ItemId = unitId,
             ActionType = ActionType.Checkout,
             CreatedBy = UserId,
-            Note = "Ä‘Ã£ cáº¥p phÃ¡t"
+            Note = "đã cấp phát"
         });
         await ctx.SaveChangesAsync();
         var service = new ComponentAllocationService(ctx, new SuperUserScope(), TestHelpers.CreateActionLogService(ctx));
@@ -412,7 +412,7 @@ public class ComponentAllocationServiceTests
         await service.DeleteUnitAsync(unitId, UserId);
 
         // The global query filter (DeletedAt == null) hides the already-deleted unit, so a second
-        // delete resolves it as not found (NOT_FOUND) â€” the same behaviour the original controller had.
+        // delete resolves it as not found (NOT_FOUND) — the same behaviour the original controller had.
         var result = await service.DeleteUnitAsync(unitId, UserId);
 
         Assert.False(result.Success);
@@ -425,7 +425,7 @@ public class ComponentAllocationServiceTests
         await using var ctx = CreateContext(nameof(Serial_DeleteUnit_CrossCompany_NotAllowed));
         var (componentId, _) = await SeedAsync(ctx, TrackingType.Serial, serials: new[] { "SN-001" });
         var unitId = (await ctx.ComponentUnits.SingleAsync(u => u.SerialNo == "SN-001")).Id;
-        var otherCompany = new Company { Name = "CT-KhÃ¡c" };
+        var otherCompany = new Company { Name = "CT-Khác" };
         ctx.Companies.Add(otherCompany);
         await ctx.SaveChangesAsync();
 

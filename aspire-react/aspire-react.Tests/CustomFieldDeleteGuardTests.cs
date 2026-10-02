@@ -14,9 +14,9 @@ using Xunit;
 namespace aspire_react.Tests;
 
 /// <summary>
-/// ST6a â€” Delete guard cho CustomField: field Ä‘ang Ä‘Æ°á»£c CustomFieldFieldset tham chiáº¿u
-/// (FK FieldId â†’ CustomField, OnDelete(Cascade)) khÃ´ng Ä‘Æ°á»£c xÃ³a â€” náº¿u khÃ´ng, pivot rows
-/// fieldâ†”fieldset sáº½ bá»‹ cascade xÃ³a sáº¡ch (bug class F7). Field khÃ´ng liÃªn káº¿t xÃ³a bÃ¬nh thÆ°á»ng.
+/// ST6a — Delete guard cho CustomField: field đang được CustomFieldFieldset tham chiếu
+/// (FK FieldId → CustomField, OnDelete(Cascade)) không được xóa — nếu không, pivot rows
+/// field↔fieldset sẽ bị cascade xóa sạch (bug class F7). Field không liên kết xóa bình thường.
 /// [Giai đoạn 3] CustomFields migrated to MediatR — delete tests now drive the command through
 /// the REAL ActionLogBehavior chain so the log assertions stay meaningful.
 /// </summary>
@@ -46,8 +46,8 @@ public class CustomFieldDeleteGuardTests
         {
             Username = "cf-admin",
             Email = "cf-admin@test.local",
-            FirstName = "Nguyá»…n",
-            LastName = "VÄƒn A"
+            FirstName = "Nguyễn",
+            LastName = "Văn A"
         };
         ctx.Users.Add(user);
         await ctx.SaveChangesAsync();
@@ -76,8 +76,8 @@ public class CustomFieldDeleteGuardTests
         await using var ctx = CreateContext(nameof(Delete_FieldLinkedToFieldset_Blocked_DataIntact_NoDeleteLog));
         var adminId = await SeedUserAsync(ctx);
 
-        var field = new CustomField { Name = "MÃ£ mÃ u", Slug = "mau_sac", Format = "TEXT" };
-        var fieldset = new CustomFieldset { Name = "Fieldset MÃ¡y in" };
+        var field = new CustomField { Name = "Mã màu", Slug = "mau_sac", Format = "TEXT" };
+        var fieldset = new CustomFieldset { Name = "Fieldset Máy in" };
         ctx.CustomFields.Add(field);
         ctx.CustomFieldsets.Add(fieldset);
         await ctx.SaveChangesAsync();
@@ -97,7 +97,7 @@ public class CustomFieldDeleteGuardTests
 
         Assert.False(result.Success);
         Assert.Equal("CUSTOM_FIELD_IN_USE", result.ErrorCode);
-        // Data intact â€” field + pivot row both survive.
+        // Data intact — field + pivot row both survive.
         Assert.True(await ctx.CustomFields.AnyAsync(f => f.Id == field.Id));
         Assert.True(await ctx.CustomFieldFieldsets.AnyAsync(cf => cf.FieldId == field.Id));
         // No Delete ActionLog was written.
@@ -110,7 +110,7 @@ public class CustomFieldDeleteGuardTests
         await using var ctx = CreateContext(nameof(Delete_FieldNotLinked_RemovesAndLogsDelete));
         var adminId = await SeedUserAsync(ctx);
 
-        var field = new CustomField { Name = "Sá»‘ series", Slug = "serial", Format = "TEXT" };
+        var field = new CustomField { Name = "Số series", Slug = "serial", Format = "TEXT" };
         ctx.CustomFields.Add(field);
         await ctx.SaveChangesAsync();
 

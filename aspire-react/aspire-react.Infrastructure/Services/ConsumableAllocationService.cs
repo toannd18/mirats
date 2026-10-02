@@ -56,7 +56,7 @@ public class ConsumableAllocationService : IConsumableAllocationService
                 "Vật tư chưa được xác nhận — không thể cấp phát. Hãy xác nhận vật tư trước.", "CONSUMABLE_NOT_CONFIRMED");
 
         if (quantity <= 0)
-            return new ConsumableCheckoutResult(false, $"S��` l�����ng c���p phA�t ph���i l��>n h��n 0.", "INVALID_QUANTITY");
+            return new ConsumableCheckoutResult(false, $"Số lượng cấp phát phải lớn hơn 0.", "INVALID_QUANTITY");
 
         var checkedOut = await _context.ConsumableCheckouts
             .Where(c => c.ConsumableId == consumableId)

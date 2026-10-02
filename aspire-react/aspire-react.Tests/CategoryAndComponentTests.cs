@@ -60,7 +60,7 @@ public class CategoryAndComponentTests
         return controller;
     }
 
-    // Anonymous types are internal to the Server assembly â€” dynamic binding can't read their
+    // Anonymous types are internal to the Server assembly — dynamic binding can't read their
     // members cross-assembly, so round-trip through JSON instead. Use Web defaults (camelCase)
     // to match the real API serialization contract.
     private static readonly System.Text.Json.JsonSerializerOptions WebJson = new(System.Text.Json.JsonSerializerDefaults.Web);
@@ -166,7 +166,7 @@ public class CategoryAndComponentTests
         await using var ctx = CreateContext(nameof(GetCategories_ByTypeComponent_ReturnsOnlyComponentCategories));
         ctx.Categories.AddRange(
             new Category { Name = "RAM", CategoryType = CategoryType.Component },
-            new Category { Name = "á»” cá»©ng", CategoryType = CategoryType.Component },
+            new Category { Name = "Ổ cứng", CategoryType = CategoryType.Component },
             new Category { Name = "Laptop", CategoryType = CategoryType.Asset });
         await ctx.SaveChangesAsync();
 
@@ -238,13 +238,13 @@ public class CategoryAndComponentTests
         ctx.Components.Add(component);
         await ctx.SaveChangesAsync();
 
-        var otherCategory = new Category { Name = "á»” cá»©ng", CategoryType = CategoryType.Component };
+        var otherCategory = new Category { Name = "Ổ cứng", CategoryType = CategoryType.Component };
         ctx.Categories.Add(otherCategory);
         await ctx.SaveChangesAsync();
 
         var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
-        // Client tries to change the CategoryId â†’ FIELD_LOCKED.
-        var result = await controller.Update(component.Id, new UpdateComponentRequest(Name: "Äá»•i tÃªn", CategoryId: otherCategory.Id));
+        // Client tries to change the CategoryId → FIELD_LOCKED.
+        var result = await controller.Update(component.Id, new UpdateComponentRequest(Name: "Đổi tên", CategoryId: otherCategory.Id));
 
         var bad = Assert.IsType<BadRequestObjectResult>(result);
         Assert.Equal("FIELD_LOCKED", ReadErrorCode(bad.Value));
@@ -263,7 +263,7 @@ public class CategoryAndComponentTests
         await ctx.SaveChangesAsync();
 
         var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
-        // Same CategoryId/CompanyId as current â†’ allowed; Qty is always ignored.
+        // Same CategoryId/CompanyId as current → allowed; Qty is always ignored.
         var result = await controller.Update(component.Id, new UpdateComponentRequest(
             Name: "RAM 32GB", MinAmt: 2, CategoryId: category.Id, CompanyId: company.Id, Qty: 999));
 
@@ -272,7 +272,7 @@ public class CategoryAndComponentTests
         Assert.NotNull(updated);
         Assert.Equal("RAM 32GB", updated!.Name);
         Assert.Equal(2, updated.MinAmt);
-        Assert.Equal(5, updated.Qty); // Qty ignored â€” never editable
+        Assert.Equal(5, updated.Qty); // Qty ignored — never editable
     }
 
     // ==================== Delete guard (allocation history) ====================
@@ -329,8 +329,8 @@ public class CategoryAndComponentTests
         ctx.Companies.Add(company);
         ctx.Categories.Add(category);
         ctx.Components.AddRange(
-            new Component { Name = "CÃ“ cÃ´ng ty", TrackingType = TrackingType.Bulk, Qty = 1, CategoryId = category.Id, CompanyId = company.Id },
-            new Component { Name = "ChÆ°a xÃ¡c Ä‘á»‹nh", TrackingType = TrackingType.Bulk, Qty = 1, CategoryId = category.Id, CompanyId = null });
+            new Component { Name = "CÓ công ty", TrackingType = TrackingType.Bulk, Qty = 1, CategoryId = category.Id, CompanyId = company.Id },
+            new Component { Name = "Chưa xác định", TrackingType = TrackingType.Bulk, Qty = 1, CategoryId = category.Id, CompanyId = null });
         await ctx.SaveChangesAsync();
 
         var controller = WithUser(new ComponentsController(TestHelpers.BuildMediator(ctx)), UserId);
@@ -339,6 +339,6 @@ public class CategoryAndComponentTests
         var ok = Assert.IsType<OkObjectResult>(result);
         var names = ReadNames(ok.Value);
         Assert.Single(names);
-        Assert.Equal("ChÆ°a xÃ¡c Ä‘á»‹nh", names[0]);
+        Assert.Equal("Chưa xác định", names[0]);
     }
 }
