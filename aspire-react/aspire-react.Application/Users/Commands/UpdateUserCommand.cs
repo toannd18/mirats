@@ -101,6 +101,16 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
                 ErrorCode: "COMPANY_MISMATCH");
         }
 
+        // [FIX-N5 remainder] Department/Location references must exist AND be inside the actor's
+        // scope (a company-A admin could previously attach a user to company-B's department or
+        // location). Checked BEFORE any mutation, only for the fields actually sent.
+        var referenceCheck = await UserReferenceScope.ValidateAsync(
+            _context, _companyScope, request.DepartmentId, request.LocationId, cancellationToken);
+        if (referenceCheck.ErrorCode is not null)
+        {
+            return new UpdateUserResult(false, referenceCheck.Message!, ErrorCode: referenceCheck.ErrorCode);
+        }
+
         var previousIsSuperUser = user.IsSuperUser;
         var previousEmail = user.Email;
         var previousIsActive = user.IsActive;

@@ -40,17 +40,20 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, Creat
     private readonly IApplicationDbContext _context;
     private readonly IPasswordHasherService _passwordHasher;
     private readonly IActionLogService _actionLogService;
+    private readonly ICompanyScopeService _companyScope;
     private readonly ILogger<CreateUserCommandHandler> _logger;
 
     public CreateUserCommandHandler(
         IApplicationDbContext context,
         IPasswordHasherService passwordHasher,
         IActionLogService actionLogService,
+        ICompanyScopeService companyScope,
         ILogger<CreateUserCommandHandler> logger)
     {
         _context = context;
         _passwordHasher = passwordHasher;
         _actionLogService = actionLogService;
+        _companyScope = companyScope;
         _logger = logger;
     }
 
@@ -63,6 +66,14 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, Creat
         // Validator enforces ≥8 chars; defense-in-depth check here too.
         if (string.IsNullOrEmpty(request.Password) || request.Password.Length < 8)
             return new CreateUserResult(false, "Mật khẩu ban đầu phải có ít nhất 8 ký tự.", ErrorCode: "VALIDATION_ERROR");
+
+        // [FIX-N5 remainder] Department/Location references must exist AND be inside the actor's
+        // scope — same rule as CompanyId (checked in the controller for this command): a regular
+        // admin may only attach users to departments/locations of their own company (or floaters).
+        var referenceCheck = await UserReferenceScope.ValidateAsync(
+            _context, _companyScope, request.DepartmentId, request.LocationId, cancellationToken);
+        if (referenceCheck.ErrorCode is not null)
+            return new CreateUserResult(false, referenceCheck.Message!, ErrorCode: referenceCheck.ErrorCode);
 
         // === Save to local DB ===
         var user = new User

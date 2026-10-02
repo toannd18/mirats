@@ -255,6 +255,10 @@ public class UsersController : ControllerBase
             return result.ErrorCode switch
             {
                 "VALIDATION_ERROR" => BadRequest(new { status = "error", message = result.Message }),
+                // [FIX-N5 remainder] Scoping/reference failures use the same snake_case body as the
+                // controller-level COMPANY_MISMATCH guard above (:246-248).
+                "COMPANY_MISMATCH" or "RESOURCE_NOT_FOUND"
+                    => BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode }),
                 _ => BadRequest(new { status = "error", message = result.Message, errorCode = result.ErrorCode })
             };
         }
@@ -340,7 +344,8 @@ public class UsersController : ControllerBase
                 // [FIX-N5] Company-scoping failure uses the snake_case `error_code` body exactly like
                 // CreateUser's COMPANY_MISMATCH guard (:246-248) and ERROR_CODES §1.3; the rest of this
                 // controller's failures keep the verbatim camelCase `errorCode` quirk.
-                "COMPANY_MISMATCH" => BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode }),
+                "COMPANY_MISMATCH" or "RESOURCE_NOT_FOUND"
+                    => BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode }),
                 _ => BadRequest(new { status = "error", message = result.Message, errorCode = result.ErrorCode })
             };
         }

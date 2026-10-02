@@ -38,8 +38,11 @@ public class UserActionLogTests
         return actor.Id;
     }
 
+    // [FIX-N5 remainder] CreateUserCommandHandler now also takes ICompanyScopeService for the
+    // department/location reference scope check. These tests assert ActionLog/password shape and
+    // never send Department/Location, so a superuser scope keeps them focused.
     private static CreateUserCommandHandler CreateHandler(AppDbContext ctx, Guid actorId)
-        => new(ctx, new PasswordHasherService(), TestHelpers.CreateActionLogService(ctx, actorId), NullLogger<CreateUserCommandHandler>.Instance);
+        => new(ctx, new PasswordHasherService(), TestHelpers.CreateActionLogService(ctx, actorId), new TestHelpers.FakeScope { Super = true }, NullLogger<CreateUserCommandHandler>.Instance);
 
     // [FIX-N5] UpdateUserCommandHandler now takes ICompanyScopeService. These tests assert the
     // ActionLog / LogMeta shape (one of them deliberately moves the user to ANOTHER company), so the
