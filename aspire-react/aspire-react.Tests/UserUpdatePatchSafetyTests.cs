@@ -28,7 +28,8 @@ public class UserUpdatePatchSafetyTests
         => TestHelpers.CreateContext(name);
 
     private static UpdateUserCommandHandler BuildHandler(AppDbContext ctx, TestHelpers.FakeScope scope, Guid actorId)
-        => new(ctx, TestHelpers.CreateActionLogService(ctx, actorId), scope, NullLogger<UpdateUserCommandHandler>.Instance);
+        => new(ctx, scope, new aspire_react.Server.Infrastructure.Authorization.PermissionLockoutGuard(ctx),
+            NullLogger<UpdateUserCommandHandler>.Instance);
 
     private static readonly Guid ActorId = Guid.NewGuid();
 

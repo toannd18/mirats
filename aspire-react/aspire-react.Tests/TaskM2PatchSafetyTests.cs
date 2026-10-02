@@ -5,6 +5,7 @@ using aspire_react.Server.Application.Categories.Commands;
 using aspire_react.Server.Application.Users.Commands;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
+using aspire_react.Server.Infrastructure.Authorization;
 using aspire_react.Server.Infrastructure.Persistence;
 using aspire_react.Server.Infrastructure.Services;
 using aspire_react.Server.Web.Controllers;
@@ -64,7 +65,7 @@ public class TaskM2PatchSafetyTests
         await ctx.SaveChangesAsync();
 
         var handler = new UpdateUserCommandHandler(ctx,
-            TestHelpers.CreateActionLogService(ctx, ActorId), SuperScope, NullLogger<UpdateUserCommandHandler>.Instance);
+            SuperScope, new PermissionLockoutGuard(ctx), NullLogger<UpdateUserCommandHandler>.Instance);
 
         // Partial payload: no IsSuperUser / IsActive â†’ must keep the existing true/true.
         var result = await handler.Handle(new UpdateUserCommand
@@ -98,7 +99,7 @@ public class TaskM2PatchSafetyTests
         await ctx.SaveChangesAsync();
 
         var handler = new UpdateUserCommandHandler(ctx,
-            TestHelpers.CreateActionLogService(ctx, ActorId), SuperScope, NullLogger<UpdateUserCommandHandler>.Instance);
+            SuperScope, new PermissionLockoutGuard(ctx), NullLogger<UpdateUserCommandHandler>.Instance);
 
         var result = await handler.Handle(new UpdateUserCommand
         {
@@ -107,7 +108,11 @@ public class TaskM2PatchSafetyTests
             LastName = "L",
             Email = "a@l",
             IsSuperUser = false,
-            IsActive = true
+            IsActive = true,
+            // [FIX BUG-M] the demote-lockout guard now runs INSIDE the handler; this test targets
+            // patch semantics, so the actor is a realm superuser (guard bypassed).
+            ActorIsRealmSuperUser = true,
+            CurrentUserId = ActorId
         }, CancellationToken.None);
 
         Assert.True(result.Success);

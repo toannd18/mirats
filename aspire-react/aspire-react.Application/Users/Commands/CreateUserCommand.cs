@@ -12,8 +12,17 @@ namespace aspire_react.Server.Application.Users.Commands;
 /// [AUTH Phase 4] Command to create a new user — LOCAL-ONLY (no Keycloak sync; D-3 approved).
 /// Admin supplies the initial password (≥8) → PBKDF2 hash + MustChangePassword=true so the
 /// user must change it at first login (no email system — offline handover, D-4).
+///
+/// [FIX BUG-M 2026-10-02] The controller-level glue (manual validator call + company-scope guard +
+/// a SECOND ActionLog after the command committed) moved in here:
+///   * company-scope check on CREATE (SEC-FIX S3 rule) is now the handler's first check;
+///   * the ActionLog is produced by ActionLogBehavior (<see cref="ILoggableCommand{TResponse}"/>)
+///     inside the SAME transaction as the insert → exactly ONE audit entry per create.
+/// The FluentValidation validator still runs via the MediatR ValidationBehavior pipeline, and
+/// ValidationExceptionHandler reproduces the exact `{status,message:"Validation failed.",errors}`
+/// body the controller used to build by hand.
 /// </summary>
-public record CreateUserCommand : IRequest<CreateUserResult>
+public record CreateUserCommand : IRequest<CreateUserResult>, ILoggableCommand<CreateUserResult>
 {
     public string Username { get; init; } = string.Empty;
     public string Email { get; init; } = string.Empty;
@@ -27,6 +36,32 @@ public record CreateUserCommand : IRequest<CreateUserResult>
     public Guid? CompanyId { get; init; }
     public Guid? DepartmentId { get; init; }
     public Guid? LocationId { get; init; }
+    /// <summary>Actor (local user id) — set by the controller from the `local_user_id` claim.</summary>
+    public Guid CurrentUserId { get; init; }
+
+    public ActionLogEntry? BuildLogEntry(CreateUserResult response)
+    {
+        // Soft-fail (scope/validation) returns before any row exists → nothing to log.
+        if (!response.Success || response.User is null) return null;
+
+        return new ActionLogEntry
+        {
+            ItemType = ItemType.User,
+            ItemId = response.User.Id,
+            ActionType = ActionType.Create,
+            CreatedBy = CurrentUserId,
+            CompanyId = response.User.CompanyId,
+            Note = $"Created user: {response.User.Username} ({response.User.Email})",
+            LogMeta = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                username = response.User.Username,
+                email = response.User.Email,
+                isActive = response.User.IsActive,
+                isSuperUser = response.User.IsSuperUser,
+                companyId = response.User.CompanyId
+            })
+        };
+    }
 }
 
 public record CreateUserResult(
@@ -39,20 +74,17 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, Creat
 {
     private readonly IApplicationDbContext _context;
     private readonly IPasswordHasherService _passwordHasher;
-    private readonly IActionLogService _actionLogService;
     private readonly ICompanyScopeService _companyScope;
     private readonly ILogger<CreateUserCommandHandler> _logger;
 
     public CreateUserCommandHandler(
         IApplicationDbContext context,
         IPasswordHasherService passwordHasher,
-        IActionLogService actionLogService,
         ICompanyScopeService companyScope,
         ILogger<CreateUserCommandHandler> logger)
     {
         _context = context;
         _passwordHasher = passwordHasher;
-        _actionLogService = actionLogService;
         _companyScope = companyScope;
         _logger = logger;
     }
@@ -67,9 +99,17 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, Creat
         if (string.IsNullOrEmpty(request.Password) || request.Password.Length < 8)
             return new CreateUserResult(false, "Mật khẩu ban đầu phải có ít nhất 8 ký tự.", ErrorCode: "VALIDATION_ERROR");
 
+        // [SEC-FIX S3 / FIX BUG-M] Company-scoping on CREATE — moved verbatim from the controller:
+        // a regular user may only create users for their OWN company (or a company-less floater);
+        // superuser (scope null) may create for any company. Out-of-scope → 400 COMPANY_MISMATCH
+        // (create, not access to an existing record → no hide-existence).
+        var actorCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (actorCompanyId.HasValue && request.CompanyId.HasValue && request.CompanyId.Value != actorCompanyId.Value)
+            return new CreateUserResult(false, "Bạn chỉ được tạo người dùng cho công ty của mình.", ErrorCode: "COMPANY_MISMATCH");
+
         // [FIX-N5 remainder] Department/Location references must exist AND be inside the actor's
-        // scope — same rule as CompanyId (checked in the controller for this command): a regular
-        // admin may only attach users to departments/locations of their own company (or floaters).
+        // scope — same rule as CompanyId: a regular admin may only attach users to
+        // departments/locations of their own company (or floaters).
         var referenceCheck = await UserReferenceScope.ValidateAsync(
             _context, _companyScope, request.DepartmentId, request.LocationId, cancellationToken);
         if (referenceCheck.ErrorCode is not null)
@@ -95,24 +135,8 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, Creat
 
         _context.Users.Add(user);
 
-        // Audit trail (ST5/F10): record actor + affected user; persisted atomically with the new user.
-        var actorId = await _actionLogService.GetCurrentUserIdAsync();
-        _actionLogService.LogAction(
-            itemType: ItemType.User,
-            itemId: user.Id,
-            actionType: ActionType.Create,
-            loggedByUserId: actorId,
-            companyId: user.CompanyId,
-            note: $"Created user: {user.Username} ({user.Email})",
-            logMeta: System.Text.Json.JsonSerializer.Serialize(new
-            {
-                username = user.Username,
-                email = user.Email,
-                isActive = user.IsActive,
-                isSuperUser = user.IsSuperUser,
-                companyId = user.CompanyId
-            }));
-
+        // [FIX BUG-M] Audit trail: ActionLogBehavior (ILoggableCommand) stages the log and commits it
+        // together with this insert — the manual LogAction call that used to live here is gone.
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("User '{Username}' saved to local DB with ID {UserId} (local password set, must change at first login).",

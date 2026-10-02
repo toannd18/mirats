@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Users.DTOs;
+using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Application.Common.Interfaces;
@@ -12,6 +13,14 @@ namespace aspire_react.Server.Application.Users.Commands;
 /// [AUTH Phase 4] Command to update an existing user — LOCAL-ONLY (no Keycloak sync; D-3).
 /// IsSuperUser is a purely local flag now.
 /// </summary>
+/// <remarks>
+/// [FIX BUG-M 2026-10-02] The controller-level glue moved in here so the write is ONE unit and
+/// produces exactly ONE ActionLog: target lookup + company-scope (hide-existence) + demote-lockout
+/// guard (needs <c>ActorIsRealmSuperUser</c>, resolved from claims by the controller) now run inside
+/// the handler, and the log comes from <see cref="ILoggableCommand{TResponse}"/> (ActionLogBehavior,
+/// same transaction as the data change). Previously the handler logged once and the controller
+/// logged a SECOND time after the command had already committed.
+/// </remarks>
 /// <remarks>
 /// [FIX-N1 2026-10-02] Patch-safety (Task M1/M2 convention): a field that is ABSENT from the
 /// payload is never written — the stored value is preserved (before this fix CompanyId /
@@ -30,7 +39,7 @@ namespace aspire_react.Server.Application.Users.Commands;
 /// a regular user may only assign a company equal to their own scope or clear to floater;
 /// a superuser (scope null) is unrestricted. Validated BEFORE any mutation.
 /// </remarks>
-public record UpdateUserCommand : IRequest<UpdateUserResult>
+public record UpdateUserCommand : IRequest<UpdateUserResult>, ILoggableCommand<UpdateUserResult>
 {
     public Guid Id { get; init; }
     public string FirstName { get; init; } = string.Empty;
@@ -45,30 +54,53 @@ public record UpdateUserCommand : IRequest<UpdateUserResult>
     public Guid? CompanyId { get; init; }
     public Guid? DepartmentId { get; init; }
     public Guid? LocationId { get; init; }
+    /// <summary>Actor (local user id) — set by the controller from the `local_user_id` claim.</summary>
+    public Guid CurrentUserId { get; init; }
+    /// <summary>Realm/claim-level superuser flag — resolved by the controller (handlers cannot read HttpContext).</summary>
+    public bool ActorIsRealmSuperUser { get; init; }
+
+    public ActionLogEntry? BuildLogEntry(UpdateUserResult response)
+    {
+        if (!response.Success) return null;
+
+        return new ActionLogEntry
+        {
+            ItemType = ItemType.User,
+            ItemId = Id,
+            ActionType = ActionType.Update,
+            CreatedBy = CurrentUserId,
+            CompanyId = response.CompanyId,
+            Note = response.Note,
+            LogMeta = response.LogMeta
+        };
+    }
 }
 
 public record UpdateUserResult(
     bool Success,
     string Message,
     UserDto? User = null,
-    string? ErrorCode = null);
+    string? ErrorCode = null,
+    Guid? CompanyId = null,
+    string? Note = null,
+    string? LogMeta = null);
 
 public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, UpdateUserResult>
 {
     private readonly IApplicationDbContext _context;
-    private readonly IActionLogService _actionLogService;
     private readonly ICompanyScopeService _companyScope;
+    private readonly IPermissionLockoutGuard _lockoutGuard;
     private readonly ILogger<UpdateUserCommandHandler> _logger;
 
     public UpdateUserCommandHandler(
         IApplicationDbContext context,
-        IActionLogService actionLogService,
         ICompanyScopeService companyScope,
+        IPermissionLockoutGuard lockoutGuard,
         ILogger<UpdateUserCommandHandler> logger)
     {
         _context = context;
-        _actionLogService = actionLogService;
         _companyScope = companyScope;
+        _lockoutGuard = lockoutGuard;
         _logger = logger;
     }
 
@@ -87,13 +119,36 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
             return new UpdateUserResult(false, "User not found.", ErrorCode: "USER_NOT_FOUND");
         }
 
+        // [Task J / FIX BUG-M] Company-scoping on the TARGET row (moved from the controller):
+        // a regular user may only update users of their own company (or floater); superuser
+        // (GetCurrentUserCompanyIdAsync → null) is unrestricted. Out-of-scope = hide-existence 404.
+        var actorCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (actorCompanyId.HasValue && user.CompanyId.HasValue && user.CompanyId.Value != actorCompanyId.Value)
+        {
+            return new UpdateUserResult(false, "User not found.", ErrorCode: "USER_NOT_FOUND");
+        }
+
+        // [Task J / FIX BUG-M] Anti self-lockout (moved from the controller): demoting the last
+        // superuser must be blocked — regardless of who performs it.
+        if (request.IsSuperUser == false && user.IsSuperUser)
+        {
+            if (await _lockoutGuard.WouldDemoteSuperUserLockoutAsync(
+                    request.CurrentUserId, request.Id, request.ActorIsRealmSuperUser))
+            {
+                return new UpdateUserResult(
+                    false,
+                    "Bạn không thể hạ quyền superuser khi người này là superuser cuối cùng còn giữ quyền quản trị.",
+                    ErrorCode: "SELF_LOCKOUT");
+            }
+        }
+
         // [FIX-N5] Company-scoping for the NEW CompanyId — checked BEFORE any mutation (Task L2 /
         // CreateUser pattern). A regular user may only assign their own company; the Guid.Empty
         // sentinel (clear → floater) is always allowed, mirroring CreateUser's "own company or
         // floater" rule; for a superuser GetCurrentUserCompanyIdAsync() returns null → unrestricted.
         if (request.CompanyId.HasValue && request.CompanyId.Value != Guid.Empty
-            && (await _companyScope.GetCurrentUserCompanyIdAsync()) is { } actorCompanyId
-            && request.CompanyId.Value != actorCompanyId)
+            && actorCompanyId.HasValue
+            && request.CompanyId.Value != actorCompanyId.Value)
         {
             return new UpdateUserResult(
                 false,
@@ -138,29 +193,9 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
         // [AUTH Phase 4] LOCAL-ONLY update (D-3): the Keycloak sync block (UpdateUserAsync +
         // superuser group add/remove) is removed — IsSuperUser is a purely local flag now.
 
-        // === Save to local DB ===
-        // Audit trail (ST5/F10): record actor + affected user + meaningful changes; persisted with the update.
-        var actorId = await _actionLogService.GetCurrentUserIdAsync();
-        _actionLogService.LogAction(
-            itemType: ItemType.User,
-            itemId: user.Id,
-            actionType: ActionType.Update,
-            loggedByUserId: actorId,
-            companyId: user.CompanyId,
-            note: $"Updated user: {user.Username} ({user.Email})",
-            logMeta: System.Text.Json.JsonSerializer.Serialize(new
-            {
-                changes = new Dictionary<string, object?>
-                {
-                    ["email"] = new { old = previousEmail, @new = user.Email },
-                    ["isActive"] = new { old = previousIsActive, @new = user.IsActive },
-                    ["isSuperUser"] = new { old = previousIsSuperUser, @new = user.IsSuperUser },
-                    ["companyId"] = new { old = previousCompanyId, @new = user.CompanyId },
-                    ["departmentId"] = new { old = previousDepartmentId, @new = user.DepartmentId },
-                    ["locationId"] = new { old = previousLocationId, @new = user.LocationId }
-                }
-            }));
-
+        // [FIX BUG-M] ActionLog is persisted by ActionLogBehavior (ILoggableCommand) in the SAME
+        // transaction as this SaveChanges — the manual log here + the controller log (after commit)
+        // are both gone: a write now produces exactly ONE audit entry.
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("User '{Username}' (ID: {UserId}) updated in local DB.",
@@ -188,7 +223,24 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
             UpdatedAt = user.UpdatedAt,
         };
 
-        return new UpdateUserResult(true, "User updated successfully.", User: dto);
+        return new UpdateUserResult(
+            true,
+            "User updated successfully.",
+            User: dto,
+            CompanyId: user.CompanyId,
+            Note: $"Updated user: {user.Username} ({user.Email})",
+            LogMeta: System.Text.Json.JsonSerializer.Serialize(new
+            {
+                changes = new Dictionary<string, object?>
+                {
+                    ["email"] = new { old = previousEmail, @new = user.Email },
+                    ["isActive"] = new { old = previousIsActive, @new = user.IsActive },
+                    ["isSuperUser"] = new { old = previousIsSuperUser, @new = user.IsSuperUser },
+                    ["companyId"] = new { old = previousCompanyId, @new = user.CompanyId },
+                    ["departmentId"] = new { old = previousDepartmentId, @new = user.DepartmentId },
+                    ["locationId"] = new { old = previousLocationId, @new = user.LocationId }
+                }
+            }));
     }
 
     /// <summary>

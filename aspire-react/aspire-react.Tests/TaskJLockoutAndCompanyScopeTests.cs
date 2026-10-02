@@ -12,6 +12,7 @@ using aspire_react.Server.Web.Controllers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace aspire_react.Tests;
@@ -87,24 +88,11 @@ public class TaskJLockoutAndCompanyScopeTests
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"));
     }
 
-    private static UsersController BuildUsersController(
-        AppDbContext db,
-        ClaimsPrincipal principal,
-        TestHelpers.FakeScope scope)
-    {
-        var httpContext = new DefaultHttpContext { User = principal };
-        var controller = new UsersController(
-            mediator: new TestHelpers.ThrowingMediator(),
-            context: db,
-            actionLogService: new ActionLogService(db, new HttpContextAccessor { HttpContext = httpContext }),
-            lockoutGuard: new PermissionLockoutGuard(db),
-            companyScope: scope);
-        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
-        return controller;
-    }
-
     // [Giai đoạn 3] Groups migrated to MediatR — the two controller-level DeleteGroup tests below
     // now drive DeleteGroupCommandHandler directly (real PermissionLockoutGuard wired in).
+    // [FIX BUG-M 2026-10-02] BuildUsersController removed together with the hybrid UsersController
+    // constructor: the user guards are tested at command-handler level (see BuildUpdateHandler /
+    // BuildDeleteHandler below), the controller is now a thin IMediator map.
 
     private static UpdateUserCommand ValidUpdate(Guid id, bool isSuperUser)
         => new()
@@ -317,137 +305,154 @@ public class TaskJLockoutAndCompanyScopeTests
     }
 
     // =========================================================================
-    // CONTROLLER — UsersController.UpdateUser (company-scoping + demote lockout)
-    // NOTE: reach-mediator is proven by ThrowingMediator throwing (Send would be the next step).
+    // UpdateUserCommand / DeleteUserCommand — company-scoping + lockout guard
+    // [FIX BUG-M 2026-10-02] The guards moved OUT of UsersController INTO the command handlers
+    // (the controller is now IMediator-only), so these tests drive the handlers directly with a REAL
+    // PermissionLockoutGuard. Same substance; they now assert the outcome (result.ErrorCode / DB
+    // state) instead of "reached the throwing mediator".
     // =========================================================================
 
+    private static UpdateUserCommandHandler BuildUpdateHandler(AppDbContext db, TestHelpers.FakeScope scope)
+        => new(db, scope, new PermissionLockoutGuard(db), NullLogger<UpdateUserCommandHandler>.Instance);
+
+    private static DeleteUserCommandHandler BuildDeleteHandler(AppDbContext db, TestHelpers.FakeScope scope)
+        => new(db, scope, new PermissionLockoutGuard(db), NullLogger<DeleteUserCommandHandler>.Instance);
+
     [Fact]
-    public async Task UpdateUser_CrossCompany_Returns404_BeforeMediator()
+    public async Task UpdateUser_CrossCompany_Rejected_NotFound()
     {
-        await using var db = CreateContext(nameof(UpdateUser_CrossCompany_Returns404_BeforeMediator));
+        await using var db = CreateContext(nameof(UpdateUser_CrossCompany_Rejected_NotFound));
         var companyA = await AddCompanyAsync(db, "CT-A");
         var companyB = await AddCompanyAsync(db, "CT-B");
         var actor = await AddUserAsync(db, "actor1", companyId: companyA);
         var target = await AddUserAsync(db, "target1", companyId: companyB);
 
-        var principal = CreatePrincipal(actor.Id);
-        var controller = BuildUsersController(db, principal, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var handler = BuildUpdateHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var result = await handler.Handle(
+            ValidUpdate(target.Id, false) with { CurrentUserId = actor.Id }, CancellationToken.None);
 
-        var result = await controller.UpdateUser(target.Id, ValidUpdate(target.Id, false), new UpdateUserCommandValidator(db));
-        Assert.IsType<NotFoundObjectResult>(result);
+        Assert.False(result.Success);
+        Assert.Equal("USER_NOT_FOUND", result.ErrorCode); // hide-existence
     }
 
     [Fact]
-    public async Task UpdateUser_SameCompany_ReachesMediator()
+    public async Task UpdateUser_SameCompany_Allowed()
     {
-        await using var db = CreateContext(nameof(UpdateUser_SameCompany_ReachesMediator));
+        await using var db = CreateContext(nameof(UpdateUser_SameCompany_Allowed));
         var companyA = await AddCompanyAsync(db, "CT-A");
         var actor = await AddUserAsync(db, "actor1", companyId: companyA);
         var target = await AddUserAsync(db, "target1", companyId: companyA);
 
-        var principal = CreatePrincipal(actor.Id);
-        var controller = BuildUsersController(db, principal, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var handler = BuildUpdateHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var result = await handler.Handle(
+            ValidUpdate(target.Id, false) with { CurrentUserId = actor.Id }, CancellationToken.None);
 
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => controller.UpdateUser(target.Id, ValidUpdate(target.Id, false), new UpdateUserCommandValidator(db)));
+        Assert.True(result.Success);
+        var reloaded = await db.Users.SingleAsync(u => u.Id == target.Id);
+        Assert.Equal("unique@t.local", reloaded.Email);
+        Assert.Equal(companyA, reloaded.CompanyId); // unchanged (patch: CompanyId not sent)
     }
 
     [Fact]
-    public async Task UpdateUser_SuperUserActor_CrossCompany_ReachesMediator()
+    public async Task UpdateUser_SuperUserActor_CrossCompany_Allowed()
     {
-        await using var db = CreateContext(nameof(UpdateUser_SuperUserActor_CrossCompany_ReachesMediator));
+        await using var db = CreateContext(nameof(UpdateUser_SuperUserActor_CrossCompany_Allowed));
         var companyA = await AddCompanyAsync(db, "CT-A");
         var companyB = await AddCompanyAsync(db, "CT-B");
         var actor = await AddUserAsync(db, "actor1", companyId: companyA);
         var target = await AddUserAsync(db, "target1", companyId: companyB);
 
-        var principal = CreatePrincipal(actor.Id);
-        var controller = BuildUsersController(db, principal, new TestHelpers.FakeScope { Super = true });
+        var handler = BuildUpdateHandler(db, new TestHelpers.FakeScope { Super = true });
+        var result = await handler.Handle(
+            ValidUpdate(target.Id, false) with { CurrentUserId = actor.Id }, CancellationToken.None);
 
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => controller.UpdateUser(target.Id, ValidUpdate(target.Id, false), new UpdateUserCommandValidator(db)));
+        Assert.True(result.Success);
     }
 
     [Fact]
-    public async Task UpdateUser_DemoteLastSuperUser_Returns400SelfLockout()
+    public async Task UpdateUser_DemoteLastSuperUser_SelfLockout()
     {
-        await using var db = CreateContext(nameof(UpdateUser_DemoteLastSuperUser_Returns400SelfLockout));
+        await using var db = CreateContext(nameof(UpdateUser_DemoteLastSuperUser_SelfLockout));
         var companyA = await AddCompanyAsync(db, "CT-A");
         var actor = await AddUserAsync(db, "actor1", companyId: companyA);
         var super1 = await AddUserAsync(db, "super1", companyId: companyA, isSuperUser: true);
 
-        var principal = CreatePrincipal(actor.Id);
-        var controller = BuildUsersController(db, principal, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var handler = BuildUpdateHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var result = await handler.Handle(
+            ValidUpdate(super1.Id, false) with { CurrentUserId = actor.Id }, CancellationToken.None);
 
-        var result = await controller.UpdateUser(super1.Id, ValidUpdate(super1.Id, false), new UpdateUserCommandValidator(db));
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Contains("SELF_LOCKOUT", JsonSerializer.Serialize(bad.Value));
+        Assert.False(result.Success);
+        Assert.Equal("SELF_LOCKOUT", result.ErrorCode);
+        Assert.True((await db.Users.SingleAsync(u => u.Id == super1.Id)).IsSuperUser); // không bị hạ cờ
     }
 
     [Fact]
-    public async Task UpdateUser_DemoteSuperUser_WhenAnotherSuperUserExists_ReachesMediator()
+    public async Task UpdateUser_DemoteSuperUser_WhenAnotherSuperUserExists_Allowed()
     {
-        await using var db = CreateContext(nameof(UpdateUser_DemoteSuperUser_WhenAnotherSuperUserExists_ReachesMediator));
+        await using var db = CreateContext(nameof(UpdateUser_DemoteSuperUser_WhenAnotherSuperUserExists_Allowed));
         var companyA = await AddCompanyAsync(db, "CT-A");
         var actor = await AddUserAsync(db, "actor1", companyId: companyA);
         var super1 = await AddUserAsync(db, "super1", companyId: companyA, isSuperUser: true);
         await AddUserAsync(db, "super2", companyId: companyA, isSuperUser: true);
 
-        var principal = CreatePrincipal(actor.Id);
-        var controller = BuildUsersController(db, principal, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var handler = BuildUpdateHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var result = await handler.Handle(
+            ValidUpdate(super1.Id, false) with { CurrentUserId = actor.Id }, CancellationToken.None);
 
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => controller.UpdateUser(super1.Id, ValidUpdate(super1.Id, false), new UpdateUserCommandValidator(db)));
+        Assert.True(result.Success);
+        Assert.False((await db.Users.SingleAsync(u => u.Id == super1.Id)).IsSuperUser);
     }
 
     // =========================================================================
-    // CONTROLLER — UsersController.DeleteUser (company-scoping + deactivate lockout)
+    // DeleteUserCommand — company-scoping + deactivate lockout (guards moved into the handler)
     // =========================================================================
 
     [Fact]
-    public async Task DeleteUser_CrossCompany_Returns404_BeforeMediator()
+    public async Task DeleteUser_CrossCompany_Rejected_NotFound()
     {
-        await using var db = CreateContext(nameof(DeleteUser_CrossCompany_Returns404_BeforeMediator));
+        await using var db = CreateContext(nameof(DeleteUser_CrossCompany_Rejected_NotFound));
         var companyA = await AddCompanyAsync(db, "CT-A");
         var companyB = await AddCompanyAsync(db, "CT-B");
         var actor = await AddUserAsync(db, "actor1", companyId: companyA);
         var target = await AddUserAsync(db, "target1", companyId: companyB);
 
-        var principal = CreatePrincipal(actor.Id);
-        var controller = BuildUsersController(db, principal, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var handler = BuildDeleteHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var result = await handler.Handle(new DeleteUserCommand(target.Id, actor.Id), CancellationToken.None);
 
-        var result = await controller.DeleteUser(target.Id);
-        Assert.IsType<NotFoundObjectResult>(result);
+        Assert.False(result.Success);
+        Assert.Equal("USER_NOT_FOUND", result.ErrorCode); // hide-existence
+        Assert.True((await db.Users.SingleAsync(u => u.Id == target.Id)).IsActive); // không bị vô hiệu hóa
     }
 
     [Fact]
-    public async Task DeleteUser_DeactivateLastSuperUser_Returns400SelfLockout()
+    public async Task DeleteUser_DeactivateLastSuperUser_SelfLockout()
     {
-        await using var db = CreateContext(nameof(DeleteUser_DeactivateLastSuperUser_Returns400SelfLockout));
+        await using var db = CreateContext(nameof(DeleteUser_DeactivateLastSuperUser_SelfLockout));
         var companyA = await AddCompanyAsync(db, "CT-A");
         var actor = await AddUserAsync(db, "actor1", companyId: companyA);
         var super1 = await AddUserAsync(db, "super1", companyId: companyA, isSuperUser: true);
 
-        var principal = CreatePrincipal(actor.Id);
-        var controller = BuildUsersController(db, principal, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var handler = BuildDeleteHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var result = await handler.Handle(new DeleteUserCommand(super1.Id, actor.Id), CancellationToken.None);
 
-        var result = await controller.DeleteUser(super1.Id);
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Contains("SELF_LOCKOUT", JsonSerializer.Serialize(bad.Value));
+        Assert.False(result.Success);
+        Assert.Equal("SELF_LOCKOUT", result.ErrorCode);
+        Assert.True((await db.Users.SingleAsync(u => u.Id == super1.Id)).IsActive);
     }
 
     [Fact]
-    public async Task DeleteUser_DeactivateSuperUser_WhenAnotherManagerExists_ReachesMediator()
+    public async Task DeleteUser_DeactivateSuperUser_WhenAnotherManagerExists_Allowed()
     {
-        await using var db = CreateContext(nameof(DeleteUser_DeactivateSuperUser_WhenAnotherManagerExists_ReachesMediator));
+        await using var db = CreateContext(nameof(DeleteUser_DeactivateSuperUser_WhenAnotherManagerExists_Allowed));
         var companyA = await AddCompanyAsync(db, "CT-A");
         var actor = await AddUserAsync(db, "actor1", companyId: companyA);
         var super1 = await AddUserAsync(db, "super1", companyId: companyA, isSuperUser: true);
         await AddUserAsync(db, "super2", companyId: companyA, isSuperUser: true);
 
-        var principal = CreatePrincipal(actor.Id);
-        var controller = BuildUsersController(db, principal, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var handler = BuildDeleteHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = companyA });
+        var result = await handler.Handle(new DeleteUserCommand(super1.Id, actor.Id), CancellationToken.None);
 
-        await Assert.ThrowsAsync<NotSupportedException>(() => controller.DeleteUser(super1.Id));
+        Assert.True(result.Success);
+        Assert.False((await db.Users.SingleAsync(u => u.Id == super1.Id)).IsActive);
     }
 }

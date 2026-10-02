@@ -124,17 +124,30 @@ public class AdminResetPasswordCommandHandler : IRequestHandler<AdminResetPasswo
 {
     private readonly IApplicationDbContext _context;
     private readonly IPasswordHasherService _passwordHasher;
+    private readonly ICompanyScopeService _companyScope;
 
-    public AdminResetPasswordCommandHandler(IApplicationDbContext context, IPasswordHasherService passwordHasher)
+    public AdminResetPasswordCommandHandler(
+        IApplicationDbContext context,
+        IPasswordHasherService passwordHasher,
+        ICompanyScopeService companyScope)
     {
         _context = context;
         _passwordHasher = passwordHasher;
+        _companyScope = companyScope;
     }
 
     public async Task<AuthSimpleResult> Handle(AdminResetPasswordCommand request, CancellationToken cancellationToken)
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == request.TargetUserId, cancellationToken);
         if (user == null)
+            return new AuthSimpleResult(false, "USER_NOT_FOUND");
+
+        // [FIX BUG-M 2026-10-02] Company-scoping moved out of UsersController.ResetPassword so the
+        // whole write is one unit (the controller is now IMediator-only): a regular admin may only
+        // reset users of their OWN company; out-of-scope behaves like not-found (hide-existence);
+        // superuser (scope null) is unrestricted. The controller maps every failure to 404.
+        var actorCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (actorCompanyId.HasValue && user.CompanyId.HasValue && user.CompanyId.Value != actorCompanyId.Value)
             return new AuthSimpleResult(false, "USER_NOT_FOUND");
 
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);

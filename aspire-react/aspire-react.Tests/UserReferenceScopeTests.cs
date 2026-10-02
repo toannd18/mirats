@@ -25,10 +25,11 @@ public class UserReferenceScopeTests
     private static AppDbContext CreateContext(string name) => TestHelpers.CreateContext(name);
 
     private static UpdateUserCommandHandler UpdateHandler(AppDbContext ctx, TestHelpers.FakeScope scope)
-        => new(ctx, TestHelpers.CreateActionLogService(ctx, ActorId), scope, NullLogger<UpdateUserCommandHandler>.Instance);
+        => new(ctx, scope, new aspire_react.Server.Infrastructure.Authorization.PermissionLockoutGuard(ctx),
+            NullLogger<UpdateUserCommandHandler>.Instance);
 
     private static CreateUserCommandHandler CreateHandler(AppDbContext ctx, TestHelpers.FakeScope scope)
-        => new(ctx, new PasswordHasherService(), TestHelpers.CreateActionLogService(ctx, ActorId), scope, NullLogger<CreateUserCommandHandler>.Instance);
+        => new(ctx, new PasswordHasherService(), scope, NullLogger<CreateUserCommandHandler>.Instance);
 
     private sealed record Fixture(Guid CompanyA, Guid CompanyB, Guid DeptA, Guid DeptB, Guid DeptFloater, Guid LocA, Guid LocB);
 

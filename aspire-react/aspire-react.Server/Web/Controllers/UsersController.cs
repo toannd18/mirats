@@ -2,53 +2,41 @@ using System.Security.Claims;
 using aspire_react.Server.Application.Auth.Commands;
 using aspire_react.Server.Application.Users.Commands;
 using aspire_react.Server.Application.Users.Queries;
-using aspire_react.Server.Domain.Enums;
-using aspire_react.Server.Domain.Interfaces;
-using aspire_react.Server.Infrastructure.Authorization;
-using aspire_react.Server.Infrastructure.Persistence;
 using aspire_react.Server.Infrastructure.Services;
-using FluentValidation;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Web.Controllers;
 
 [ApiController]
 [Route("api/v1/users")]
 /// <summary>
-/// [Giai đoạn 3] Users PARTIAL migration (ranh giới đã duyệt): 4 action inline
-/// (List/GetCurrentUser/GetUser/UpdateUserGroups) chuyển sang MediatR Queries/Command;
-/// 3 action write (Create/Update/Delete) GIỮ NGUYÊN Command từ M1 — không đụng lại
-/// (Keycloak liên quan, giảm thiểu rủi ro). Ctor vẫn hybrid (IMediator + DbContext +
-/// ActionLog/lockout/scope cho 3 write) — KHÔNG thu gọn thành IMediator-only như Groups.
-/// BUG-M (docs/BACKLOG.md, LOW): 3 write log 2 lần (handler 1 + controller 1), log thứ 2
-/// không atomic với data — giữ verbatim, fix riêng sau.
-/// UpdateUserGroups sau migrate: ILoggableCommand (behavior commit data+log 1 lần, atomic)
-/// + enrichment 2a có chủ đích (RemoteIp/UserAgent/ActionSource — đã duyệt playbook §4).
-/// Error-shape parity: UpdateUserGroups dùng errorCode CAMELCASE (verbatim, khác error_code).
+/// [FIX BUG-M 2026-10-02] THIN 100%: the constructor only takes <see cref="IMediator"/>.
+///
+/// History: the [Giai đoạn 3] migration deliberately left 3 write actions (Create/Update/Delete)
+/// hybrid (IMediator + AppDbContext + ActionLog/lockout/scope services) because they were tied to
+/// the Keycloak user sync. That reason disappeared in AUTH Phase 5 (Keycloak removed) and the
+/// hybrid glue caused BUG-M: every write produced TWO ActionLog rows (one in the command handler,
+/// one here AFTER the command had already committed — the second not atomic with the data).
+///
+/// All of that logic now lives in the commands:
+///   * CreateUserCommand  — company-scope guard (SEC-FIX S3) + validation via the MediatR pipeline;
+///   * UpdateUserCommand  — target company-scope, demote-lockout guard, new-CompanyId scope;
+///   * DeleteUserCommand  — target company-scope + deactivate-lockout guard;
+///   * AdminResetPasswordCommand — target company-scope.
+/// Each write implements ILoggableCommand ⇒ exactly ONE ActionLog, committed with the data.
+/// The controller keeps only claim parsing (local_user_id / realm-superuser) and HTTP mapping.
+/// Error-shape parity kept: USER_NOT_FOUND → 404; SELF_LOCKOUT → 400 camelCase `errorCode`;
+/// COMPANY_MISMATCH / RESOURCE_NOT_FOUND → 400 snake_case `error_code`; other → 400 camelCase.
 /// </summary>
 public class UsersController : ControllerBase
 {
     private readonly IMediator _mediator;
-    private readonly AppDbContext _context;
-    private readonly IActionLogService _actionLogService;
-    private readonly PermissionLockoutGuard _lockoutGuard;
-    private readonly ICompanyScopeService _companyScope;
 
-    public UsersController(
-        IMediator mediator,
-        AppDbContext context,
-        IActionLogService actionLogService,
-        PermissionLockoutGuard lockoutGuard,
-        ICompanyScopeService companyScope)
+    public UsersController(IMediator mediator)
     {
         _mediator = mediator;
-        _context = context;
-        _actionLogService = actionLogService;
-        _lockoutGuard = lockoutGuard;
-        _companyScope = companyScope;
     }
 
     private Guid GetCurrentUserId()
@@ -215,39 +203,14 @@ public class UsersController : ControllerBase
 
     /// <summary>
     /// Creates a new user — LOCAL-ONLY (AUTH Phase 4): password ban đầu + MustChangePassword.
+    /// [FIX BUG-M] Thin: the FluentValidation validator runs in the MediatR pipeline (same 400 body
+    /// via ValidationExceptionHandler), and the company-scope guard + ActionLog live in the command.
     /// </summary>
     [HttpPost]
     [Authorize(Policy = "users.create")]
-    public async Task<IActionResult> CreateUser(
-        [FromBody] CreateUserCommand command,
-        [FromServices] IValidator<CreateUserCommand> validator)
+    public async Task<IActionResult> CreateUser([FromBody] CreateUserCommand command)
     {
-        var validationResult = await validator.ValidateAsync(command);
-        if (!validationResult.IsValid)
-        {
-            var errors = validationResult.Errors
-                .GroupBy(e => e.PropertyName)
-                .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray());
-
-            return BadRequest(new
-            {
-                status = "error",
-                message = "Validation failed.",
-                errors
-            });
-        }
-
-        // [SEC-FIX S3, 2026-08-23] Company-scoping on CREATE (mirrors UpdateUser/DeleteUser scope
-        // check in this controller + the Create conventions of Component/Consumable/SystemInfo):
-        // a regular user may only create users for their own company (or a company-less floater);
-        // Superuser (GetCurrentUserCompanyIdAsync → null) may create for any company. Never trust
-        // the client-supplied CompanyId alone. Out-of-scope → 400 COMPANY_MISMATCH (this is a
-        // create, not access to an existing record — no hide-existence).
-        var actorCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (actorCompanyId.HasValue && command.CompanyId.HasValue && command.CompanyId.Value != actorCompanyId.Value)
-            return BadRequest(new { status = "error", message = "Bạn chỉ được tạo người dùng cho công ty của mình.", error_code = "COMPANY_MISMATCH" });
-
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command with { CurrentUserId = GetCurrentUserId() });
 
         if (!result.Success)
         {
@@ -263,17 +226,8 @@ public class UsersController : ControllerBase
             };
         }
 
-        // Audit trail (per F10) — log the user-creation action.
-        _actionLogService.LogAction(
-            itemType: ItemType.User,
-            itemId: result.User!.Id,
-            actionType: ActionType.Create,
-            loggedByUserId: GetCurrentUserId(),
-            companyId: result.User?.CompanyId,
-            note: $"Tạo người dùng \"{result.User.Username}\"");
-        // LogAction only stages the log in the change tracker → must SaveChanges to persist it.
-        await _context.SaveChangesAsync();
-
+        // [FIX BUG-M] No ActionLog here any more: CreateUserCommand is an ILoggableCommand, so
+        // ActionLogBehavior commits the single audit entry together with the insert.
         return CreatedAtAction(nameof(GetUser), new { id = result.User!.Id }, new
         {
             status = "success",
@@ -284,65 +238,31 @@ public class UsersController : ControllerBase
 
     /// <summary>
     /// Updates an existing user — LOCAL-ONLY (AUTH Phase 4).
-    /// Handles IsSuperUser toggle for group membership.
+    /// [FIX BUG-M] Thin: validation runs in the MediatR pipeline; target company-scope, the
+    /// demote-lockout guard and the ActionLog all live in UpdateUserCommand.
     /// </summary>
     [HttpPut("{id:guid}")]
     [Authorize(Policy = "admin")]
-    public async Task<IActionResult> UpdateUser(
-        Guid id,
-        [FromBody] UpdateUserCommand command,
-        [FromServices] IValidator<UpdateUserCommand> validator)
+    public async Task<IActionResult> UpdateUser(Guid id, [FromBody] UpdateUserCommand command)
     {
         if (id != command.Id)
             return BadRequest(new { status = "error", message = "ID mismatch." });
 
-        var validationResult = await validator.ValidateAsync(command);
-        if (!validationResult.IsValid)
+        var result = await _mediator.Send(command with
         {
-            var errors = validationResult.Errors
-                .GroupBy(e => e.PropertyName)
-                .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray());
-
-            return BadRequest(new
-            {
-                status = "error",
-                message = "Validation failed.",
-                errors
-            });
-        }
-
-        // [Task J] Company-scoping: a regular user may only update users of their own company
-        // (or floater); Superuser (GetCurrentUserCompanyIdAsync → null) is unrestricted.
-        var targetUser = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id);
-        if (targetUser == null)
-            return NotFound(new { status = "error", message = "User not found." });
-
-        var actorCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (actorCompanyId.HasValue && targetUser.CompanyId.HasValue && targetUser.CompanyId.Value != actorCompanyId.Value)
-            return NotFound(new { status = "error", message = "User not found." });
-
-        // [Task J] Anti self-lockout: demoting the last superuser (no other superuser/admin would
-        // remain able to manage permissions) must be blocked — regardless of who performs it.
-        if (command.IsSuperUser == false && targetUser.IsSuperUser)
-        {
-            if (await _lockoutGuard.WouldDemoteSuperUserLockoutAsync(GetCurrentUserId(), id, IsRealmSuperUser()))
-                return BadRequest(new
-                {
-                    status = "error",
-                    message = "Bạn không thể hạ quyền superuser khi người này là superuser cuối cùng còn giữ quyền quản trị.",
-                    errorCode = "SELF_LOCKOUT"
-                });
-        }
-
-        var result = await _mediator.Send(command);
+            CurrentUserId = GetCurrentUserId(),
+            ActorIsRealmSuperUser = IsRealmSuperUser()
+        });
 
         if (!result.Success)
         {
             return result.ErrorCode switch
             {
                 "USER_NOT_FOUND" => NotFound(new { status = "error", message = result.Message }),
+                // [FIX BUG-M] Lockout guard moved into the handler → same 400 camelCase body as before.
+                "SELF_LOCKOUT" => BadRequest(new { status = "error", message = result.Message, errorCode = result.ErrorCode }),
                 // [FIX-N5] Company-scoping failure uses the snake_case `error_code` body exactly like
-                // CreateUser's COMPANY_MISMATCH guard (:246-248) and ERROR_CODES §1.3; the rest of this
+                // CreateUser's COMPANY_MISMATCH guard and ERROR_CODES §1.3; the rest of this
                 // controller's failures keep the verbatim camelCase `errorCode` quirk.
                 "COMPANY_MISMATCH" or "RESOURCE_NOT_FOUND"
                     => BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode }),
@@ -350,17 +270,8 @@ public class UsersController : ControllerBase
             };
         }
 
-        // Audit trail (per F10) — log the user-update action.
-        _actionLogService.LogAction(
-            itemType: ItemType.User,
-            itemId: command.Id,
-            actionType: ActionType.Update,
-            loggedByUserId: GetCurrentUserId(),
-            companyId: result.User?.CompanyId,
-            note: $"Cập nhật người dùng \"{result.User!.Username}\"");
-        // LogAction only stages the log in the change tracker → must SaveChanges to persist it.
-        await _context.SaveChangesAsync();
-
+        // [FIX BUG-M] No ActionLog here any more — UpdateUserCommand is an ILoggableCommand, so the
+        // single audit entry is committed by ActionLogBehavior with the data change.
         return Ok(new
         {
             status = "success",
@@ -372,22 +283,13 @@ public class UsersController : ControllerBase
     /// <summary>
     /// [AUTH Phase 1] Admin resets a user's password (the approved Keycloak-migration path — no
     /// email flow). Forces MustChangePassword at next login and revokes the user's sessions.
-    /// Thin MediatR mapping over AdminResetPasswordCommand (ILoggableCommand logs who reset whom).
+    /// Thin MediatR mapping over AdminResetPasswordCommand (ILoggableCommand logs who reset whom;
+    /// [FIX BUG-M] the target company-scope check moved into that handler).
     /// </summary>
     [HttpPost("{id:guid}/reset-password")]
     [Authorize(Policy = "users.edit")]
     public async Task<IActionResult> ResetPassword(Guid id, [FromBody] ResetPasswordRequest request)
     {
-        // Company-scoping consistent with Update/Delete: regular admin may only reset users of
-        // their own company (hide-existence otherwise); superuser unrestricted.
-        var targetUser = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id);
-        if (targetUser == null)
-            return NotFound(new { status = "error", message = "User not found." });
-
-        var actorCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (actorCompanyId.HasValue && targetUser.CompanyId.HasValue && targetUser.CompanyId.Value != actorCompanyId.Value)
-            return NotFound(new { status = "error", message = "User not found." });
-
         var result = await _mediator.Send(new AdminResetPasswordCommand(id, request.NewPassword, GetCurrentUserId()));
 
         if (!result.Success)
@@ -400,54 +302,27 @@ public class UsersController : ControllerBase
 
     /// <summary>
     /// Deactivates a user (soft delete) — LOCAL-ONLY (AUTH Phase 4).
+    /// [FIX BUG-M] Thin: target company-scope + deactivate-lockout guard + ActionLog live in
+    /// DeleteUserCommand (ILoggableCommand), so the write logs exactly once, atomically.
     /// </summary>
     [HttpDelete("{id:guid}")]
     [Authorize(Policy = "users.delete")]
     public async Task<IActionResult> DeleteUser(Guid id)
     {
-        // [Task J] Company-scoping + lockout guard need the target's company & superuser flag first.
-        var targetUser = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id);
-        if (targetUser == null)
-            return NotFound(new { status = "error", message = "User not found." });
-
-        // Company-scoping: a regular user may only deactivate users of their own company (or floater);
-        // Superuser (GetCurrentUserCompanyIdAsync → null) is unrestricted.
-        var actorCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (actorCompanyId.HasValue && targetUser.CompanyId.HasValue && targetUser.CompanyId.Value != actorCompanyId.Value)
-            return NotFound(new { status = "error", message = "User not found." });
-
-        // Anti self-lockout: deactivating the last holder of management capability (superuser or
-        // admin) must be blocked — regardless of who performs it.
-        if (await _lockoutGuard.WouldDeactivateUserLockoutAsync(GetCurrentUserId(), id, IsRealmSuperUser()))
-            return BadRequest(new
-            {
-                status = "error",
-                message = "Bạn không thể vô hiệu hóa người này khi họ là người cuối cùng còn giữ quyền quản trị.",
-                errorCode = "SELF_LOCKOUT"
-            });
-
-        var result = await _mediator.Send(new DeleteUserCommand(id));
+        var result = await _mediator.Send(new DeleteUserCommand(id, GetCurrentUserId(), IsRealmSuperUser()));
 
         if (!result.Success)
         {
             return result.ErrorCode switch
             {
                 "USER_NOT_FOUND" => NotFound(new { status = "error", message = result.Message }),
+                // Lockout guard moved into the handler → keep the old 400 camelCase body.
+                "SELF_LOCKOUT" => BadRequest(new { status = "error", message = result.Message, errorCode = result.ErrorCode }),
                 _ => BadRequest(new { status = "error", message = result.Message })
             };
         }
 
-        // Audit trail (per F10) — log the user deactivation.
-        _actionLogService.LogAction(
-            itemType: ItemType.User,
-            itemId: id,
-            actionType: ActionType.Delete,
-            loggedByUserId: GetCurrentUserId(),
-            companyId: targetUser.CompanyId,
-            note: $"Vô hiệu hóa người dùng (ID {id})");
-        // LogAction only stages the log in the change tracker → must SaveChanges to persist it.
-        await _context.SaveChangesAsync();
-
+        // [FIX BUG-M] No ActionLog here any more (was the non-atomic second log of BUG-M).
         return Ok(new { status = "success", message = result.Message });
     }
 }
