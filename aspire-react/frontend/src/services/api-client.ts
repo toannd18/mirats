@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import type { InternalAxiosRequestConfig } from 'axios';
-import { getToken, logout, refreshAccessToken, mustChangePassword } from '../features/auth/services/auth';
+import { getToken, logout, refreshAccessTokenCrossTab, mustChangePassword } from '../features/auth/services/auth';
 
 // Backend API base URL — can be overridden via VITE_API_BASE_URL env variable.
 // Semantics: it is the SERVER base (origin or path). The `/api/v1` prefix is appended
@@ -88,7 +88,10 @@ apiClient.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        const refreshed = await refreshAccessToken();
+        // [FIX-N6] Serialized across TABS via the Web Locks API (see refreshAccessTokenCrossTab):
+        // two tabs refreshing the same cookie concurrently is read by the server as token reuse and
+        // revokes the whole session family. Within this tab the isRefreshing flag still dedupes.
+        const refreshed = await refreshAccessTokenCrossTab();
         if (refreshed) {
           const newToken = getToken();
           processQueue(null, newToken);

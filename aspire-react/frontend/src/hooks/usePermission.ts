@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import apiClient from '../services/api-client';
+import { getCurrentSub } from '../features/auth/services/auth';
 
 /**
  * Kết quả GET /api/v1/permissions/check — bản đồ permission hiệu dụng của user hiện tại
@@ -13,11 +14,18 @@ export interface PermissionCheck {
 
 // Module-level cache: mỗi phiên đăng nhập chỉ fetch một lần (permission của user không đổi
 // trong suốt phiên; nếu admin đổi nhóm, server yêu cầu refresh token mới để phản ánh).
+//
+// [FIX-N7 2026-10-02] Cache được KHOÁ THEO DANH TÍNH (`local_user_id` của token hiện tại).
+// Trước đây cache là module-level thuần: đăng xuất rồi đăng nhập bằng user KHÁC mà không F5 thì
+// menu/nút vẫn gate theo quyền của user CŨ (backend vẫn chặn 403 nên không phải lỗ hổng, nhưng là
+// bug UI thật). `clearPermissionCache()` cũ có sẵn nhưng KHÔNG nơi nào gọi.
 let cached: PermissionCheck | null = null;
+let cachedForSub: string | null = null;
 let inflight: Promise<PermissionCheck> | null = null;
 
 const fetchPermissionCheck = async (): Promise<PermissionCheck> => {
-  if (cached) return cached;
+  const sub = getCurrentSub();
+  if (cached && cachedForSub === sub) return cached;
   if (inflight) return inflight;
   inflight = (async () => {
     try {
@@ -33,15 +41,17 @@ const fetchPermissionCheck = async (): Promise<PermissionCheck> => {
       cached = { permissions: {}, isSuperUser: false, isAdmin: false };
     } finally {
       inflight = null;
+      cachedForSub = sub;
     }
     return cached!;
   })();
   return inflight;
 };
 
-/** Xóa cache (dùng sau khi đăng nhập lại / đổi quyền). */
+/** Xóa cache (dùng sau khi đăng nhập lại / đổi quyền / đăng xuất). */
 export const clearPermissionCache = () => {
   cached = null;
+  cachedForSub = null;
 };
 
 /**

@@ -91,7 +91,9 @@ export function getCurrentSub(): string {
 
 /** POST /auth/login — password login. Server sets the refresh cookie; we keep only the access token. */
 export async function loginWithPassword(username: string, password: string): Promise<{ mustChangePassword: boolean }> {
-  const res = await axios.post('/api/v1/auth/login', { username, password }, { withCredentials: true });
+  // [FIX-N11 2026-10-02] Explicit timeout: raw axios has NO default timeout, so a hung server left
+  // the caller (and the UI spinner) waiting forever.
+  const res = await axios.post('/api/v1/auth/login', { username, password }, { withCredentials: true, timeout: 15000 });
   accessToken = res.data.accessToken;
   const claims = decodeClaims(accessToken!);
   tokenExpiresAtMs = (claims?.exp ?? 0) * 1000;
@@ -102,7 +104,9 @@ export async function loginWithPassword(username: string, password: string): Pro
 /** POST /auth/refresh — cookie-carried rotation; returns true when a new access token arrived. */
 export async function refreshAccessToken(): Promise<boolean> {
   try {
-    const res = await axios.post('/api/v1/auth/refresh', {}, { withCredentials: true });
+    // [FIX-N11] 10s timeout — without it a hung /auth/refresh left the api-client `isRefreshing`
+    // flag stuck true forever, and every later 401 parked in the failed-queue permanently.
+    const res = await axios.post('/api/v1/auth/refresh', {}, { withCredentials: true, timeout: 10000 });
     accessToken = res.data.accessToken;
     const claims = decodeClaims(accessToken!);
     tokenExpiresAtMs = (claims?.exp ?? 0) * 1000;
@@ -114,10 +118,36 @@ export async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
+/**
+ * [FIX-N6 2026-10-02] Cross-tab single-flight refresh.
+ *
+ * The api-client module flag `isRefreshing` only dedupes requests WITHIN one JS context (one tab).
+ * Two tabs hitting 401 at the same moment both POST /auth/refresh with the SAME cookie: the first
+ * rotates it, the second presents the already-rotated token → the server's reuse-detection revokes
+ * the ENTIRE session family and BOTH tabs are signed out (availability bug, not a security hole —
+ * containment works as designed). The Web Locks API serializes the refresh across all tabs of this
+ * origin, so the second tab waits and then rotates the NEW cookie legitimately.
+ *
+ * Fallback: browsers without navigator.locks (or non-secure contexts) keep the previous behaviour.
+ */
+export async function refreshAccessTokenCrossTab(): Promise<boolean> {
+  const locks = (navigator as Navigator & {
+    locks?: { request: <T>(name: string, callback: () => Promise<T>) => Promise<T> };
+  }).locks;
+  if (!locks?.request) return refreshAccessToken();
+  try {
+    return await locks.request('aspire-react-auth-refresh', () => refreshAccessToken());
+  } catch {
+    // Lock API failure must never break authentication — fall back to the unserialized path.
+    return refreshAccessToken();
+  }
+}
+
 /** POST /auth/logout — revoke the refresh session server-side + clear local state. */
 export async function logout(): Promise<void> {
   try {
-    await axios.post('/api/v1/auth/logout', {}, { withCredentials: true });
+    // [FIX-N11] Fire-and-forget call still needs a timeout so it can never hang the sign-out flow.
+    await axios.post('/api/v1/auth/logout', {}, { withCredentials: true, timeout: 5000 });
   } catch {
     // Idempotent — clear local state even if the server call fails.
   }
@@ -139,7 +169,9 @@ export async function initAuth(): Promise<boolean> {
     authState = 'authenticated';
     return true;
   }
-  return await refreshAccessToken();
+  // [FIX-N6] Boot-time restore is the most common multi-tab race (several tabs opening together
+  // after a restart) → go through the cross-tab lock as well.
+  return await refreshAccessTokenCrossTab();
 }
 
 /**

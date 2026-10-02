@@ -17,7 +17,7 @@ import LoginPage from './features/auth/pages/LoginPage';
 import ChangePasswordPage from './features/auth/pages/ChangePasswordPage';
 import AccountPage from './features/auth/pages/AccountPage';
 import { designTokens } from './theme/designTokens';
-import { usePermissionMap } from './hooks/usePermission';
+import { usePermissionMap, clearPermissionCache } from './hooks/usePermission';
 import { useCurrentUser, clearCurrentUserCache } from './hooks/useCurrentUser';
 import apiClient from './services/api-client';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -380,7 +380,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                   { key: 'profile', icon: <IdcardOutlined />, label: 'Xem hồ sơ', onClick: () => { if (currentUser?.id) navigate(`/users/${currentUser.id}`); } },
                   { key: 'account', icon: <SafetyOutlined />, label: 'Tài khoản & Passkey', onClick: () => navigate('/account') },
                   { type: 'divider' },
-                  { key: 'logout', icon: <LogoutOutlined />, label: 'Đăng xuất', onClick: () => { clearCurrentUserCache(); logout(); }, danger: true },
+                  { key: 'logout', icon: <LogoutOutlined />, label: 'Đăng xuất', onClick: () => { clearCurrentUserCache(); clearPermissionCache(); logout(); }, danger: true },
                 ],
               }}
               trigger={['click']}
