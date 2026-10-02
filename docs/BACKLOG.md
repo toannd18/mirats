@@ -5,6 +5,74 @@
 
 ---
 
+## 🆕 AUDIT 2026-10-02 (sau MediatR + Auth migration) — phân loại N1–N20
+
+- **Nguồn:** `docs/AUDIT_POST_MIGRATIONS_2026-10-02.md` (audit 8 mục: Clean Architecture,
+  CQRS/MediatR, company-scoping, patch-safety, auth system, frontend FDA, backlog, docs).
+- **Đợt 1 (các mục chặn push/triển khai)** — mỗi mục 1 commit LOCAL (chưa push):
+  `863b3a9` (N1+N5) · `0ad2099` (N9-artifact) · `7501200` (N2).
+
+### ✅ ĐỢT 1 — RESOLVED
+
+| # | Mức | Phát hiện | Xử lý |
+|---|---|---|---|
+| **N1** | HIGH | `UpdateUserCommand` (Auth Phase 4 rewrite) gán vô điều kiện 5 field → payload thiếu field **xoá** `CompanyId`/`DepartmentId`/`LocationId`/`EmployeeNumber`/`JobTitle` (regression Task M2; live-confirmed qua API) | Patch-safe theo pattern BUG-E/N. Quy ước 3 giá trị cho Guid? (đã có sẵn trong dự án): **absent → giữ**, **`Guid.Empty` → clear (floater)**, **Guid thật → set**. FE edit-mode gửi sentinel khi admin xoá công ty. 9 test mới. Commit `863b3a9` |
+| **N5** | HIGH | `UpdateUserCommand` không validate `CompanyId` **mới** theo scope actor (admin công ty A chuyển user sang công ty B) | Check `COMPANY_MISMATCH` (pattern Task L2/CreateUser) TRƯỚC mọi mutation; body `error_code` snake như CreateUser; superuser bypass; floater (Guid.Empty) cho phép. Live PASS + test. Commit `863b3a9` |
+| **N9-artifact** | HIGH | Artifact triển khai còn Keycloak (compose service + `Keycloak__*`/`KC_BOOTSTRAP_*`, `.env.example`, `frontend/Dockerfile` VITE_KEYCLOAK_*, 2 script seed Keycloak, docker-reset filter) | Dọn sạch + **verify bằng `docker compose up -d --build` thật** trên DB trắng: 4 service healthy, 0 container keycloak, login `/api/v1/auth/login` 200, các endpoint bảo vệ 200. **3 blocker thật phát hiện khi verify** (xem dưới). Commit `0ad2099` |
+| **N2** | HIGH | `AccessoriesController.Update` sửa bằng EF trực tiếp và **KHÔNG ghi ActionLog** (vi phạm ActionLog mandatory) | Migrate `List`/`GetById`/`Update` sang MediatR; `UpdateAccessoryCommand` = `ILoggableCommand` (log cùng transaction, có LogMeta changes). Parity 2-run baseline↔post: 4/4 call giống hệt field-for-field, log 1→2 entry. Commit `7501200` |
+
+### 🚧 3 BLOCKER TRIỂN KHAI phát hiện khi verify compose (đã fix trong đợt 1)
+
+1. **Không có admin trên DB trắng** → deploy xong không ai đăng nhập được (JIT provisioning đã xóa ở
+   AUTH Phase 5; script seed Keycloak bị xóa cùng Keycloak). Fix: `StartupDataSeeder` **tự tạo** admin
+   đầu tiên từ `AUTH_BOOTSTRAP_ADMIN_PASSWORD` + `INITIAL_ADMIN_USERNAME/EMAIL` (idempotent, không ghi
+   đè hash đã có; bỏ qua + log warning nếu email đã dùng).
+2. **`aspire-react.Server/Dockerfile` stale sau tách 4-layer (Giai đoạn 0.1)** — chỉ copy
+   `Server` + `ServiceDefaults`, thiếu `Domain`/`Application`/`Infrastructure` → image **không build được**
+   (CS0246). Fix: copy + restore đủ 5 project. (CI job build Docker image cũng hỏng vì lý do này.)
+3. **`vite.config.ts` bắt buộc cert HTTPS dev cho MỌI command** → `npm run build` trong image production
+   throw → `docker compose up --build` fail. Fix: yêu cầu cert chỉ còn ở `vite serve` (chính sách
+   HTTPS-dev giữ nguyên; đã verify vẫn fail-loud khi thiếu cert).
+
+### ⏳ ĐỢT 1 — còn OPEN (chờ duyệt đợt sau)
+
+| # | Mức | Phát hiện | Ghi chú |
+|---|---|---|---|
+| N3 | MEDIUM | `UpdateCompanyCommand.cs:68-69` full-PUT: `Name` absent → DB NOT NULL violation (500); `ParentId` absent → re-root công ty | Cùng lớp BUG-E |
+| N4 | MEDIUM | `UpdateGroupCommand.cs:70` `Description` gán trực tiếp → absent clear | Cùng lớp BUG-E |
+| N6 | MEDIUM | FE multi-tab refresh race: 2 tab cùng refresh → reuse-detection revoke ALL → mất session cả 2 tab | Cần Web Locks (`navigator.locks`); server-side race 6-way đã PASS |
+| N7 | MEDIUM | `clearPermissionCache()` dead code (0 caller) → logout/login user khác không F5 → gate theo user cũ | UI bug (backend vẫn chặn 403) |
+| N8 | MEDIUM | `AssetMaintenanceSection.tsx:90` đọc `companyId` scalar không tồn tại trong asset detail → filter assignee vô hiệu | `AssetDetailDto` chỉ có object `company` |
+| N9-docs | MEDIUM | Docs stale sau Auth migration: `ERROR_CODES.md` (7 code KEYCLOAK_* chết + thiếu ~10 code auth mới), `ARCHITECTURE.md`, `API.md` (0 endpoint `/auth/*`), `HANDOFF_LATEST.md` (dừng 2026-08-28) | `DEPLOYMENT.md` + artifacts đã xử lý ở đợt 1 |
+| N10 | MEDIUM | `UpdateGroupPermissionsCommand` `request.Permissions` không null-guard → NRE 500 thay vì 400 | |
+| N11 | LOW | Refresh call FE không timeout (`auth.ts:105`) → `isRefreshing` kẹt nếu server treo | |
+| N12 | LOW | `dayjs` phantom dependency (14 file import, không có trong `package.json`) | |
+| N13 | LOW | `CreateCampaignCommand.cs:163` dùng `NpgsqlParameter` cho `FromSqlRaw` — ngoài ghi chú ngoại lệ "Npgsql chỉ cho exception-types" | Không phá dependency direction (qua EF DbSet) |
+| N14 | LOW | `ChangePasswordCommand` comment nói "revoke OTHER sessions" nhưng code revoke TẤT CẢ | Chốt lại comment hoặc hành vi |
+| N15 | LOW | Comment stale: `LocationsController.cs:54` "TODO SECURITY BUG-G" (đã fix ở handler), `AuthController.cs:14` "Dual-auth legacy Keycloak", `UsersController.cs:24` lý do Keycloak | |
+| N16 | LOW | `SuperuserClaims.cs` ở `Infrastructure/Services/` nhưng CLAUDE.md ghi `Authentication/` | Doc drift |
+| N17 | LOW | Build warnings: 12× CS8xxx nullable, CS0618 `HasCheckConstraint` obsolete, NU1903 `Microsoft.OpenApi` CVE | |
+| N18 | LOW | Vite chunk >500kB — code-splitting (backlog T8 cũ) vẫn mở | |
+| N19 | LOW | `RefreshTokenCommandHandler` không `FOR UPDATE` (cửa sổ race lý thuyết; 6-way live không reproduce) | Optional hardening |
+| N20 | LOW | `Program.cs` 103 dòng (docs ghi ~93) | |
+
+### 📌 Ghi nhận lịch sử (minh bạch)
+
+- **Báo cáo tổng kết MediatR trước đây SAI về Accessories/SystemConfig.** Tài liệu/handoff các phiên
+  trước mô tả chiến dịch "24 controller đã migrate sang MediatR" như đã hoàn tất, nhưng audit
+  2026-10-02 xác nhận: `AccessoriesController` vẫn chạy EF trực tiếp ở List/GetById/Update (và
+  **Update không ghi ActionLog** = N2), `SystemConfigController` chưa hề có `IMediator`. Đợt 1 đã
+  migrate 3 action của Accessories; **`GetCheckouts` (accessories) + toàn bộ `SystemConfigController`
+  vẫn còn EF trực tiếp** → coi là phần còn lại của chiến dịch CQRS, KHÔNG phải "đã xong".
+- **BUG-M (Users log 2 lần) vẫn OPEN**, không nằm trong đợt 1.
+- File test cũ còn **mojibake sẵn** (do sửa qua PowerShell từ trước — đúng lỗi mà AGENTS.md cảnh báo):
+  `TaskM2PatchSafetyTests.cs`, `TaskL2CreateCompanyScopeTests.cs`. Đợt 1 không sửa (ngoài phạm vi) —
+  nên có một lượt dọn mojibake riêng.
+- **`AUTH_SIGNING_KEY` rotation**: đổi khóa = vô hiệu mọi access token đã cấp (refresh token vẫn dùng
+  được vì lưu dạng hash). Ghi vào `docs/DEPLOYMENT.md` §4.1/§7 đợt 1.
+
+---
+
 ## BUG-E — DepartmentsController.UpdateDepartment: full-PUT, field không gửi bị clear (vi phạm patch-safety)
 
 - **Trạng thái: RESOLVED 2026-09-05** (patch-safety fix — behavior change theo sketch đã dự kiến).
@@ -346,6 +414,14 @@
   (đúng pattern 3 lần trước). Docker Desktop vẫn 29.6.2 / 4.84.0 — khuyến nghị (1)(2) vẫn chưa
   thực hiện. Lần 4 cùng lớp WSL2-instability, KHÔNG kèm file anomaly (xác nhận tách bạch với
   INFRA-2: tree sạch sau restart).
+- **Tái diễn lần 5 (2026-10-02, phiên fix đợt 1 — giữa lúc chạy live test audit):** engine mất đột
+  ngột (`docker ps` → `failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine`),
+  AppHost (job `dotnet run`) chết theo với exit code 1; `Docker Desktop.exe` start lại → engine lên
+  trong ~5 giây (nhanh nhất trong 5 lần); **volume dev `postgres-data` nguyên vẹn** (fixture QA và
+  dữ liệu PRT còn đủ sau restart) → cùng lớp WSL2-instability, KHÔNG kèm file anomaly.
+  Bài học vận hành bổ sung: sau khi engine chết, process `aspire-react.AppHost` CŨ vẫn giữ port
+  dashboard (VD 22073) → lần `dotnet run` kế tiếp fail `Failed to bind to address ... address already
+  in use`; phải diệt theo **port** (không kill mù toàn bộ dotnet) rồi mới start lại.
 
 ---
 
