@@ -181,6 +181,9 @@ public static class TestHelpers
         services.AddSingleton<ICacheTagEvictor>(new NullCacheTagEvictor());
         services.AddSingleton<IComponentAllocationService, ComponentAllocationService>();
         services.AddSingleton<IConsumableAllocationService, ConsumableAllocationService>();
+        // [FIX-J N13+N19] FOR UPDATE row locks — no-op on InMemory, but handlers now depend on it.
+        services.AddSingleton<aspire_react.Server.Domain.Interfaces.IRowLockService,
+            aspire_react.Server.Infrastructure.Services.RowLockService>();
         if (excelImport != null)
             services.AddSingleton(excelImport); // [ImportExport migration] import handlers resolve this
         // [AUTH Phase 1] password-auth services for Auth command handlers (real impls — InMemory-safe).

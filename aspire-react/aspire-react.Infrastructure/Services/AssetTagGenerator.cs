@@ -54,11 +54,12 @@ public class AssetTagGenerator : IAssetTagGenerator
         string companyCode = NoCompanyCode;
         if (companyId.HasValue)
         {
-            companyCode = await _context.Companies.AsNoTracking()
+            // [FIX-N17] explicit nullable local — Company.Code is string? (CS8600 otherwise).
+            var code = await _context.Companies.AsNoTracking()
                 .Where(c => c.Id == companyId.Value)
                 .Select(c => c.Code)
                 .FirstOrDefaultAsync(ct);
-            if (string.IsNullOrWhiteSpace(companyCode)) companyCode = NoCompanyCode;
+            companyCode = string.IsNullOrWhiteSpace(code) ? NoCompanyCode : code;
         }
 
         // Transaction + FOR UPDATE: read-and-increment the per-(company, year) counter atomically.

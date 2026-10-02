@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using aspire_react.Server.Domain.Interfaces;
+using aspire_react.Server.Infrastructure.Authentication;
 using aspire_react.Server.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -43,7 +44,8 @@ public class CompanyScopeService : ICompanyScopeService
 
         // Resolve the request-scoped DbContext via RequestServices to avoid a circular DI
         // dependency (AppDbContext itself depends on ICompanyScopeService for its query filters).
-        var db = httpContext.RequestServices?.GetService(typeof(AppDbContext)) as AppDbContext;
+        // [FIX-N17] `httpContext!`: a null HttpContext would have made `user` null and returned above.
+        var db = httpContext!.RequestServices?.GetService(typeof(AppDbContext)) as AppDbContext;
         if (db == null) return null;
 
         // [SEC-FIX JIT-COMPANYLESS, 2026-08-23] A regular user whose local record has NO CompanyId
@@ -68,7 +70,8 @@ public class CompanyScopeService : ICompanyScopeService
 
         // Resolve the request-scoped DbContext via RequestServices to avoid a circular DI
         // dependency (AppDbContext itself depends on ICompanyScopeService for its query filters).
-        var db = httpContext.RequestServices?.GetService(typeof(AppDbContext)) as AppDbContext;
+        // [FIX-N17] `httpContext!`: a null HttpContext would have made `user` null and returned above.
+        var db = httpContext!.RequestServices?.GetService(typeof(AppDbContext)) as AppDbContext;
         if (db == null) return false;
 
         // The company must exist (a made-up id must never pass).

@@ -14,7 +14,12 @@
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
     <PackageReference Include="MediatR" Version="14.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+    <!-- [FIX-J / N17 2026-10-02] 10.0.8→10.0.10 still resolves Microsoft.OpenApi 2.0.0, which is
+         vulnerable to CVE-2026-49451 / GHSA-v5pm-xwqc-g5wc (high, CVSS 7.5 — circular schema
+         reference terminates the process while parsing an OpenAPI document). 10.0.12 depends on
+         Microsoft.OpenApi [2.12.0, 3.0.0) = patched (first patched 2.x is 2.7.5). Verified: the
+         NU1903 warning is gone from a Release build. -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

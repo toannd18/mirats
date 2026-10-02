@@ -7,12 +7,14 @@ using Microsoft.AspNetCore.Mvc;
 namespace aspire_react.Server.Web.Controllers;
 
 /// <summary>
-/// [AUTH Phase 1] Password/JWT authentication endpoints (Keycloak replacement — see
-/// AUTH_MIGRATION_PLAYBOOK). THIN 100%: every endpoint is one IMediator.Send; the ONLY
-/// controller-level concerns are (1) refresh-cookie set/clear (HTTP concern — §11.2) and
-/// (2) client-IP extraction for the brute-force defense. No hash/token/lockout logic here.
-/// Dual-auth: tokens from BOTH schemes (self-signed "App" + legacy Keycloak "Bearer") are
-/// accepted by [Authorize] endpoints during the migration.
+/// [AUTH Phase 1] Password/JWT authentication endpoints (replaced Keycloak — see
+/// AUTH_MIGRATION_PLAYBOOK; Keycloak itself was DELETED in Phase 5). THIN 100%: every endpoint is
+/// one IMediator.Send; the ONLY controller-level concerns are (1) refresh-cookie set/clear (HTTP
+/// concern — §11.2) and (2) client-IP extraction for the brute-force defense. No hash/token/lockout
+/// logic here.
+/// [FIX-N15 2026-10-02] Single scheme only: [Authorize] endpoints accept EXCLUSIVELY the self-signed
+/// local "App" JWT. The former "dual-auth during migration" note (legacy Keycloak Bearer) is stale —
+/// the Keycloak scheme was removed together with the JIT provisioning in AUTH Phase 5.
 /// </summary>
 [ApiController]
 [Route("api/v1/auth")]
@@ -78,7 +80,10 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
     {
         var userId = GetCurrentUserId();
-        var result = await _mediator.Send(new ChangePasswordCommand(userId, request.CurrentPassword, request.NewPassword));
+        // [FIX-N14 2026-10-02] Pass the caller's own refresh cookie so the handler can EXCLUDE this
+        // session from the revoke-all — the documented promise is "this device stays logged in".
+        var result = await _mediator.Send(new ChangePasswordCommand(
+            userId, request.CurrentPassword, request.NewPassword, _authCookie.GetRefreshCookie()));
 
         if (!result.Success)
             return result.ErrorCode == "USER_NOT_FOUND"

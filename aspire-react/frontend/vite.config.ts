@@ -43,6 +43,16 @@ export default defineConfig(({ command, mode }) => {
 
   return {
     plugins: [react()],
+    build: {
+      // [FIX-N18 2026-10-02] Measured after the FE-R1 route-level lazy split: the two remaining
+      // chunks above Vite's 500 kB default are `Table` (antd Table + ProTable, 637 kB raw /
+      // 201 kB gzip) and the jsx-runtime vendor chunk (599 kB / 197 kB). Every page component is
+      // already React.lazy()-loaded per route, so this is shared vendor code, not app code — a
+      // further split (e.g. antd Table vs the rest) buys little for an admin SPA on gzip ~200 kB.
+      // The threshold is raised EXPLICITLY with the numbers recorded here instead of leaving a
+      // permanent warning; revisit if either chunk grows materially.
+      chunkSizeWarningLimit: 700,
+    },
     server: {
       ...(httpsOptions ? { https: httpsOptions } : {}),
       proxy: {

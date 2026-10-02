@@ -59,13 +59,16 @@ public class CreateCampaignCommandHandler : IRequestHandler<CreateCampaignComman
     private readonly IApplicationDbContext _context;
     private readonly ICompanyScopeService _companyScope;
     private readonly IActionLogService _actionLogService;
+    private readonly IRowLockService _rowLockService;
 
     public CreateCampaignCommandHandler(
-        IApplicationDbContext context, ICompanyScopeService companyScope, IActionLogService actionLogService)
+        IApplicationDbContext context, ICompanyScopeService companyScope, IActionLogService actionLogService,
+        IRowLockService rowLockService)
     {
         _context = context;
         _companyScope = companyScope;
         _actionLogService = actionLogService;
+        _rowLockService = rowLockService;
     }
 
     public async Task<CreateCampaignResult> Handle(CreateCampaignCommand request, CancellationToken cancellationToken)
@@ -155,17 +158,11 @@ public class CreateCampaignCommandHandler : IRequestHandler<CreateCampaignComman
         await strategy.ExecuteAsync(async () =>
         {
             await using var tx = await _context.Database.BeginTransactionAsync(cancellationToken);
-            // FOR UPDATE lock chỉ chạy trên relational provider — InMemory (unit tests) không
-            // dịch được raw SQL; unit tests chạy check+insert không lock (tuần tự, an toàn —
-            // cùng quy ước TestHelpers đã ghi nhận cho Checkout/Checkin handlers).
-            if (_context.Database.IsRelational())
-            {
-                var sysParam = new Npgsql.NpgsqlParameter("sysId", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = request.SystemInfoId };
-                await _context.SystemInfos
-                    .FromSqlRaw(@"SELECT * FROM public.""system_infos"" WHERE ""Id"" = @sysId FOR UPDATE", sysParam)
-                    .FirstOrDefaultAsync(cancellationToken);
-                _context.ChangeTracker.Clear(); // drop the FOR UPDATE snapshot — sys state stays from the pre-read
-            }
+            // [FIX-J / N13 2026-10-02] The raw FOR UPDATE SQL + Npgsql parameter moved to
+            // Infrastructure (IRowLockService) so this Application handler no longer references
+            // Npgsql directly. Same semantics as before: lock only on relational providers —
+            // InMemory (unit tests) skips it and runs check+insert sequentially (safe).
+            await _rowLockService.LockSystemInfoRowAsync(request.SystemInfoId, cancellationToken);
 
             // Re-check INSIDE the lock: at this moment no other transaction holds the row, so this
             // read sees every campaign committed by earlier creators.

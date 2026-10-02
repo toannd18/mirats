@@ -4,6 +4,7 @@ using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Authentication;
 using aspire_react.Server.Infrastructure.Persistence;
+using aspire_react.Server.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -151,7 +152,8 @@ public class AuthCommandTests
     {
         var (db, user) = SeedUser();
         var login = await LoginHandler(db).Handle(new LoginCommand(user.Username, "correct-horse-1", "5.5.5.5"), CancellationToken.None);
-        var refreshHandler = new RefreshTokenCommandHandler(db, TokenSvc());
+        // [FIX-N19] Refresh now takes a FOR UPDATE row lock through IRowLockService (no-op on InMemory).
+        var refreshHandler = new RefreshTokenCommandHandler(db, TokenSvc(), new RowLockService(db));
 
         var refreshed = await refreshHandler.Handle(new RefreshTokenCommand(login.RefreshToken!), CancellationToken.None);
         Assert.True(refreshed.Success);
@@ -169,7 +171,7 @@ public class AuthCommandTests
     public async Task Refresh_UnknownOrExpiredToken_Rejected()
     {
         var (db, _) = SeedUser();
-        var handler = new RefreshTokenCommandHandler(db, TokenSvc());
+        var handler = new RefreshTokenCommandHandler(db, TokenSvc(), new RowLockService(db));
 
         Assert.False((await handler.Handle(new RefreshTokenCommand("totally-unknown-token"), CancellationToken.None)).Success);
     }
@@ -206,13 +208,46 @@ public class AuthCommandTests
         Assert.False(reloaded.MustChangePassword);
         Assert.Equal(PasswordVerifyResult.Success, new PasswordHasherService().Verify("brand-new-pw-1", reloaded.PasswordHash!));
 
-        // Sessions revoked (all-of-them — simplest secure default).
+        // Sessions revoked. [FIX-N14] When the caller does NOT supply its own refresh cookie the
+        // handler keeps the old conservative default (revoke everything); the "keep this device"
+        // path is covered by ChangePassword_WithCurrentRefreshToken_KeepsThatSession_RevokesOthers.
         Assert.Equal(0, await db.UserCredentials.CountAsync(c => c.RevokedAt == null));
 
         // ActionLogBehavior wrote the log — it must NOT contain the password or its hash.
         var log = await db.ActionLogs.SingleAsync(l => l.ItemType == ItemType.User && l.ActionType == ActionType.Update);
         Assert.DoesNotContain("brand-new-pw-1", log.Note);
         Assert.DoesNotContain("brand-new-pw-1", log.LogMeta ?? string.Empty);
+    }
+
+    /// <summary>
+    /// [FIX-N14 2026-10-02] Documented behaviour "all OTHER sessions revoked — this device stays
+    /// logged in" is now actually implemented: the caller passes its own refresh cookie and that
+    /// credential survives, while a second device's session is revoked.
+    /// </summary>
+    [Fact]
+    public async Task ChangePassword_WithCurrentRefreshToken_KeepsThatSession_RevokesOthers()
+    {
+        var (db, user) = SeedUser();
+        var loginA = await LoginHandler(db).Handle(new LoginCommand(user.Username, "correct-horse-1", "1.1.1.1"), CancellationToken.None);
+        var loginB = await LoginHandler(db).Handle(new LoginCommand(user.Username, "correct-horse-1", "2.2.2.2"), CancellationToken.None);
+        Assert.True(loginA.Success);
+        Assert.True(loginB.Success);
+        Assert.Equal(2, await db.UserCredentials.CountAsync(c => c.RevokedAt == null));
+
+        var mediator = TestHelpers.BuildMediator(db, actorId: user.Id);
+        var ok = await mediator.Send(new ChangePasswordCommand(
+            user.Id, "correct-horse-1", "brand-new-pw-1", loginA.RefreshToken));
+        Assert.True(ok.Success);
+
+        var refreshHandler = new RefreshTokenCommandHandler(db, TokenSvc(), new RowLockService(db));
+
+        // The caller's own session still works…
+        var stillValid = await refreshHandler.Handle(new RefreshTokenCommand(loginA.RefreshToken!), CancellationToken.None);
+        Assert.True(stillValid.Success);
+
+        // …while the other device's refresh token was revoked.
+        var otherDevice = await refreshHandler.Handle(new RefreshTokenCommand(loginB.RefreshToken!), CancellationToken.None);
+        Assert.False(otherDevice.Success);
     }
 
     [Fact]

@@ -13,11 +13,19 @@ namespace aspire_react.Server.Application.Auth.Commands;
 /// password re-verified; new ≥ 8 chars per the approved policy). Side effects: MUST-change flag
 /// cleared, all OTHER refresh sessions revoked (this device stays logged in), ILoggableCommand
 /// ActionLog (Update — never contains the password or its hash).
+///
+/// [FIX-N14 2026-10-02] The "this device stays logged in" promise was DOCUMENTED but not
+/// implemented: the handler revoked EVERY non-revoked credential of the user, the caller's own
+/// refresh cookie included (so the device kept working only until its access token expired, then
+/// was silently signed out). <see cref="CurrentRawRefreshToken"/> now carries the caller's cookie so
+/// that credential is excluded from the revoke — behaviour matches the documentation, and stolen
+/// tokens from other devices are still killed.
 /// </summary>
 public record ChangePasswordCommand(
     Guid CurrentUserId,
     string CurrentPassword,
-    string NewPassword)
+    string NewPassword,
+    string? CurrentRawRefreshToken = null)
     : IRequest<AuthSimpleResult>, ILoggableCommand<AuthSimpleResult>
 {
     public ActionLogEntry? BuildLogEntry(AuthSimpleResult response)
@@ -50,11 +58,13 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
 {
     private readonly IApplicationDbContext _context;
     private readonly IPasswordHasherService _passwordHasher;
+    private readonly ITokenService _tokenService;
 
-    public ChangePasswordCommandHandler(IApplicationDbContext context, IPasswordHasherService passwordHasher)
+    public ChangePasswordCommandHandler(IApplicationDbContext context, IPasswordHasherService passwordHasher, ITokenService tokenService)
     {
         _context = context;
         _passwordHasher = passwordHasher;
+        _tokenService = tokenService;
     }
 
     public async Task<AuthSimpleResult> Handle(ChangePasswordCommand request, CancellationToken cancellationToken)
@@ -73,8 +83,14 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
         user.MustChangePassword = false;
 
         // Revoke every OTHER session — stolen refresh tokens from before the change stop working.
+        // [FIX-N14] The caller's own refresh cookie is EXCLUDED (hash-compared, never the raw token),
+        // so the device that performed the change stays logged in as documented.
+        var currentTokenHash = string.IsNullOrWhiteSpace(request.CurrentRawRefreshToken)
+            ? null
+            : _tokenService.HashToken(request.CurrentRawRefreshToken);
         var others = await _context.UserCredentials
-            .Where(c => c.UserId == user.Id && c.RevokedAt == null)
+            .Where(c => c.UserId == user.Id && c.RevokedAt == null
+                        && (currentTokenHash == null || c.TokenHash != currentTokenHash))
             .ToListAsync(cancellationToken);
         foreach (var row in others) row.RevokedAt = DateTime.UtcNow;
 

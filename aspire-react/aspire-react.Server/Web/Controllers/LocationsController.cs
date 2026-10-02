@@ -51,8 +51,9 @@ public class LocationsController : ControllerBase
     [HttpPost, Authorize(Policy = "locations.create")]
     public async Task<IActionResult> CreateLocation([FromBody] CreateLocationRequest r)
     {
-        // TODO SECURITY BUG-G: request carries CompanyId with NO scoping/validation — verbatim
-        // pre-migration behavior (see docs/BACKLOG.md, SECURITY/HIGH).
+        // [FIX-N15 2026-10-02] Stale "TODO SECURITY BUG-G" removed: the company-scoping for this
+        // create path was fixed — CreateLocationCommand now checks the actor's company scope FIRST
+        // and returns 400 COMPANY_MISMATCH for an out-of-scope CompanyId (no entity is created).
         var result = await _mediator.Send(new CreateLocationCommand(
             r.Name, r.ParentId, r.CompanyId, r.ManagerId, r.Address, r.City, r.State, r.Country, r.Zip,
             GetCurrentUserId()));

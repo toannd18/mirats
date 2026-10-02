@@ -124,16 +124,50 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, A
 {
     private readonly IApplicationDbContext _context;
     private readonly ITokenService _tokenService;
+    private readonly IRowLockService _rowLockService;
 
-    public RefreshTokenCommandHandler(IApplicationDbContext context, ITokenService tokenService)
+    public RefreshTokenCommandHandler(IApplicationDbContext context, ITokenService tokenService, IRowLockService rowLockService)
     {
         _context = context;
         _tokenService = tokenService;
+        _rowLockService = rowLockService;
     }
 
+    /// <summary>
+    /// [FIX-N19 2026-10-02] Rotation now runs inside a transaction that takes a
+    /// <c>SELECT ... FOR UPDATE</c> lock on the presented credential row.
+    ///
+    /// WHY: without the lock two concurrent /auth/refresh calls carrying the SAME cookie could both
+    /// read <c>RevokedAt == null</c> and both rotate — minting TWO live sessions from one token and
+    /// letting the first (stolen) copy stay usable, i.e. defeating reuse-detection. With the lock
+    /// exactly one request rotates; the loser blocks, re-reads the committed row (READ COMMITTED
+    /// re-reads a row that changed while it waited), sees <c>RevokedAt</c> set and falls into the
+    /// existing containment path (revoke every session of that user) — deterministic, not luck.
+    ///
+    /// The execution strategy wrapper is required because Npgsql is configured with a retrying
+    /// strategy (Task O/O-FIX convention); the lock itself is a no-op on EF InMemory.
+    /// </summary>
     public async Task<AuthTokenResult> Handle(RefreshTokenCommand request, CancellationToken cancellationToken)
     {
         var tokenHash = _tokenService.HashToken(request.RawRefreshToken);
+        AuthTokenResult? outcome = null;
+
+        var strategy = _context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await _context.Database.BeginTransactionAsync(cancellationToken);
+            await _rowLockService.LockUserCredentialRowAsync(tokenHash, cancellationToken);
+            outcome = await RotateAsync(request, tokenHash, cancellationToken);
+            // Commit on every path: the read-only rejections persist nothing, while the
+            // reuse-containment revoke MUST survive.
+            await tx.CommitAsync(cancellationToken);
+        });
+
+        return outcome!;
+    }
+
+    private async Task<AuthTokenResult> RotateAsync(RefreshTokenCommand request, string tokenHash, CancellationToken cancellationToken)
+    {
         var now = DateTime.UtcNow;
 
         var credential = await _context.UserCredentials

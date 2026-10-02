@@ -1,8 +1,8 @@
 using System.Security.Claims;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
+using aspire_react.Server.Infrastructure.Authentication;
 using aspire_react.Server.Infrastructure.Persistence;
-using aspire_react.Server.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 

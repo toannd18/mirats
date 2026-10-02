@@ -47,6 +47,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<PermissionLockoutGuard>();
         services.AddScoped<aspire_react.Server.Domain.Interfaces.IPermissionLockoutGuard, PermissionLockoutGuard>();
 
+        // [FIX-J 2026-10-02 — N13+N19] PostgreSQL row locks (FOR UPDATE) kept in Infrastructure so
+        // Application handlers stay provider-agnostic; no-op on InMemory (unit tests).
+        services.AddScoped<aspire_react.Server.Domain.Interfaces.IRowLockService, RowLockService>();
+
         // [AUTH Phase 1] Local password authentication services (see AUTH_MIGRATION_PLAYBOOK
         // §11.1: contracts in Domain/Interfaces, framework-heavy implementations in
         // Infrastructure/Authentication).

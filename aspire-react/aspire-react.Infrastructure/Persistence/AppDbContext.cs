@@ -647,7 +647,12 @@ public class AppDbContext : DbContext, IApplicationDbContext
 
         modelBuilder.Entity<LicenseSeat>(entity =>
         {
-            entity.ToTable("license_seats");
+            // [FIX-N17 2026-10-02] Check constraint declared on the TABLE builder — the entity-level
+            // HasCheckConstraint overload is obsolete (CS0618). Name + SQL text verbatim, so the EF
+            // model and the migration snapshot are unchanged.
+            entity.ToTable("license_seats", t => t.HasCheckConstraint(
+                "CK_license_seats_single_target",
+                "(((\"UserId\" IS NOT NULL)::int + (\"AssetId\" IS NOT NULL)::int + (\"SystemInfoId\" IS NOT NULL)::int) <= 1)"));
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
             entity.HasIndex(e => e.LicenseId);
@@ -655,7 +660,6 @@ public class AppDbContext : DbContext, IApplicationDbContext
             entity.Property(e => e.SeatNumber).HasDefaultValueSql("0");
             entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasDefaultValueSql("CURRENT_TIMESTAMP");
             entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasDefaultValueSql("CURRENT_TIMESTAMP");
-            entity.HasCheckConstraint("CK_license_seats_single_target", "(((\"UserId\" IS NOT NULL)::int + (\"AssetId\" IS NOT NULL)::int + (\"SystemInfoId\" IS NOT NULL)::int) <= 1)");
             entity.HasOne(e => e.User).WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(e => e.Asset).WithMany().HasForeignKey(e => e.AssetId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(e => e.SystemInfo).WithMany().HasForeignKey(e => e.SystemInfoId).OnDelete(DeleteBehavior.SetNull);

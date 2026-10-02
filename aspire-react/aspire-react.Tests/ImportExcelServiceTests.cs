@@ -465,9 +465,12 @@ public class ImportExcelServiceTests
         Assert.Equal("Latitude 5540", m.Name);
         Assert.Equal("5540", m.ModelNumber);
         Assert.NotNull(m.CategoryId);
-        Assert.Equal("Laptop", (await ctx.Categories.FindAsync(m.CategoryId)).Name);
+        // [FIX-N17] local + null-forgiving: FindAsync returns a nullable entity (CS8602 otherwise).
+        var category = await ctx.Categories.FindAsync(m.CategoryId);
+        Assert.Equal("Laptop", category!.Name);
         Assert.NotNull(m.ManufacturerId);
-        Assert.Equal("Dell", (await ctx.Manufacturers.FindAsync(m.ManufacturerId)).Name);
+        var manufacturer = await ctx.Manufacturers.FindAsync(m.ManufacturerId);
+        Assert.Equal("Dell", manufacturer!.Name);
         Assert.Equal("Len 2026", m.Notes);
         // One import ActionLog stamped with the chosen company (model is global; log is per-company audit).
         var log = await ctx.ActionLogs.SingleAsync(l => l.ItemType == ItemType.Model);
@@ -528,6 +531,8 @@ public class ImportExcelServiceTests
         Assert.Equal(1, result.Created);
         var asset = await ctx.Assets.SingleAsync(a => a.AssetTag == "AST-M");
         Assert.NotNull(asset.ModelId);
-        Assert.Equal("ThinkPad T14", (await ctx.Models.FindAsync(asset.ModelId)).Name);
+        // [FIX-N17] local + null-forgiving (see above).
+        var model = await ctx.Models.FindAsync(asset.ModelId);
+        Assert.Equal("ThinkPad T14", model!.Name);
     }
 }

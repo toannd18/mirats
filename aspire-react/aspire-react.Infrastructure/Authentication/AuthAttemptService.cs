@@ -78,7 +78,9 @@ public class AuthAttemptService : IAuthAttemptService
         });
 
         // Failures also feed the in-memory per-IP burst limiter.
-        if (!success)
+        // [FIX-N17] Guard the key: a missing/unparseable client IP used to be passed straight into
+        // the dictionary (CS8604) — a null key throws ArgumentNullException at runtime.
+        if (!success && !string.IsNullOrEmpty(ipAddress))
         {
             lock (IpCacheLock)
             {

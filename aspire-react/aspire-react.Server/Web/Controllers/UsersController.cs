@@ -2,7 +2,7 @@ using System.Security.Claims;
 using aspire_react.Server.Application.Auth.Commands;
 using aspire_react.Server.Application.Users.Commands;
 using aspire_react.Server.Application.Users.Queries;
-using aspire_react.Server.Infrastructure.Services;
+using aspire_react.Server.Infrastructure.Authentication;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
