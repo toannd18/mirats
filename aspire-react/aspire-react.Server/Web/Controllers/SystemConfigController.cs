@@ -1,34 +1,34 @@
 using System.Security.Claims;
-using System.Text.Json;
-using aspire_react.Server.Domain.Entities;
-using aspire_react.Server.Domain.Enums;
-using aspire_react.Server.Domain.Interfaces;
-using aspire_react.Server.Infrastructure.Persistence;
-using aspire_react.Server.Infrastructure.Services;
+using aspire_react.Server.Application.SystemConfig.Commands;
+using aspire_react.Server.Application.SystemConfig.Queries;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Web.Controllers;
 
+/// <summary>
+/// [FIX B 2026-10-02] THIN 100% — this was the last controller without <see cref="IMediator"/>
+/// (the audit found it running EF + a manual ActionLog directly). Every endpoint is now one Send:
+///   * GET  asset-tag-format / passkeys-enabled → Queries (any authenticated user);
+///   * PUT  asset-tag-format / passkeys-enabled → Commands (policy `system.config`), each an
+///     ILoggableCommand ⇒ the audit entry is committed together with the config change, and an
+///     unchanged value stays a no-op (no write, no log) exactly as before.
+/// </summary>
 [ApiController, Route("api/v1/system/config")]
 public class SystemConfigController : ControllerBase
 {
-    private readonly IAssetTagGenerator _assetTagGenerator;
-    private readonly AppDbContext _context;
-    private readonly IActionLogService _actionLogService;
+    private readonly IMediator _mediator;
 
-    public SystemConfigController(IAssetTagGenerator assetTagGenerator, AppDbContext context, IActionLogService actionLogService)
+    public SystemConfigController(IMediator mediator)
     {
-        _assetTagGenerator = assetTagGenerator;
-        _context = context;
-        _actionLogService = actionLogService;
+        _mediator = mediator;
     }
 
     private Guid GetCurrentUserId()
     {
-        // [SEC-FIX CLAIM-CLEANUP, 2026-08-23] ONLY "local_user_id" (JIT-stamped). Keycloak
-        // sub/preferred_username are never a user identity source (bug-class 1). Absent → Guid.Empty.
+        // [SEC-FIX CLAIM-CLEANUP, 2026-08-23] ONLY "local_user_id" is a user identity source.
+        // Keycloak sub/preferred_username are never a user identity source. Absent → Guid.Empty.
         if (Guid.TryParse(User.FindFirstValue("local_user_id"), out var local)) return local;
         return Guid.Empty;
     }
@@ -39,7 +39,7 @@ public class SystemConfigController : ControllerBase
     [Authorize]
     public async Task<IActionResult> GetAssetTagFormat(CancellationToken ct)
     {
-        var format = await _assetTagGenerator.GetFormatAsync(ct);
+        var format = await _mediator.Send(new GetAssetTagFormatQuery(), ct);
         return Ok(new { status = "success", data = new { format } });
     }
 
@@ -47,59 +47,14 @@ public class SystemConfigController : ControllerBase
     [Authorize(Policy = "system.config")]
     public async Task<IActionResult> SetAssetTagFormat([FromBody] SetAssetTagFormatRequest r, CancellationToken ct)
     {
-        // Validate with the SAME rules SetFormatAsync has always enforced (shared static validator).
-        var trimmed = r.Format?.Trim();
-        try
-        {
-            AssetTagGenerator.ValidateFormat(trimmed);
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new { status = "error", message = ex.Message });
-        }
+        var result = await _mediator.Send(new SetAssetTagFormatCommand(r.Format, GetCurrentUserId()), ct);
 
-        // [SEC-FIX A1, 2026-08-23] ActionLog for system config changes. Previously this PUT mutated
-        // global configuration with NO audit trail. The write path is done HERE (instead of calling
-        // SetFormatAsync) so the ActionLog is staged BEFORE a single SaveChanges — audit entry and
-        // config change commit in the SAME transaction (convention: ActionLog same-transaction).
-        var setting = await _context.SystemSettings.FirstOrDefaultAsync(s => s.Key == AssetTagGenerator.FormatSettingKey, ct);
-        var oldValue = string.IsNullOrWhiteSpace(setting?.Value) ? AssetTagGenerator.DefaultFormat : setting!.Value;
+        // Verbatim body of the pre-migration controller: validation failure → 400 {status,message}
+        // (no error_code); success (changed OR no-op) → 200 with the same message.
+        if (!result.Success)
+            return BadRequest(new { status = "error", message = result.Message });
 
-        // No-op guard: an unchanged value must NOT be written or logged (an admin hitting Save
-        // without editing anything would otherwise spam identical audit rows).
-        if (string.Equals(oldValue, trimmed, StringComparison.Ordinal))
-            return Ok(new { status = "success", message = "Đã lưu cấu hình." });
-
-        var userId = GetCurrentUserId();
-        if (setting == null)
-        {
-            setting = new SystemSetting
-            {
-                Key = AssetTagGenerator.FormatSettingKey,
-                Value = trimmed!,
-                Description = AssetTagGenerator.FormatDescription,
-                UpdatedBy = userId
-            };
-            _context.SystemSettings.Add(setting);
-        }
-        else
-        {
-            setting.Value = trimmed!;
-            setting.UpdatedBy = userId;
-            setting.UpdatedAt = DateTime.UtcNow;
-        }
-
-        _actionLogService.LogAction(
-            itemType: ItemType.SystemSetting,
-            itemId: setting.Id,
-            actionType: ActionType.Update,
-            loggedByUserId: userId,
-            companyId: null, // global system configuration — intentionally not company-scoped
-            note: $"Cập nhật format tự sinh Mã tài sản (Asset Tag): \"{oldValue}\" → \"{trimmed}\"",
-            logMeta: JsonSerializer.Serialize(new { changes = new { format = new { old = oldValue, @new = trimmed } } }));
-
-        await _context.SaveChangesAsync(ct);
-        return Ok(new { status = "success", message = "Đã lưu cấu hình." });
+        return Ok(new { status = "success", message = result.Message });
     }
 
     // ==================== [AUTH Phase 3] Passkey flag (auth.passkeys.enabled) ====================
@@ -109,9 +64,7 @@ public class SystemConfigController : ControllerBase
     [Authorize]
     public async Task<IActionResult> GetPasskeysEnabled(CancellationToken ct)
     {
-        var setting = await _context.SystemSettings.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Key == IWebAuthnService.PasskeysEnabledSettingKey, ct);
-        var enabled = string.Equals(setting?.Value, "true", StringComparison.OrdinalIgnoreCase);
+        var enabled = await _mediator.Send(new GetPasskeysEnabledQuery(), ct);
         return Ok(new { status = "success", data = new { enabled } });
     }
 
@@ -119,45 +72,12 @@ public class SystemConfigController : ControllerBase
     [Authorize(Policy = "system.config")]
     public async Task<IActionResult> SetPasskeysEnabled([FromBody] SetPasskeysEnabledRequest r, CancellationToken ct)
     {
-        var newValue = r.Enabled ? "true" : "false";
-        var setting = await _context.SystemSettings
-            .FirstOrDefaultAsync(s => s.Key == IWebAuthnService.PasskeysEnabledSettingKey, ct);
-        var oldValue = setting?.Value ?? "false";
+        var result = await _mediator.Send(new SetPasskeysEnabledCommand(r.Enabled, GetCurrentUserId()), ct);
 
-        // Same no-op guard as asset-tag-format: unchanged value → no write, no audit row.
-        if (string.Equals(oldValue, newValue, StringComparison.OrdinalIgnoreCase))
-            return Ok(new { status = "success", message = "Đã lưu cấu hình." });
+        if (!result.Success)
+            return BadRequest(new { status = "error", message = result.Message });
 
-        var userId = GetCurrentUserId();
-        if (setting == null)
-        {
-            setting = new SystemSetting
-            {
-                Key = IWebAuthnService.PasskeysEnabledSettingKey,
-                Value = newValue,
-                Description = "Bật/tắt đăng nhập bằng Passkey (WebAuthn) — AUTH Phase 3",
-                UpdatedBy = userId
-            };
-            _context.SystemSettings.Add(setting);
-        }
-        else
-        {
-            setting.Value = newValue;
-            setting.UpdatedBy = userId;
-            setting.UpdatedAt = DateTime.UtcNow;
-        }
-
-        _actionLogService.LogAction(
-            itemType: ItemType.SystemSetting,
-            itemId: setting.Id,
-            actionType: ActionType.Update,
-            loggedByUserId: userId,
-            companyId: null, // global system configuration — intentionally not company-scoped
-            note: $"Bật đăng nhập bằng Passkey: {oldValue} → {newValue}",
-            logMeta: JsonSerializer.Serialize(new { changes = new { enabled = new { old = oldValue, @new = newValue } } }));
-
-        await _context.SaveChangesAsync(ct);
-        return Ok(new { status = "success", message = "Đã lưu cấu hình." });
+        return Ok(new { status = "success", message = result.Message });
     }
 }
 

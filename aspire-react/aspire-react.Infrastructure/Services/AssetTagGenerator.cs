@@ -1,10 +1,10 @@
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Interfaces;
+using aspire_react.Server.Domain.SystemConfig;
 using aspire_react.Server.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NpgsqlTypes;
-using System.Text.RegularExpressions;
 
 namespace aspire_react.Server.Infrastructure.Services;
 
@@ -20,27 +20,20 @@ namespace aspire_react.Server.Infrastructure.Services;
 /// </summary>
 public class AssetTagGenerator : IAssetTagGenerator
 {
-    public const string DefaultFormat = "AST-{COMPANY}-{YYYY}-{SEQ:3}";
-    public const string FormatSettingKey = "AssetTagFormat";
-    /// <summary>Description stamped on the SystemSetting row when it is first created (shared by
-    /// SetFormatAsync and the SystemConfigController write path so the text never diverges).</summary>
-    public const string FormatDescription = "Format tự sinh Mã tài sản (Asset Tag). Hỗ trợ {COMPANY} (mã công ty, NOCO nếu không có), {YYYY} (năm 4 số) và {SEQ:n} (số thứ tự đệm n chữ số). Nên giữ {COMPANY} để mã unique toàn hệ thống.";
-    /// <summary>Reserved code for company-less (floater) assets.</summary>
-    public const string NoCompanyCode = "NOCO";
+    // [FIX B 2026-10-02] The format contract now lives in Domain (Domain.SystemConfig.AssetTagFormat)
+    // so the Application command handler can validate/persist a format without referencing
+    // Infrastructure. These members forward to it — public API unchanged for existing callers/tests.
+    public const string DefaultFormat = AssetTagFormat.DefaultFormat;
+    public const string FormatSettingKey = AssetTagFormat.SettingKey;
+    public const string FormatDescription = AssetTagFormat.Description;
+    public const string NoCompanyCode = AssetTagFormat.NoCompanyCode;
 
-    private static readonly Regex SeqTokenRegex = new(@"\{SEQ:(\d)\}", RegexOptions.Compiled);
-    private static readonly Regex CompanyTokenRegex = new(@"\{COMPANY\}", RegexOptions.Compiled);
+    /// <summary>Validates an asset-tag format candidate — forwards to <see cref="AssetTagFormat.Validate"/>.</summary>
+    public static void ValidateFormat(string? format) => AssetTagFormat.Validate(format);
 
-    /// <summary>Validates an asset-tag format candidate (SEC-FIX A1: extracted so the controller's
-    /// single-transaction write path validates identically to <see cref="SetFormatAsync"/>).
-    /// Throws <see cref="ArgumentException"/> with the same messages SetFormatAsync has always used.</summary>
-    public static void ValidateFormat(string? format)
-    {
-        var trimmed = format?.Trim();
-        if (string.IsNullOrWhiteSpace(trimmed)) throw new ArgumentException("Format không được để trống.");
-        if (!SeqTokenRegex.IsMatch(trimmed))
-            throw new ArgumentException("Format phải chứa token {SEQ:n} (VD {SEQ:3}).");
-    }
+    /// <summary>Renders the format with the given year, sequence and company code.</summary>
+    public static string Render(string format, int year, long seq, string companyCode)
+        => AssetTagFormat.Render(format, year, seq, companyCode);
 
     private readonly AppDbContext _context;
 
@@ -142,17 +135,5 @@ public class AssetTagGenerator : IAssetTagGenerator
             setting.UpdatedAt = DateTime.UtcNow;
         }
         await _context.SaveChangesAsync(ct);
-    }
-
-    /// <summary>Renders the format with the given year, sequence and company code.</summary>
-    public static string Render(string format, int year, long seq, string companyCode)
-    {
-        var result = format.Replace("{YYYY}", year.ToString("D4"));
-        result = CompanyTokenRegex.Replace(result, companyCode);
-        return SeqTokenRegex.Replace(result, m =>
-        {
-            var width = int.Parse(m.Groups[1].Value);
-            return seq.ToString($"D{width}");
-        });
     }
 }
