@@ -70,6 +70,17 @@
   nên có một lượt dọn mojibake riêng.
 - **`AUTH_SIGNING_KEY` rotation**: đổi khóa = vô hiệu mọi access token đã cấp (refresh token vẫn dùng
   được vì lưu dạng hash). Ghi vào `docs/DEPLOYMENT.md` §4.1/§7 đợt 1.
+- **CI đã đỏ SUỐT từ trước đợt 1 — nguyên nhân thật KHÔNG phải Dockerfile (đã sửa xong):** gate
+  `Format check` (`dotnet format --verify-no-changes`) fail vì (a) 2 file test còn wrap dòng sai chuẩn
+  (`ActionLogNameResolutionTests.cs`, `MaintenanceCampaignTests.cs`) + (b) 1 phát hiện analyzer
+  `xUnit2013` (`AssetMaintenanceTests.cs:329` — `Assert.Equal(1, x.Count)` → `Assert.Single`), cộng
+  thêm tình trạng **line-ending trộn LF/CRLF** trong repo (không có `.editorconfig`). Vì gate backend
+  fail, job `Docker — Build Images` (`needs: [backend, frontend]`) **bị skip** ở MỌI run → lỗi
+  Dockerfile (thiếu 3 project sau tách 4-layer) chưa bao giờ được CI phát hiện. Đã sửa cả 2 nhóm:
+  commit `c5c97b5` → **CI xanh cả 3 job lần đầu tiên** (run 37017686138). Ghi nhận: ghi chú cũ trong
+  `ci.yml` ("CI-2: the whole solution was formatted ... passes clean locally") **không còn đúng** tại
+  thời điểm đó. Khuyến nghị cho đợt sau: thêm `.editorconfig` (`end_of_line`, `indent_size`,
+  `insert_final_newline`) + chuẩn hoá line endings để tránh tái diễn.
 
 ---
 
