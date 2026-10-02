@@ -24,6 +24,22 @@
 | **H** | N8 `AssetMaintenanceSection` đọc `company.id` (DTO không có `companyId` phẳng) + dọn mojibake **11 file / 62 dòng** (gồm 2 message API bị ký tự thay thế U+FFFD) | `09bd65e` | UI thật: dropdown "Người phụ trách" của asset thuộc công ty X hiện **đúng 2/37 user**; build 0 warning |
 | **J** | N13 tách row-lock ra `IRowLockService` (Application hết ref Npgsql) · N14 đổi mật khẩu **giữ session hiện tại** · N15 2 comment stale · N16 `SuperuserClaims` → `Authentication/` · N17 hết warning (CVE OpenApi → 2.12.0, CS0618, CS8xxx) · N18 chunk threshold có ghi số đo · N19 **`FOR UPDATE`** cho refresh rotation · N20 docs 103 dòng | `c07b7c7` | N19 LIVE **6-way cùng cookie: 1×200 + 5×401**, chỉ 1 access token, family bị revoke; N14 LIVE: session A refresh 200 / session B 401; build **0 warning**; `dotnet ef migrations has-pending-model-changes` = không lệch model |
 
+### ✅ QUYẾT ĐỊNH ĐÃ DUYỆT (đợt 2 — 2026-10-02)
+
+- **N14 — `POST /api/v1/auth/password` (người dùng tự đổi mật khẩu): GIỮ session đang dùng, CHỈ revoke
+  các session KHÁC.** Quyết định này **thay thế** quyết định trước đó ("revoke TẤT CẢ session, kể cả
+  thiết bị vừa đổi mật khẩu").
+  - **Lý do duyệt:** tài liệu `ChangePasswordCommand` đã ghi ý định "all OTHER refresh sessions revoked
+    (this device stays logged in)" từ AUTH Phase 1, nhưng code revoke cả credential của chính người gọi
+    → thiết bị đó chỉ dùng được tới khi access token hết hạn (15') rồi bị đăng xuất âm thầm. Đổi mật
+    khẩu tự phục vụ không nên tự đăng xuất chính người dùng.
+  - **Cài đặt:** controller truyền cookie refresh hiện tại (`IAuthCookieService.GetRefreshCookie()`);
+    handler so **hash** token đó và loại trừ đúng credential khỏi lệnh revoke. Nếu request **KHÔNG** kèm
+    cookie (client khác, gọi API trực tiếp) → giữ **mặc định an toàn cũ**: revoke tất cả.
+  - **Verify:** unit `ChangePassword_WithCurrentRefreshToken_KeepsThatSession_RevokesOthers` + LIVE 2
+    session thật (login 2 lần → đổi mật khẩu bằng session A có cookie → **refresh A = 200**, refresh B =
+    **401**; login mật khẩu cũ = 400, mật khẩu mới = 200). Commit `c07b7c7`.
+
 ### 📌 Phát hiện MỚI trong đợt 2 (chưa xử lý — đăng ký để làm sau)
 
 1. **`AppDbContext` có 2 block `modelBuilder.Entity<LicenseSeat>` trùng nhau** (L585 và L648 — phát
