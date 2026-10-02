@@ -5,8 +5,8 @@
 .DESCRIPTION
   - Runs `docker compose down -v` from the repo root.
   - Removes ONLY the Docker Compose production volumes, i.e. those named `mirats-*`
-    (mirats-postgres-data, mirats-redis-data, mirats-keycloak-data).
-  - NEVER touches the Aspire dev volumes (`postgres-data`, `keycloak-data` - no
+    (mirats-postgres-data, mirats-redis-data).
+  - NEVER touches the Aspire dev volumes (`postgres-data`, `redis-data` - no
     `mirats-` prefix). Those belong to the dev stack and are left untouched.
   - Asks for confirmation first - data deletion is IRREVERSIBLE.
   - PS 5.1 compatible: no `??`, no null-conditional, plain ASCII (no BOM).
@@ -53,7 +53,7 @@ if ($before.Count -eq 0) {
 # Informational guard: show the Aspire dev volumes we will NOT touch.
 $devVolumes = @()
 $devVolumes += @(docker volume ls -q --filter "name=^postgres-data$" 2>$null)
-$devVolumes += @(docker volume ls -q --filter "name=^keycloak-data$" 2>$null)
+$devVolumes += @(docker volume ls -q --filter "name=^redis-data$" 2>$null)
 $devVolumes = @($devVolumes | Where-Object { $_ })
 if ($devVolumes.Count -gt 0) {
   Write-Host "Aspire dev volumes (NOT touched): $($devVolumes -join ', ')"
@@ -114,6 +114,7 @@ Write-Host ""
 Write-Host "To rebuild from scratch:"
 Write-Host "  1) cp .env.example .env   (fill in all REQUIRED vars)"
 Write-Host "  2) docker compose up -d --build"
-Write-Host "  3) scripts/seed-initial-admin.ps1   (or: bash scripts/seed-initial-admin.sh on Linux/Mac)"
+Write-Host "     The first admin is created automatically on server boot (AUTH_BOOTSTRAP_ADMIN_PASSWORD)"
+Write-Host "     - the old scripts/seed-initial-admin.* (Keycloak) were removed with Keycloak itself."
 Write-Host ""
-Write-Host "Aspire dev volumes (postgres-data, keycloak-data) are untouched."
+Write-Host "Aspire dev volumes (postgres-data, redis-data) are untouched."

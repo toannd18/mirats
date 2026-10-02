@@ -5,22 +5,18 @@
 #
 # VITE_* are build-time (baked into the bundle). Pass them as --build-arg so the
 # image is reproducible per environment; compose sets them from .env.
-#   docker build --build-arg VITE_API_BASE_URL=/api/v1 --build-arg VITE_KEYCLOAK_URL=... .
+#   docker build --build-arg VITE_API_BASE_URL=/api/v1 .
+# [FIX-DEPLOY 2026-10-02] The three VITE_KEYCLOAK_* build args were removed together with Keycloak
+# (AUTH Phase 5 → local JWT auth; nothing in src/ reads them any more).
 
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# Build args — all optional (have sane defaults in vite.config.ts / keycloak.ts).
+# Build args — optional (has a sane default in vite.config.ts / api-client.ts).
 # Declared as ARG so `docker build --build-arg` can override; also exposed as ENV
 # so Vite's `import.meta.env.*` picks them up at build time.
 ARG VITE_API_BASE_URL
-ARG VITE_KEYCLOAK_URL
-ARG VITE_KEYCLOAK_REALM
-ARG VITE_KEYCLOAK_CLIENT_ID
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
-ENV VITE_KEYCLOAK_URL=${VITE_KEYCLOAK_URL}
-ENV VITE_KEYCLOAK_REALM=${VITE_KEYCLOAK_REALM}
-ENV VITE_KEYCLOAK_CLIENT_ID=${VITE_KEYCLOAK_CLIENT_ID}
 
 COPY package.json package-lock.json ./
 RUN npm ci

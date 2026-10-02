@@ -7,14 +7,28 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY nuget.config ./
+# [FIX-DEPLOY 2026-10-02] Giai đoạn 0.1 split the solution into separate projects
+# (Domain / Application / Infrastructure / Server + ServiceDefaults). This Dockerfile still copied
+# only Server + ServiceDefaults, so `dotnet publish` inside the image could not resolve the
+# referenced projects and the build failed (CS0246 on Infrastructure/Domain types). Every project
+# the Server depends on must be restored AND copied.
+COPY ["aspire-react.Domain/aspire-react.Domain.csproj", "aspire-react.Domain/"]
+COPY ["aspire-react.Application/aspire-react.Application.csproj", "aspire-react.Application/"]
+COPY ["aspire-react.Infrastructure/aspire-react.Infrastructure.csproj", "aspire-react.Infrastructure/"]
 COPY ["aspire-react.Server/aspire-react.Server.csproj", "aspire-react.Server/"]
 COPY ["aspire-react.ServiceDefaults/aspire-react.ServiceDefaults.csproj", "aspire-react.ServiceDefaults/"]
 RUN dotnet restore "aspire-react.Server/aspire-react.Server.csproj"
+COPY aspire-react.Domain/ aspire-react.Domain/
+COPY aspire-react.Application/ aspire-react.Application/
+COPY aspire-react.Infrastructure/ aspire-react.Infrastructure/
 COPY aspire-react.Server/ aspire-react.Server/
 COPY aspire-react.ServiceDefaults/ aspire-react.ServiceDefaults/
 # Clear any stale obj/ that might have been copied before .dockerignore took effect
 # (Windows obj/project.assets.json contains fallback path C:\... which breaks Linux publish).
-RUN rm -rf aspire-react.Server/obj aspire-react.Server/bin \
+RUN rm -rf aspire-react.Domain/obj aspire-react.Domain/bin \
+           aspire-react.Application/obj aspire-react.Application/bin \
+           aspire-react.Infrastructure/obj aspire-react.Infrastructure/bin \
+           aspire-react.Server/obj aspire-react.Server/bin \
            aspire-react.ServiceDefaults/obj aspire-react.ServiceDefaults/bin
 WORKDIR /src/aspire-react.Server
 RUN dotnet publish -c Release -o /app
