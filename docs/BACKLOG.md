@@ -5,6 +5,52 @@
 
 ---
 
+## 🆕 ĐỢT 2 — 2026-10-02 (10 mục I → A → B → C → D → E → F → G → H → J)
+
+> **Trạng thái: xong 10/10 mục, TẤT CẢ commit LOCAL — CHƯA PUSH** (chờ duyệt). Luật mới áp dụng
+> xuyên đợt: mỗi commit phải chạy ĐÚNG 6 gate CI ở local (`scripts/precommit-gates.ps1`) và mọi thay
+> đổi hành vi phải verify LIVE trên stack thật (§1.9 DEVELOPMENT_WORKFLOW).
+
+| Mục | Nội dung | Commit | Bằng chứng verify |
+|---|---|---|---|
+| **I** | `.editorconfig` + `.gitattributes` (chốt **LF**, giải thích: index đã 100% LF, 32 file có BOM nên KHÔNG đặt `charset`) + `scripts/precommit-gates.ps1` + §1.9 quy tắc gate/CI | `b6a9add` | `git ls-files --eol` 585/585 `i/lf w/lf`; `git diff --ignore-all-space` rỗng (không cần commit chuẩn hoá riêng) |
+| **A (BUG-M)** | `UsersController` thin 100% (chỉ `IMediator`); Create/Update/Delete/AdminReset thành `ILoggableCommand`, guard+company-scope chuyển vào handler → **hết log kép** | `84ba53f` | LIVE trước/sau trên cùng luồng: delta ActionLog **2/2/2 → 1/1/1**; 474 test PASS |
+| **B** | `SystemConfigController` (controller FAT cuối cùng) → MediatR; contract format tách sang Domain (`AssetTagFormat`), 2 write command = `ILoggableCommand` | `7a6a9dc` | Parity 2-run **11/11 call giống hệt** (status+body); log vẫn 1 row/change, 0 row cho invalid/no-op |
+| **C** | `AccessoriesController.GetCheckouts` → `GetAccessoryCheckoutsQuery` (controller hết EF trực tiếp) | `42814c0` | Parity 2-run **3/3** (kể cả 404 hide-existence) |
+| **D** | `ConcurrencyRaceAuditTests` tự dọn fixture qua API (return/checkin trước, rồi báo cáo BLOCKED kèm error_code của delete-guard) + sửa 2 lỗi tiềm ẩn: `AdminUserId` hardcode **stale sau reset DB** (test âm thầm không test gì) và tên fixture trùng khi chạy lại; base URL cấu hình qua `MIRATS_TEST_BASE_URL` | `1842dc0` | Chạy thật: race cho đúng 1 winner/lần; cleanup return 5/5 accessory+component+license-seat; xoá bị chặn **đúng thiết kế** (`ACCESSORY_HAS_CHECKOUTS`, `COMPONENT_HAS_ALLOCATION_HISTORY`, `LICENSE_IN_USE`, `ASSET_CONFIRMED_CANNOT_DELETE`, `CATEGORY_IN_USE`, `COMPANY_IN_USE`) |
+| **E** | N3+N4+N10 patch-safety: `UpdateCompanyCommand` Name/ParentId (absent → giữ, `Guid.Empty` → re-root), `UpdateGroupCommand` Description, null-guard `permissions` (handler + controller) | `ca75791` | LIVE: PUT thiếu `parentId` **giữ nguyên cha** (trước: re-root), sentinel re-root OK, tên trùng/blank → 400 (trước: 500), rename-only giữ description; 10 test mới |
+| **F** | N6 Web Locks cross-tab refresh + N7 cache quyền **khoá theo danh tính** + `clearPermissionCache()` khi logout + N11 timeout refresh/login/logout | `db439c2` | Browser thật **2 tab**: `navigator.locks` chặn chéo tab (`otherTabLock: BLOCKED-timeout` khi tab kia giữ lock, `storageShared` xác nhận cùng origin); tab 2 boot refresh 200, cả 2 tab vẫn đăng nhập |
+| **G** | Docs: ERROR_CODES xoá **7 mã Keycloak chết** + thêm **10 mã auth mới** (kèm HTTP status), ARCHITECTURE/HANDOFF_LATEST/DEVELOPMENT_WORKFLOW/.clinerules/skills bỏ Keycloak "hiện hành" | `8b9e6da` | grep `KEYCLOAK_[A-Z_]+` trong `*.cs` = **0**; 5 mã auth spot-check đều tồn tại trong code |
+| **H** | N8 `AssetMaintenanceSection` đọc `company.id` (DTO không có `companyId` phẳng) + dọn mojibake **11 file / 62 dòng** (gồm 2 message API bị ký tự thay thế U+FFFD) | `09bd65e` | UI thật: dropdown "Người phụ trách" của asset thuộc công ty X hiện **đúng 2/37 user**; build 0 warning |
+| **J** | N13 tách row-lock ra `IRowLockService` (Application hết ref Npgsql) · N14 đổi mật khẩu **giữ session hiện tại** · N15 2 comment stale · N16 `SuperuserClaims` → `Authentication/` · N17 hết warning (CVE OpenApi → 2.12.0, CS0618, CS8xxx) · N18 chunk threshold có ghi số đo · N19 **`FOR UPDATE`** cho refresh rotation · N20 docs 103 dòng | `c07b7c7` | N19 LIVE **6-way cùng cookie: 1×200 + 5×401**, chỉ 1 access token, family bị revoke; N14 LIVE: session A refresh 200 / session B 401; build **0 warning**; `dotnet ef migrations has-pending-model-changes` = không lệch model |
+
+### 📌 Phát hiện MỚI trong đợt 2 (chưa xử lý — đăng ký để làm sau)
+
+1. **`AppDbContext` có 2 block `modelBuilder.Entity<LicenseSeat>` trùng nhau** (L585 và L648 — phát
+   hiện khi sửa N17). Model nhận hợp của cả hai (index + column type ở block 2, navigation License ở
+   block 1) nên **hiện không sai**, nhưng rất dễ sửa nhầm một nửa. Đề xuất: gộp về 1 block (phải soát
+   `dotnet ef migrations has-pending-model-changes` = rỗng sau khi gộp).
+2. **`Invoke-WebRequest`/HttpWebRequest của PowerShell 5.1 ÂM THẦM BỎ header `Cookie` set tay** — chỉ
+   dùng `System.Net.Http.HttpClient` (hoặc `-WebSession`) khi cần test cookie; nếu không sẽ kết luận
+   sai về hành vi server (đã xảy ra với N14: tưởng fix lỗi, thực ra test không gửi cookie).
+3. **`docs/HANDOFF_LATEST.md` (và `docs/sql/`, `backups/*.sql`)** còn mojibake lịch sử/dump — cố ý
+   không sửa (là ghi chép sự cố); `backups/*.sql` là artifact backup, không phải code.
+
+### 🤖 Đề xuất đưa `ConcurrencyRaceAuditTests` vào CI (mục D — CHƯA sửa `ci.yml`)
+
+- **Hiện trạng:** test cần stack thật + quyền admin, tag `Category=Concurrency`, mặc định chỉ chạy tay.
+- **Khả thi:** thêm 1 job chạy **trên DB dùng-một-lần** — `docker compose up -d --build` (hoặc service
+  container Postgres + chạy API trực tiếp) → chờ `/health` → `MIRATS_TEST_BASE_URL=http://localhost:5000`
+  + `MIRATS_TEST_ADMIN_PASSWORD` (từ CI secret) → `dotnet test --filter "Category=Concurrency"` →
+  `docker compose down -v`.
+- **2 điều kiện bắt buộc đã rõ:** (a) admin bootstrap mới bị `MustChangePassword=true` → job phải đổi
+  mật khẩu 1 lần (`/auth/password`) trước khi test; (b) **KHÔNG bao giờ chạy trên DB dev/dùng chung** —
+  các fixture có lịch sử cấp phát bị delete-guard giữ lại vĩnh viễn (census hiện tại: ~838 row `QCR-*`
+  tích luỹ từ nhiều phiên, không xoá được qua API và **không được xoá bằng SQL** theo §8).
+- **Chi phí:** ~5–10 phút/job (build image). Đề xuất: chạy ở nhánh `main`/nightly, không chặn PR.
+
+---
+
 ## 🆕 AUDIT 2026-10-02 (sau MediatR + Auth migration) — phân loại N1–N20
 
 - **Nguồn:** `docs/AUDIT_POST_MIGRATIONS_2026-10-02.md` (audit 8 mục: Clean Architecture,
