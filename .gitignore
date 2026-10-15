@@ -70,8 +70,13 @@ test-results/
 
 # =============================================================================
 # Local AI tooling (personal skill libraries — not project source)
+# Mở RIÊNG .claude/skills/ để track skill dự án (INFRA skills 2026-10-15);
+# mọi thứ khác trong .claude/ vẫn ignore.
 # =============================================================================
-.claude/
+.claude/*
+!.claude/skills/
+.claude/settings*.json
+.claude/skills/doc-coauthoring/
 .cline/
 .agents/
 .opencode/
@@ -89,5 +94,5 @@ screenshots/
 backups/
 docs/assets-template(1).xlsx
 
-# [SECRET-ROTATE 2026-08-29] Local dev/test credentials � NEVER commit
+# [SECRET-ROTATE 2026-08-29] Local dev/test credentials � NEVER commit
 .mirats-test-admin-password
