@@ -410,13 +410,19 @@ Script sẽ:
    được container frontend (cùng docker network — xem bước 5), port 80; tab
    **Custom locations** thêm location `/api` trỏ cùng upstream (frontend nginx
    proxy `/api` về `server:5000` sẵn); tab **SSL**: DNS challenge Cloudflare
-   (credentials = API token bước 1), bật **Force SSL**.
+   (credentials = API token bước 1), bật **Force SSL**. Không cần custom Nginx
+   config: NPM mặc định ghi đè `X-Forwarded-Proto` thành `http` (đã kiểm chứng
+   bằng nginx cùng hành vi), nhưng NPM luôn gửi kèm `X-Forwarded-Scheme: https`
+   (scheme nó terminate) — backend tự suy `Scheme=https` từ header này khi
+   `X-Forwarded-Proto` vắng/không phải https (đã unit-test). Giữ
+   `Host` nguyên (mặc định NPM) — backend dùng `Host` để sinh URL QR Labels.
 4. **NPM KHÔNG rewrite Host** (mặc định giữ nguyên) — backend dùng `Host` để sinh
    URL QR Labels; rewrite Host sẽ làm QR sai domain.
 5. **Dựng Mirats bằng override**: `docker compose -f docker-compose.yml -f
    docker-compose.npm.yml up -d --build` (frontend + server join network
    external của NPM, gỡ publish port trực tiếp, bơm `Proxy__*` +
-   `Auth__WebAuthn__*`).
+   `Auth__WebAuthn__*`). Yêu cầu **Docker Compose ≥ 2.24** (file override dùng
+   tag `!reset` để gỡ `ports` — bản cũ hơn không hiểu tag này và fail khi parse).
 6. Verify: `https://<domain>/api/v1/health` → 200; login → refresh tự gia hạn;
    brute-force 2 IP khác nhau đếm riêng; ActionLog `RemoteIp` = IP client thật.
 
@@ -431,8 +437,14 @@ Script sẽ:
    `https` loop).
 3. **Khuyến nghị Cloudflare Access** (Zero Trust) trước NPM cho (c).
 4. Backend: thêm IP egress của `cloudflared` vào `PROXY_KNOWN_NETWORKS`, nâng
-   `PROXY_FORWARD_LIMIT` lên 3; ưu tiên `CF-Connecting-IP` đã có sẵn trong code
-   (không cần đổi gì thêm).
+   `PROXY_FORWARD_LIMIT` lên 3, và bật `PROXY_TRUST_CLOUDFLARE=true` để backend
+   ưu tiên `CF-Connecting-IP`. **Điều kiện an toàn:** NPM ở (c) CHỈ được nhận
+   kết nối qua tunnel (firewall chặn truy cập trực tiếp vào NPM) — nếu NPM vẫn
+   reachable trực tiếp, client có thể giả `CF-Connecting-IP` và mạo danh IP bất
+   kỳ. Ở (a)/(b) giữ `false` (mặc định): header này bị bỏ qua vô điều kiện.
+5. Khi `Proxy__KnownNetworks` để trống ngoài Development, backend log WARNING
+   lúc khởi động và bỏ qua mọi header proxy (fail-closed) — brute-force/audit
+   sẽ thấy IP container proxy.
 
 ### 11.4 Biến môi trường bắt buộc cho từng cấu hình
 
@@ -442,6 +454,7 @@ Script sẽ:
 | `NPM_NETWORK_NAME` | — | Bắt buộc | Bắt buộc |
 | `PROXY_KNOWN_NETWORKS` | Khuyến nghị (mặc định loopback = bỏ qua header) | Bắt buộc | Bắt buộc (+ IP cloudflared) |
 | `PROXY_FORWARD_LIMIT` | 1 | 2 | 3 |
+| `PROXY_TRUST_CLOUDFLARE` | `false` | `false` | `true` (chỉ khi NPM tunnel-only, có firewall) |
 | `WEBAUTHN_RPID`, `WEBAUTHN_ORIGINS` | — (passkey không chạy trên IP) | Bắt buộc | Bắt buộc |
 | `FRONTEND_PORT`, `BACKEND_PORT` | Mở (truy cập IP) | Bị gỡ bởi override (đóng cửa IP) | Bị gỡ |
 

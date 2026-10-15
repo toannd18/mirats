@@ -29,6 +29,9 @@ services:
       Proxy__KnownNetworks: ${PROXY_KNOWN_NETWORKS:?PROXY_KNOWN_NETWORKS is required}
       # Số hop proxy: (b) NPM + frontend = 2, (c) tunnel + NPM + frontend = 3.
       Proxy__ForwardLimit: ${PROXY_FORWARD_LIMIT:-2}
+      # CF-Connecting-IP: CHỈ true ở (c) khi NPM CHỈ nhận qua tunnel (firewall).
+      # (a)/(b) giữ false — header bị bỏ qua vô điều kiện (chống giả mạo IP).
+      Proxy__TrustCloudflare: ${PROXY_TRUST_CLOUDFLARE:-false}
       # WebAuthn RP theo domain thật (passkey chỉ hoạt động trên domain HTTPS).
       Auth__WebAuthn__RPId: ${WEBAUTHN_RPID:?WEBAUTHN_RPID is required}
       Auth__WebAuthn__Origins: ${WEBAUTHN_ORIGINS:?WEBAUTHN_ORIGINS is required}
