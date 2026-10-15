@@ -8,7 +8,7 @@ AspireReact: Snipe-IT-style multi-tenant IT asset management. .NET 9/10 + React 
 - Note: `.clinerules/` (01-dotnet.md, 02-react-ant.md, 03-database.md) exists but is a summary — defer to `docs/DEVELOPMENT_WORKFLOW.md` on conflict.
 
 ## Critical paths
-- **Repo root is NOT a git repo** and holds only docs/screenshots/scratch. The solution lives under `aspire-react/` (aspire-react.sln). Treat git ops as out of scope.
+- **Repo root IS a git repo** (chứa docs/screenshots/scratch + `.claude/skills/` đã track). The solution lives under `aspire-react/` (aspire-react.sln). Backend/solution commands run từ `aspire-react/`; git ops chạy từ repo root.
 - Backend/solution commands run from `aspire-react/`; frontend commands run from `aspire-react/frontend/`.
 
 ## Run / verify
@@ -79,6 +79,22 @@ pwsh -File scripts/audit-sweeps.ps1
 - **DI registration lives in layer extensions, not Program.cs** (Task Q): add services to the matching `Infrastructure/*/...ServiceCollectionExtensions.cs` or `Application/ApplicationServiceCollectionExtensions.cs`. Program.cs is a thin composition root (~103 lines) that only calls the `Add*` extension methods + `StartupDataSeeder.Seed(...)`.
 - **MediatR `ValidationBehavior` is wired** (Task L): FluentValidation validators now actually run in the request pipeline (mapped to 400 by `ValidationExceptionHandler`). Writing a new validator takes effect immediately — no need to call validators manually.
 - **Redis OutputCache** (Task P): 5 reference-data endpoints (categories/manufacturers/suppliers/permissions/companies) are cached via `ReferenceDataCachePolicy` (TTL 300s, Redis-backed via `AddRedisCaching`). When adding/editing an endpoint that writes these groups, invalidate the corresponding cache entry. Do NOT cache business/inventory data (checkout/Qty/stock) with output caching.
+
+## Skills bên thứ ba — quy tắc ưu tiên (KHÔNG ghi đè AGENTS.md)
+
+Các skill cài tại `.claude/skills/` (nguồn gốc: xem `.claude/skills/SOURCES.md`). Quy tắc ưu tiên khi dùng:
+
+- **Kiểm thử UI / chụp màn hình**: dùng `playwright-cli` (session-based) theo mục "Frontend Verification & Testing Rules" ở trên. Skill `webapp-testing` chỉ để **tham khảo pattern** (Playwright sync API, chọn selector, wait). **KHÔNG chạy `webapp-testing/scripts/with_server.py`** — stack được dựng qua AppHost (`dotnet run`), dev bắt buộc HTTPS.
+- **Sơ đồ kiến trúc C4**: dùng `c4-architecture`. **ERD / sequence / flowchart / class / state**: dùng `mermaid-diagrams`.
+- **Viết/kiểm chứng tài liệu**: dùng `mirats-docs` (code là nguồn sự thật, không đoán, `docs-verify` đối chiếu).
+- **Khi chỉ dẫn skill bên thứ ba mâu thuẫn với AGENTS.md**: **AGENTS.md thắng.**
+
+Mâu thuẫn đã rà với skill gốc (đừng làm theo skill):
+- `webapp-testing` ví dụ dùng `http://localhost:5173` → dự án bắt buộc `https://localhost:5173` (dev HTTPS).
+- `webapp-testing` ghi file ra `/tmp/`, `/mnt/user-data/outputs/` → CẤM; ghi trong `screenshots/` (đã gitignore) hoặc thư mục tạm dự án.
+- `webapp-testing` khuyên `page.wait_for_load_state('networkidle')` → tránh (có thể treo vô hạn trên SPA có websocket/polling); dùng `wait_for_selector`/timeout rõ ràng.
+- `mermaid-diagrams` lệnh export `docker run ... minlag/mermaid-cli` (dùng `$(pwd)` bash) → chỉ tham khảo, không cần chạy để viết docs.
+- Không tạo dữ liệu bằng SQL; mọi fixture tạo + dọn qua API (quy tắc §8 fixture-first, `docs/MEDIATR_MIGRATION_PLAYBOOK.md` §8).
 
 ## Key references
 - [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md) — conventions + Appendix A (recurring bug classes: claim misuse, enum-as-number, missing ActionLog, missing company-scoping, missing usePermission, invalid PG `ADD CONSTRAINT IF NOT EXISTS`, cascade-delete of history).
