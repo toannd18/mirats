@@ -228,7 +228,7 @@ Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`Au
 | Code | HTTP | Endpoint | Điều kiện |
 |---|---|---|---|
 | `NOT_FOUND` | 404 | PUT, DELETE /{id} | Không tồn tại |
-| `MODEL_IN_USE` | 400 | DELETE /{id} | Đang được Asset tham chiếu (DeleteModel handler) |
+| (không error_code) | 400 | DELETE /{id} | Đang được Asset tham chiếu — message "Không thể xóa Model đang có tài sản sử dụng." (`DeleteModelCommandHandler`, không gắn code) |
 | `RESOURCE_NOT_FOUND` | 400 | POST, PUT | FK (Manufacturer/Category/Depreciation/Fieldset) không tồn tại — **BUG-H fix**, thay raw 500 |
 
 (Dup/empty name: 400 không error_code — "Tên model đã tồn tại." / "Tên model không được để trống." — BUG-H.)
@@ -313,7 +313,7 @@ Import response thành công là FLAT: `status/created/failed/rows/errors` — k
 | `SYSTEM_INFO_REQUIRED` | 400 | POST | Thiếu SystemInfoId |
 | `SYSTEM_NOT_FOUND` | 404 | POST | System không tồn tại/ngoài scope |
 | `END_BEFORE_START` | 400 | POST | EndDate < StartDate |
-| `TEMPLATE_NOT_FOUND` (NOT_FOUND) | 404 | POST | TemplateId chỉ định không tồn tại |
+| `NOT_FOUND` | 404 | POST | TemplateId chỉ định không tồn tại ("Template not found." — `CampaignAccess.ResolvePinableVersionAsync`, không có mã riêng) |
 | `TEMPLATE_SYSTEM_MISMATCH` | 400 | POST | Template không thuộc hệ thống |
 | `NO_TEMPLATE` | 400 | POST | Hệ thống chưa có template |
 | `AMBIGUOUS_TEMPLATE` | 400 | POST | Nhiều template, thiếu templateId |
@@ -524,7 +524,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `MANUFACTURER_IN_USE` — Manufacturers (400)
 - `MAX_5_ASSIGNEES` — AssetMaintenances (400)
 - `MISSING_TARGET` — Components (400)
-- `MODEL_IN_USE` — AssetModels (400)
+- (Đã xóa 2026-10-15, DOC-ERR-1: mã cũ cho AssetModels DELETE-guard không tồn tại trong code — guard trả 400 không error_code)
 - `MUST_CHANGE_PASSWORD` — **mọi endpoint** trừ `/users/me` + `/auth/password` (**403**; middleware)
 - `NO_AVAILABLE_SEATS` — Licenses (400)
 - `NO_CURRENT_VERSION` — MaintenanceCampaigns (400)

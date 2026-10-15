@@ -631,24 +631,25 @@
 
 ## DOC-ERR-1 — ERROR_CODES.md ghi `MODEL_IN_USE` nhưng code KHÔNG gắn error_code (LOW, docs-only)
 
-- **Trạng thái: OPEN (phát hiện 2026-10-15 bởi `docs-verify`).** `docs/ERROR_CODES.md` section
+- **Trạng thái: RESOLVED 2026-10-15 (docs-only, không đụng code).** `docs/ERROR_CODES.md` section
   AssetModels + bảng tra nhanh liệt kê `MODEL_IN_USE` (400, DELETE khi model đang được Asset
   tham chiếu) — nhưng `DeleteModelCommandHandler`
   (`aspire-react.Application/Models/Commands/DeleteModelCommand.cs:46-48`) trả
   `new ModelResult(false, "Không thể xóa Model đang có tài sản sử dụng.")` **không gắn error_code**
   (MapFailure null-path → 400 chỉ có message, đúng §1.6 "Response lỗi KHÔNG có error_code").
-- **Fix (phiên sau, docs-only):** sửa ERROR_CODES.md — bỏ `MODEL_IN_USE` khỏi 2 bảng, ghi chú
-  verbatim "400 không error_code" như các case BUG-E/F/H/I/K. Không đụng code.
+- **Fix đã áp dụng:** ERROR_CODES.md — dòng bảng đổi thành `(không error_code)` + message verbatim;
+  dòng tra nhanh thay bằng tombstone không chứa token (để `docs-verify` giữ 0 mismatch).
+  FE không khớp chuỗi này (chỉ hiển thị `message` server) → không bug FE.
 
 ---
 
 ## DOC-ERR-2 — ERROR_CODES.md ghi `TEMPLATE_NOT_FOUND` nhưng code thực tế trả `NOT_FOUND` (LOW, docs-only)
 
-- **Trạng thái: OPEN (phát hiện 2026-10-15 bởi `docs-verify`).** `docs/ERROR_CODES.md`
+- **Trạng thái: RESOLVED 2026-10-15 (docs-only, không đụng code).** `docs/ERROR_CODES.md`
   (MaintenanceCampaigns, POST: "`TEMPLATE_NOT_FOUND` (NOT_FOUND) 404 TemplateId chỉ định không
   tồn tại") — nhưng `CampaignAccess.ResolvePinableVersionAsync`
   (`aspire-react.Application/MaintenanceCampaigns/CampaignAccess.cs:69-74`) trả
   `("NOT_FOUND", "Template not found.")`, controller map `"NOT_FOUND" => "Template not found."`
   (`MaintenanceCampaignsController.cs:125`). Client không bao giờ thấy `TEMPLATE_NOT_FOUND`.
-- **Fix (phiên sau, docs-only):** sửa ERROR_CODES.md — thay `TEMPLATE_NOT_FOUND` bằng `NOT_FOUND`
-  ở dòng đó. Không đụng code.
+- **Fix đã áp dụng:** ERROR_CODES.md — thay bằng `NOT_FOUND` + message verbatim.
+  FE không khớp chuỗi này → không bug FE. `docs-verify` trên ERROR_CODES.md: error codes 0 mismatch.
