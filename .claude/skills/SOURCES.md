@@ -50,7 +50,7 @@ generic). Đã xác nhận OpenCode delist toàn bộ skill đã dọn (22 + age
 | Archive subdir | Nguồn | Skills |
 |---|---|---|
 | `.claude-skills/` (22) | `.claude/skills/` trong repo | `frontend-dev`, `vercel-cli-with-tokens`, `vercel-composition-patterns`, `vercel-optimize`, `vercel-react-best-practices`, `vercel-react-native-skills`, `vercel-react-view-transitions`, `deploy-to-vercel`, `web-design-guidelines`, `writing-guidelines`, `banner-design`, `brand`, `design`, `design-system`, `slides`, `ui-styling`, `ui-ux-pro-max`, `dotnet-backend-patterns`, `dotnet-best-practices`, `dotnet-core-expert`, `dotnet-design-pattern-review`, `dotnet-upgrade` |
-| `.agents-skills/` (17) | `.agents/skills/` trong repo (personal lib, gitignored) | 17 bản trùng tên (trừ 5 `dotnet-*` vốn không có ở đây) |
+| `.agents-skills/` (17+9) | `.agents/skills/` trong repo (personal lib, gitignored) | 17 bản trùng tên đợt 1 + 9 bản trùng đợt 2 (`ant-design`, `antd` khớp byte 100%; `aspire`×6 + `playwright-cli` khớp nội dung, lệch duy nhất file `LICENSE` do ta bổ sung attribution — bản `.claude/skills/` là superset) |
 | `.opencode-skills/` (7) | `.opencode/skills/` trong repo (personal lib, gitignored) | `banner-design`, `brand`, `design`, `design-system`, `slides`, `ui-styling`, `ui-ux-pro-max` |
 | `.global-agents-skills/` (5) | `~/.agents/skills/` toàn cục | 5 `dotnet-*` chung |
 | `.agents-skills/agent-browser/` (1) | `.agents/skills/` trong repo | `agent-browser` — CLI browser-automation bên thứ ba (Chrome CDP), không license, không dùng trong dự án (AGENTS.md chỉ dùng `playwright-cli`), chồng chéo chức năng → archive 2026-10-15 |
