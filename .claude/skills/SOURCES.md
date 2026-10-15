@@ -12,6 +12,8 @@
 | `c4-architecture` | [davila7/claude-code-templates](https://github.com/davila7/claude-code-templates) | `cli-tool/components/skills/creative-design/c4-architecture/` | `b1ee28a` (clone 2026-10-15) | MIT (bổ sung `LICENSE` đúng commit) |
 | `webapp-testing` | [anthropics/skills](https://github.com/anthropics/skills) | `skills/webapp-testing/` | `dbd4588` (clone 2026-10-15) | Apache 2.0 (`LICENSE.txt` gốc) |
 | `mirats-docs` | **dự án tự viết** | — | — | (nội bộ dự án) |
+| `code-review` | **dự án tự viết** (checklist review theo DEVELOPMENT_WORKFLOW.md + AGENTS.md, trigger cả "chạy review") | — (chuyển từ `.agents/skills/` sang 2026-10-15) | — | (nội bộ dự án) |
+| `ant-design-mobile` | **dự án tự viết** (responsive/mobile trên antd 6.x desktop — KHÔNG phải package `antd-mobile`; đã xác nhận không code nào import `antd-mobile`) | — (chuyển từ `.agents/skills/` sang 2026-10-15) | — | (nội bộ dự án) |
 | `aspire`, `aspire-init`, `aspire-orchestration`, `aspire-monitoring`, `aspire-deployment`, `aspireify` | [microsoft/aspire-skills](https://github.com/microsoft/aspire-skills) | `skills/<tên>/` | **`35f41b0` (2026-05-26, "Sync Aspire skills with 13.4 guidance") — KHỚP BYTE (chuẩn hoá CRLF) toàn bộ SKILL.md ×6 + cây `references/`** (lệch duy nhất: upstream có thêm `evals/` — installer gốc đã lược khi cài; `LICENSE` do ta bổ sung) | MIT Microsoft (bổ sung `LICENSE` từ upstream vào mỗi skill) |
 | `playwright-cli` | [microsoft/playwright](https://github.com/microsoft/playwright) (bản bundle trong `packages/playwright-core/src/tools/cli-client/skill/` — khớp verbatim `allowed-tools`) | `packages/playwright-core/src/tools/cli-client/skill/` | có sẵn trước 2026-10-15; HEAD tra cứu `a038fe7` (chưa đối chiếu byte — bản local khớp biến thể bundle, khác biến thể repo standalone `microsoft/playwright-cli`) | Apache 2.0 (bổ sung `LICENSE` từ upstream) |
 | `ant-design`, `antd` | [ant-design/antd-skill](https://github.com/ant-design/antd-skill) | `skills/ant-design/`, `skills/antd/` | **`e65d2d3` (HEAD tra cứu 2026-10-15) — `LICENSE` khớp byte (chuẩn hoá CRLF) cả 2 skill với file do tác giả phát hành** (upstream `skills/antd/LICENSE` 1056B © 2025; `skills/ant-design/LICENSE` = Ant UED) | MIT (file `LICENSE` do tác giả phát hành, giữ nguyên trong mỗi skill) |
@@ -43,7 +45,7 @@ Ngày 2026-10-15 chuyển toàn bộ skill không liên quan/sai stack ra
 `D:\Person\skills-archive\` (giữ nguyên nội dung + cấu trúc theo thư mục nguồn,
 không xóa — khôi phục bằng cách move ngược lại). OpenCode tự nạp skill theo mô tả
 nên các skill này có thể gây áp dụng chỉ dẫn sai (Blazor/MudBlazor, Vercel, design
-generic). Đã xác nhận OpenCode delist toàn bộ 22 skill sau khi dọn.
+generic). Đã xác nhận OpenCode delist toàn bộ skill đã dọn (22 + agent-browser).
 
 | Archive subdir | Nguồn | Skills |
 |---|---|---|
@@ -51,10 +53,11 @@ generic). Đã xác nhận OpenCode delist toàn bộ 22 skill sau khi dọn.
 | `.agents-skills/` (17) | `.agents/skills/` trong repo (personal lib, gitignored) | 17 bản trùng tên (trừ 5 `dotnet-*` vốn không có ở đây) |
 | `.opencode-skills/` (7) | `.opencode/skills/` trong repo (personal lib, gitignored) | `banner-design`, `brand`, `design`, `design-system`, `slides`, `ui-styling`, `ui-ux-pro-max` |
 | `.global-agents-skills/` (5) | `~/.agents/skills/` toàn cục | 5 `dotnet-*` chung |
+| `.agents-skills/agent-browser/` (1) | `.agents/skills/` trong repo | `agent-browser` — CLI browser-automation bên thứ ba (Chrome CDP), không license, không dùng trong dự án (AGENTS.md chỉ dùng `playwright-cli`), chồng chéo chức năng → archive 2026-10-15 |
 
 Các skill GIỮ LẠI không đụng tới: `aspire`×6, `playwright-cli`, `dotnet-inspect`,
-`ant-design`, `antd` (mọi nơi), `agent-browser`, `ant-design-mobile`,
-`code-review` (`.agents/skills/`).
+`ant-design`, `antd` (mọi nơi), `ant-design-mobile`, `code-review` (đã chuyển sang
+`.claude/skills/` + track).
 
 ## Quy tắc sử dụng
 
