@@ -18,6 +18,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- [REVERSE-PROXY] DefaultHttpContext + ForwardedHeadersMiddleware need the shared
+         web framework (this project uses Microsoft.NET.Sdk, not the Web SDK). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Giai đoạn 0.1: tests dùng type từ cả 4 layer (handlers Application, AppDbContext
          Infrastructure, entities Domain, controllers Web) → ref cả 4 project. -->
     <ProjectReference Include="..\aspire-react.Domain\aspire-react.Domain.csproj" />

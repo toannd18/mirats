@@ -7,6 +7,8 @@ using aspire_react.Server.Infrastructure.Persistence;
 using aspire_react.Server.Web.ExceptionHandlers;
 using System.Text.Json.Serialization;
 
+using aspire_react.Server.Infrastructure.Networking;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add service defaults & Aspire client integrations.
@@ -24,6 +26,10 @@ builder.Services.AddApplicationServices();
 
 // Infrastructure: app services, lockout guard (local auth services live here too).
 builder.Services.AddInfrastructureServices(builder.Configuration);
+
+// [REVERSE-PROXY] Trusted-proxy header options (KnownNetworks/ForwardLimit via
+// Proxy__* env — DEPLOYMENT.md "Triển khai sau Nginx Proxy Manager").
+builder.Services.AddProxyHeaders(builder.Configuration);
 
 // Authentication: single local JWT bearer scheme ("App" — self-signed tokens).
 builder.Services.AddAppAuthentication(builder.Configuration);
@@ -61,6 +67,11 @@ var app = builder.Build();
 StartupDataSeeder.Seed(app.Services);
 
 // Configure the HTTP request pipeline.
+// [REVERSE-PROXY] FIRST: resolve real client IP (XFF/CF-Connecting-IP) + scheme
+// (X-Forwarded-Proto) from trusted proxies only — auth lockout, ActionLog IP and
+// QR BaseUrl all depend on these being correct before anything else runs.
+app.UseProxyHeaders();
+
 app.UseExceptionHandler();
 app.UseCors("Frontend");
 
