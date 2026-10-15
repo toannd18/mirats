@@ -538,8 +538,41 @@
 
 ---
 
-## INFRA-2 — 6 file PNG evidence (root) mất khỏi working tree — ⚠️ TÁI DIỄN LẦN 2 (CÙNG ĐÚNG 6 FILE) — nâng mức: nghi có nguyên nhân HỆ THỐNG, không phải ngẫu nhiên
+## INFRA-2 — 6 file PNG evidence (root) mất khỏi working tree — ⚠️ TÁI DIỄN LẦN 3 (2026-10-15, 13 FILE — MỞ RỘNG NGOÀI 6 FILE CŨ) — biện pháp di chuyển đã áp dụng
 
+- **Trạng thái: MITIGATED 2026-10-15 — TÁI DIỄN LẦN 3.** Phát hiện qua `git status --porcelain`
+  (13 dòng ` D`): 6 file INFRA-2 cũ (mc8*/qa7d*) **+ 7 file evidence AUTH Phase 2/3**
+  (`phase2-checklist-step1.png`, `phase2-login-{1440,375,768}.png`,
+  `phase3-account-{1440,375,768}.png` — commit `71f7e0c`). Lần đầu tiên phạm vi vượt ngoài
+  6 file cũ → giả thuyết "target chọn lọc đúng nhóm PNG này" vẫn đứng, nhưng target-set đã mở rộng
+  sang mọi PNG evidence ở root.
+- **Ghi nhận ngay khi phát hiện (theo quy trình lần 3):**
+  - Danh sách chính xác 13 file: xem `git status` trên (6 INFRA-2 + 7 phase2/phase3); cả 13 đều
+    tracked, on-disk=False, `git diff HEAD` = N.
+  - mtime thư mục gốc: **2026-10-15 13:54:44** (thời điểm phát hiện 13:58:23) → cửa sổ mất file
+    nằm giữa lần `read` thư mục gốc (còn thấy đủ file) và `git status` ở phiên trước — trong khi
+    agent chỉ chạy: `git clone` ra TEMP ngoài repo, `Copy-Item` vào `.claude/skills/`, `node`
+    read-only, `edit` AGENTS.md. **Không một lệnh nào của agent đụng tới root PNG.**
+  - Snapshot `Get-Process` đã lưu đặc điểm: Kaspersky AV đang chạy (`avp` ×5, `kpm`, `ksde`),
+    `GoogleDriveFS` ×2 (sync), `StorSvc` Running, `Everything` (indexer), `opencode` + `claude`
+    (agent), Docker Desktop + WSL2 engine bình thường. WinDefend/Sense Stopped.
+- **Kiểm tra giả thuyết (grep toàn repo + skill/script): KHÔNG tìm thấy lệnh xóa.**
+  - Grep `Remove-Item.*png|rm *.png|del *.png|review-*|qa7d|mc8b|phase2-|phase3-` toàn repo:
+    chỉ trúng `.gitignore` (`review-*.png`), BACKLOG/HANDOFF (ghi chép), và
+    `aspire-react/frontend/scripts/e2e-passkey.mjs:153` (GHI screenshot ra root — write, không xóa).
+  - Grep scripts skills (`.claude/skills/**`): chỉ `os.unlink(temp_name)` (temp của design_system.py),
+    `rm -rf $TEMP_DIR` (deploy-to-vercel) — không target PNG repo.
+  - `git log --diff-filter=D` trên cả 13 file = **rỗng** → chưa từng có commit nào xóa chúng.
+  - Kết luận: loại trừ agent + script repo + git history → tác nhân NGOÀI (hệ thống/file-sync/AV),
+    cùng lớp với lần 1–2 nhưng target-set mở rộng. Ranh giới với INFRA-1: lần này Docker/WSL2
+    bình thường (engine up, AppHost process sống) → **giữ INFRA-2 riêng**, không gộp.
+- **Khôi phục:** `git checkout HEAD -- <13 file>` → 13/13 OK trên đĩa, `git status` sạch PNG.
+- **Biện pháp di chuyển (phòng ngừa tái diễn lần 4):** `git mv` toàn bộ 13 file root vào
+  `docs/evidence/` (rename `R`, giữ lịch sử; đã xác nhận không dính `.gitignore` ở vị trí mới).
+  Cập nhật tham chiếu: `docs/HANDOFF_LATEST.md` (qa7d trio + mc8 nested) và
+  `aspire-react/frontend/scripts/e2e-passkey.mjs:153` (đường ghi screenshot → `docs/evidence/`).
+  Root từ nay KHÔNG còn file evidence nào — tác nhân có target root PNG cũng không còn gì để xóa;
+  nếu lần 4 mất file trong `docs/evidence/` thì đó là bằng chứng target theo nội dung PNG.
 - **Trạng thái: REOPENED — TÁI DIỄN LẦN 2 (2026-09-06, phiên AUTH Phase 1).** Cùng ĐÚNG 6 file bị
   mất LẦN NỮA sau khi đã khôi phục và đã push (`fc84f25` trở đi — file nằm an toàn trên remote),
   phát hiện qua `git status --porcelain` ngay sau commit Phase 1 (`3110436`). Khôi phục lần 2 bằng

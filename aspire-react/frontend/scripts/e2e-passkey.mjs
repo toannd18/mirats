@@ -150,7 +150,7 @@ try {
   for (const [w, h] of [[1440, 900], [768, 1024], [375, 812]]) {
     await page.setViewportSize({ width: w, height: h });
     await page.waitForTimeout(300);
-    await page.screenshot({ path: `D:/Person/Applications/Aspire Project/phase3-account-${w}.png` });
+    await page.screenshot({ path: `D:/Person/Applications/Aspire Project/docs/evidence/phase3-account-${w}.png` });
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   record('account screenshots at 375/768/1440', true);
