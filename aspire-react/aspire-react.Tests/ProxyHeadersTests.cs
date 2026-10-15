@@ -27,6 +27,9 @@ public class ProxyHeadersTests
     private static ProxyOptions OptionsFor(params string[] known)
         => new() { KnownNetworks = string.Join(",", known), ForwardLimit = 3 };
 
+    private static ProxyOptions OptionsForCf(params string[] known)
+        => new() { KnownNetworks = string.Join(",", known), ForwardLimit = 3, TrustCloudflare = true };
+
     private static DefaultHttpContext Context(IPAddress peer)
     {
         var ctx = new DefaultHttpContext();
@@ -36,7 +39,7 @@ public class ProxyHeadersTests
 
     private static async Task RunPairAsync(DefaultHttpContext ctx, ProxyOptions options)
     {
-        var cf = new CloudflareIpMiddleware(_ => Task.CompletedTask, Options.Create(options));
+        var cf = new ProxyHeadersMiddleware(_ => Task.CompletedTask, Options.Create(options));
         await cf.InvokeAsync(ctx);
         var fw = new ForwardedHeadersOptions
         {
@@ -109,11 +112,34 @@ public class ProxyHeadersTests
     {
         // (c) Browser → CF edge → tunnel → NPM → frontend → backend.
         // XFF arrives mangled (missing the client); trusted CF-Connecting-IP repairs it.
+        // Requires explicit TrustCloudflare opt-in (tunnel-only NPM).
         var ctx = Context(Frontend);
         ctx.Request.Headers["X-Forwarded-For"] = $"{Npm}";
         ctx.Request.Headers["CF-Connecting-IP"] = Client.ToString();
-        await RunPairAsync(ctx, OptionsFor("172.22.0.0/16", "10.9.0.0/16"));
+        await RunPairAsync(ctx, OptionsForCf("172.22.0.0/16", "10.9.0.0/16"));
         Assert.Equal(Client, ctx.Connection.RemoteIpAddress);
+    }
+
+    [Fact]
+    public async Task ConfigAB_CloudflareHeader_AlwaysIgnored()
+    {
+        // (a)/(b): TrustCloudflare=false → header unconditionally dropped, even from
+        // a trusted peer. A client forging CF-Connecting-IP gains nothing.
+        var ctx = Context(Frontend);
+        ctx.Request.Headers["X-Forwarded-For"] = Client.ToString();
+        ctx.Request.Headers["CF-Connecting-IP"] = "6.6.6.6";
+        await RunPairAsync(ctx, OptionsFor("172.22.0.0/16"));
+        Assert.Equal(Client, ctx.Connection.RemoteIpAddress);
+    }
+
+    [Fact]
+    public async Task CloudflareHeader_FromUnknownPeer_IgnoredEvenWhenTrusted()
+    {
+        // Second gate: direct client (unknown peer) cannot inject, even with opt-in on.
+        var ctx = Context(Stranger);
+        ctx.Request.Headers["CF-Connecting-IP"] = Client.ToString();
+        await RunPairAsync(ctx, OptionsForCf("172.22.0.0/16"));
+        Assert.Equal(Stranger, ctx.Connection.RemoteIpAddress);
     }
 
     [Fact]
@@ -124,6 +150,40 @@ public class ProxyHeadersTests
         ctx.Request.Scheme = "http";
         await RunPairAsync(ctx, OptionsFor("10.9.0.0/16"));
         Assert.Equal("https", ctx.Request.Scheme);
+    }
+
+    [Fact]
+    public async Task Scheme_FollowsXForwardedScheme_WhenProtoOverwritten()
+    {
+        // NPM overwrites X-Forwarded-Proto with its own downstream scheme (http)
+        // but sends X-Forwarded-Scheme=https (Force SSL) — backend must see https.
+        var ctx = Context(Npm);
+        ctx.Request.Headers["X-Forwarded-Proto"] = "http";
+        ctx.Request.Headers["X-Forwarded-Scheme"] = "https";
+        ctx.Request.Scheme = "http";
+        await RunPairAsync(ctx, OptionsFor("10.9.0.0/16"));
+        Assert.Equal("https", ctx.Request.Scheme);
+    }
+
+    [Fact]
+    public async Task Scheme_XForwardedProto_WinsOverSchemeHeader()
+    {
+        var ctx = Context(Npm);
+        ctx.Request.Headers["X-Forwarded-Proto"] = "https";
+        ctx.Request.Headers["X-Forwarded-Scheme"] = "http";
+        ctx.Request.Scheme = "http";
+        await RunPairAsync(ctx, OptionsFor("10.9.0.0/16"));
+        Assert.Equal("https", ctx.Request.Scheme);
+    }
+
+    [Fact]
+    public async Task Scheme_SpoofedSchemeHeader_FromUnknownPeer_Ignored()
+    {
+        var ctx = Context(Stranger);
+        ctx.Request.Headers["X-Forwarded-Scheme"] = "https";
+        ctx.Request.Scheme = "http";
+        await RunPairAsync(ctx, OptionsFor("10.9.0.0/16"));
+        Assert.Equal("http", ctx.Request.Scheme);
     }
 
     [Fact]

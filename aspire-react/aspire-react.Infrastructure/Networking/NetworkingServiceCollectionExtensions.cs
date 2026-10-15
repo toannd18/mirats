@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace aspire_react.Server.Infrastructure.Networking;
 
@@ -68,7 +70,17 @@ public static class NetworkingServiceCollectionExtensions
     /// both BEFORE exception handler / auth so IP + scheme are correct everywhere.</summary>
     public static void UseProxyHeaders(this WebApplication app)
     {
-        app.UseMiddleware<CloudflareIpMiddleware>();
+        var proxy = new ProxyOptions();
+        app.Configuration.GetSection(ProxyOptions.SectionName).Bind(proxy);
+        if (!ProxyOptions.SplitEntries(proxy.KnownNetworks).Any() && !app.Environment.IsDevelopment())
+        {
+            app.Logger.LogWarning(
+                "Proxy:KnownNetworks is empty outside Development — all X-Forwarded-For / " +
+                "X-Forwarded-Proto / CF-Connecting-IP headers are ignored (fail-closed). " +
+                "Brute-force and audit IPs will be proxy-container IPs. Set Proxy__KnownNetworks " +
+                "per DEPLOYMENT.md §11.");
+        }
+        app.UseMiddleware<ProxyHeadersMiddleware>();
         app.UseForwardedHeaders();
     }
 }

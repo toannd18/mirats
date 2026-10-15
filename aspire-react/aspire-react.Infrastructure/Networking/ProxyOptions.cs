@@ -28,6 +28,13 @@ public sealed class ProxyOptions
     /// (a) trực tiếp = 1, (b) qua NPM = 2, (c) qua tunnel = 3.</summary>
     public int ForwardLimit { get; set; } = 2;
 
+    /// <summary>Honor CF-Connecting-IP ONLY when true (default false = the header
+    /// is ALWAYS ignored). Set true ONLY in config (c) where NPM is reachable
+    /// solely through the Cloudflare Tunnel (firewalled) — otherwise any client
+    /// talking directly to NPM could forge the header and impersonate any IP.
+    /// In (a)/(b) this stays false: the header is unconditionally dropped.</summary>
+    public bool TrustCloudflare { get; set; } = false;
+
     /// <summary>Parse entries into (networks, single-IP proxies), normalizing
     /// IPv4-mapped IPv6 (::ffff:a.b.c.d) to IPv4 so container peer IPs match.
     /// Each entry may itself be a comma-separated list (env vars bind as one

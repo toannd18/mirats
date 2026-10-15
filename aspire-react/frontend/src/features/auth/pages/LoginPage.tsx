@@ -40,6 +40,16 @@ export default function LoginPage() {
     }
   };
 
+  // [REVERSE-PROXY] Warn on plain HTTP (refresh cookie has Secure flag → the
+  // browser drops it and the session silently dies at access-token expiry).
+  // Localhost loopback is excluded (dev + secure contexts treat it as trustworthy).
+  const isInsecureHttp =
+    typeof window !== 'undefined' &&
+    window.location.protocol === 'http:' &&
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1' &&
+    window.location.hostname !== '[::1]';
+
   const onPasskeyLogin = async () => {
     setPasskeyLoading(true);
     setError(null);
@@ -63,6 +73,15 @@ export default function LoginPage() {
           <Typography.Text type="secondary">Đăng nhập để tiếp tục</Typography.Text>
         </div>
         {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
+        {isInsecureHttp && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="Kết nối không bảo mật (HTTP)"
+            description="Phiên đăng nhập sẽ không được giữ (cookie yêu cầu HTTPS). Hãy truy cập bằng địa chỉ HTTPS (domain qua Nginx Proxy Manager) thay vì địa chỉ IP."
+          />
+        )}
         <Form onFinish={onFinish} layout="vertical" requiredMark={false}>
           <Form.Item name="username" rules={[{ required: true, message: 'Vui lòng nhập tên đăng nhập' }]}>
             <Input prefix={<UserOutlined />} placeholder="Tên đăng nhập" size="large" autoFocus autoComplete="username" />
