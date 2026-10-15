@@ -279,7 +279,7 @@ Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`Au
 
 | Code | HTTP | Endpoint | Điều kiện |
 |---|---|---|---|
-| `COMPANY_REQUIRED` | 400 | POST import/{reference,asset-models,assets,components,accessories,consumables,systems} | Thiếu companyId |
+| `COMPANY_REQUIRED` | 400 | POST /import/reference, POST /import/asset-models, POST /import/assets, POST /import/components, POST /import/accessories, POST /import/consumables, POST /import/systems | Thiếu companyId |
 | (Forbid) | 403 | Tất cả import (trừ system-positions) | Company target ngoài scope/không tồn tại |
 | (No error_code) | 400 | Tất cả import | "No file provided." / "Chỉ hỗ trợ file .xlsx." |
 
@@ -434,9 +434,9 @@ Import response thành công là FLAT: `status/created/failed/rows/errors` — k
 | `NOT_FOUND` | 404 | mọi endpoint con | Không tồn tại |
 | `COMPANY_MISMATCH` | 400 | POST (Create) | Regular user tạo cho company khác |
 | `FIELD_LOCKED` | 400 | PUT /{id} | Đổi CompanyId |
-| `POSITION_IN_USE_BY_CHECKLIST` | 400 | DELETE position/system | Position đang được checklist tham chiếu |
+| `POSITION_IN_USE_BY_CHECKLIST` | 400 | DELETE /system-infos/{systemInfoId}/positions/{posId}, DELETE /system-infos/{id} | Position đang được checklist tham chiếu (`DeleteSystemPositionCommand` + `DeleteSystemInfoCommand`) |
 | `SYSTEM_IN_USE_BY_CAMPAIGN` | 400 | DELETE /{id} | Hệ thống đang có campaign |
-| (Dup code) | 400 | POST system/position | "Mã hệ thống đã tồn tại." / "Mã vị trí đã tồn tại." — không error_code |
+| (Dup code) | 400 | POST /system-infos, POST /system-infos/{systemInfoId}/positions | "Mã hệ thống đã tồn tại." / "Mã vị trí đã tồn tại." — không error_code |
 
 ### ActionLogs / Dashboard / Reports / Permissions / ComponentUnits-logs (read-only)
 
