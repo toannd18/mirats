@@ -356,6 +356,7 @@ Script sẽ:
 | Frontend | `VITE_API_BASE_URL` | `/api/v1` |
 | Ports | `BACKEND_PORT`, `FRONTEND_PORT` | `5000`, `80` |
 | pgAdmin (debug) | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_PASSWORD`, `PGADMIN_PORT` | `pgadmin@example.com`, `pgadmin`, `5050` |
+| NPM (chỉ `docker-compose.npm.yml`) | `NPM_NETWORK_NAME`, `PROXY_KNOWN_NETWORKS`, `PROXY_FORWARD_LIMIT`, `WEBAUTHN_RPID`, `WEBAUTHN_ORIGINS` | (không default — bắt buộc, trừ `PROXY_FORWARD_LIMIT=2`) |
 
 > Ghi chú security: `CORS_ALLOWED_ORIGINS` được backend đọc khi khởi động (Program.cs) — đổi xong nhớ
 > `docker compose restart server`. `VITE_*` là build-time — đổi xong phải rebuild frontend (§4.4).
@@ -376,5 +377,72 @@ Script sẽ:
   AppHost (dev) — compose prod không có Aspire Dashboard; logs lấy từ stdout container.
 - **Backup (khuyến nghị):** Postgres — `pg_dump` định kỳ; secret — backup `.env` (đặc biệt `AUTH_SIGNING_KEY`).
   Xem §7.
+
+---
+
+## 11. Triển khai sau Nginx Proxy Manager (cấu hình b → c)
+
+> Ba cấu hình truy cập: **(a)** trực tiếp container frontend bằng IP (hiện tại) →
+> **(b)** qua NPM bằng domain nội bộ (HTTPS, đích gần) → **(c)** thêm Cloudflare
+> Tunnel public (sau này). Backend phân biệt IP client thật nhờ middleware
+> trusted-proxy (`Proxy__KnownNetworks` + `Proxy__ForwardLimit`, fail-closed khi
+> không cấu hình) — xem `aspire-react.Infrastructure/Networking/`.
+
+### 11.1 Vì sao KHÔNG hỗ trợ truy cập bằng IP (đã xác nhận bằng thực nghiệm)
+
+1. **Cookie refresh có cờ `Secure`** → trình duyệt bỏ qua qua HTTP → hết access
+   token (~15 phút) là bị đăng xuất âm thầm (triệu chứng §8.5; đã tái hiện:
+   login HTTP 200 + `Set-Cookie: ... secure`, refresh không cookie → 400).
+2. **Mật khẩu + dữ liệu đi plaintext** trên mạng nội bộ.
+3. **Passkey không hoạt động trên IP** (giới hạn WebAuthn — RP phải là domain HTTPS).
+4. **Mọi request backend thấy cùng 1 IP** (IP container frontend — đã tái hiện:
+   6 login sai với 2 `X-Forwarded-For` khác nhau đều ghi `::ffff:172.22.0.5`) →
+   ngưỡng brute-force theo IP (30 lỗi/phút → `ACCOUNT_LOCKED` toàn bộ user) có
+   thể khóa đăng nhập cả hệ thống.
+
+### 11.2 Chuyển từ (a) sang (b) — NPM + domain nội bộ
+
+1. **Cloudflare API token** (quyền Edit zone DNS) — chỉ dùng để NPM xin chứng chỉ
+   Let's Encrypt qua **DNS challenge**, không public gì.
+2. **Bản ghi A trên DNS NỘI BỘ** (split DNS, VD Pi-hole/AD DNS) trỏ domain về IP
+   NPM. KHÔNG tạo bản ghi trên Cloudflare public DNS.
+3. **NPM → Proxy Hosts → Add**: domain + scheme `http`, forward host/IP NPM thấy
+   được container frontend (cùng docker network — xem bước 5), port 80; tab
+   **Custom locations** thêm location `/api` trỏ cùng upstream (frontend nginx
+   proxy `/api` về `server:5000` sẵn); tab **SSL**: DNS challenge Cloudflare
+   (credentials = API token bước 1), bật **Force SSL**.
+4. **NPM KHÔNG rewrite Host** (mặc định giữ nguyên) — backend dùng `Host` để sinh
+   URL QR Labels; rewrite Host sẽ làm QR sai domain.
+5. **Dựng Mirats bằng override**: `docker compose -f docker-compose.yml -f
+   docker-compose.npm.yml up -d --build` (frontend + server join network
+   external của NPM, gỡ publish port trực tiếp, bơm `Proxy__*` +
+   `Auth__WebAuthn__*`).
+6. Verify: `https://<domain>/api/v1/health` → 200; login → refresh tự gia hạn;
+   brute-force 2 IP khác nhau đếm riêng; ActionLog `RemoteIp` = IP client thật.
+
+### 11.3 Chuyển từ (b) sang (c) — thêm Cloudflare Tunnel
+
+1. Trên dashboard Cloudflare: **Public Hostname** cùng domain trỏ về
+   `http://<NPM-host>:80` (luồng tunnel → NPM là **HTTP nội bộ**).
+2. Vì luồng vào NPM đã là HTTP, **KHÔNG bật Force SSL kiểu redirect-loop**:
+   giữ Force SSL ở NPM (browser → edge là HTTPS, edge → tunnel → NPM là HTTP —
+   NPM terminate đúng 1 lần ở edge). Nếu gặp vòng lặp redirect, kiểm tra tab SSL
+   của proxy host (phải là "Force SSL" + scheme forward `http`, không phải
+   `https` loop).
+3. **Khuyến nghị Cloudflare Access** (Zero Trust) trước NPM cho (c).
+4. Backend: thêm IP egress của `cloudflared` vào `PROXY_KNOWN_NETWORKS`, nâng
+   `PROXY_FORWARD_LIMIT` lên 3; ưu tiên `CF-Connecting-IP` đã có sẵn trong code
+   (không cần đổi gì thêm).
+
+### 11.4 Biến môi trường bắt buộc cho từng cấu hình
+
+| Biến | (a) trực tiếp | (b) NPM | (c) + tunnel |
+|---|---|---|---|
+| `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `AUTH_SIGNING_KEY`, `AUTH_BOOTSTRAP_ADMIN_PASSWORD`, `CORS_ALLOWED_ORIGINS` | Bắt buộc | Bắt buộc | Bắt buộc |
+| `NPM_NETWORK_NAME` | — | Bắt buộc | Bắt buộc |
+| `PROXY_KNOWN_NETWORKS` | Khuyến nghị (mặc định loopback = bỏ qua header) | Bắt buộc | Bắt buộc (+ IP cloudflared) |
+| `PROXY_FORWARD_LIMIT` | 1 | 2 | 3 |
+| `WEBAUTHN_RPID`, `WEBAUTHN_ORIGINS` | — (passkey không chạy trên IP) | Bắt buộc | Bắt buộc |
+| `FRONTEND_PORT`, `BACKEND_PORT` | Mở (truy cập IP) | Bị gỡ bởi override (đóng cửa IP) | Bị gỡ |
 
 *Hết hướng dẫn triển khai.*

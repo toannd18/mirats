@@ -1,0 +1,41 @@
+# Mirats / AspireReact — Compose override cho cấu hình (b): sau Nginx Proxy Manager.
+# Usage:
+#   cp .env.example .env   # điền biến, đặc biệt Proxy__* + Auth__WebAuthn__* + NPM_NETWORK_NAME
+#   docker compose -f docker-compose.yml -f docker-compose.npm.yml up -d --build
+#
+# Tác dụng:
+# - frontend + server join network EXTERNAL của NPM (tên qua NPM_NETWORK_NAME) để NPM
+#   proxy HTTP tới chúng bằng tên service; postgres/redis giữ network nội bộ riêng.
+# - GỠ publish ports trực tiếp (FRONTEND_PORT/BACKEND_PORT) — đóng cửa truy cập bằng IP,
+#   chỉ còn đường vào qua NPM (xem DEPLOYMENT.md "Triển khai sau Nginx Proxy Manager").
+# - Bơm env reverse-proxy + WebAuthn cho server.
+# pgAdmin vẫn chỉ bật với --profile debug (kế thừa từ file gốc).
+
+networks:
+  npm-external:
+    name: ${NPM_NETWORK_NAME:?NPM_NETWORK_NAME is required — tên network NPM đang dùng}
+    external: true
+
+services:
+  server:
+    networks:
+      - default
+      - npm-external
+    # Gỡ publish port backend — API chỉ gọi được trong docker nets + qua NPM.
+    ports: !reset []
+    environment:
+      # Dải mạng proxy được tin (docker nets + host NPM + cloudflared sau này).
+      # VD: "172.16.0.0/12,10.0.0.0/8,192.168.0.0/16". Fail-closed: mặc định loopback.
+      Proxy__KnownNetworks: ${PROXY_KNOWN_NETWORKS:?PROXY_KNOWN_NETWORKS is required}
+      # Số hop proxy: (b) NPM + frontend = 2, (c) tunnel + NPM + frontend = 3.
+      Proxy__ForwardLimit: ${PROXY_FORWARD_LIMIT:-2}
+      # WebAuthn RP theo domain thật (passkey chỉ hoạt động trên domain HTTPS).
+      Auth__WebAuthn__RPId: ${WEBAUTHN_RPID:?WEBAUTHN_RPID is required}
+      Auth__WebAuthn__Origins: ${WEBAUTHN_ORIGINS:?WEBAUTHN_ORIGINS is required}
+
+  frontend:
+    networks:
+      - default
+      - npm-external
+    # Gỡ publish port trực tiếp — chỉ NPM được phép gọi vào container này.
+    ports: !reset []
