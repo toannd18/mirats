@@ -78,9 +78,12 @@ function cleanPath(p) {
 }
 
 // Mở rộng ký hiệu shorthand `{a,b,c}` trong path docs -> danh sách path.
+// Chỉ mở rộng khi có dấu phẩy (liệt kê thật); `{param}` đơn là placeholder
+// route -> giữ nguyên để normalizeRoute đổi thành `*`.
 function expandBraces(p) {
   const m = p.match(/\{([^{}]+)\}/);
   if (!m) return [p];
+  if (!m[1].includes(',')) return [p];
   const opts = m[1].split(',');
   return opts.flatMap((o) => expandBraces(p.slice(0, m.index) + o + p.slice(m.index + m[0].length)));
 }
@@ -103,11 +106,11 @@ function buildRouteIndex() {
   const controllerDir = path.join(ROOT, 'aspire-react/aspire-react.Server/Web/Controllers');
   const files = listFiles(controllerDir, ['.cs']);
   const routes = new Set(); // 'METHOD /normalized'
-  const RE_METHOD = /\[Http(Get|Post|Put|Delete|Patch)(?:\(("[^"]*")\))?\]/g;
+  const RE_METHOD = /\[Http(Get|Post|Put|Delete|Patch)(?:\("([^"]*)"\))?[^\\\]]*\]/g;
   for (const f of files) {
     const text = read(f);
     if (!text) continue;
-    const clsRouteMatch = text.match(/\[Route\("([^"]+)"\)\]/);
+    const clsRouteMatch = text.match(/Route\("([^"]+)"\)/);
     let classRoute = clsRouteMatch ? clsRouteMatch[1] : '';
     const clsName = (text.match(/class\s+(\w+)Controller/) || [])[1] || '';
     classRoute = classRoute.replace('[controller]', clsName);
@@ -117,7 +120,7 @@ function buildRouteIndex() {
     RE_METHOD.lastIndex = 0;
     while ((m = RE_METHOD.exec(text)) !== null) {
       const method = m[1].toUpperCase();
-      const tmpl = m[2] ? m[2].slice(1, -1) : '';
+      const tmpl = m[2] || '';
       const full = normalizeRoute((classRoute + '/' + tmpl).replace(/\/+/g, '/'));
       routes.add(method + ' ' + full);
     }

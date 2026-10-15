@@ -71,12 +71,16 @@ test-results/
 # =============================================================================
 # Local AI tooling (personal skill libraries — not project source)
 # Mở RIÊNG .claude/skills/ để track skill dự án (INFRA skills 2026-10-15);
-# mọi thứ khác trong .claude/ vẫn ignore.
+# mọi thứ khác trong .claude/ vẫn ignore. Hai skill giữ trên máy + ignore
+# tường minh (lý do trong .claude/skills/SOURCES.md, cài lại bằng
+# scripts/install-skills.mjs): doc-coauthoring (chờ xác nhận license),
+# dotnet-inspect (không có file LICENSE trong repo gốc).
 # =============================================================================
 .claude/*
 !.claude/skills/
 .claude/settings*.json
 .claude/skills/doc-coauthoring/
+.claude/skills/dotnet-inspect/
 .cline/
 .agents/
 .opencode/
