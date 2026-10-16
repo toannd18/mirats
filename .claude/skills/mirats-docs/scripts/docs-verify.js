@@ -62,8 +62,21 @@ function read(p) { try { return fs.readFileSync(p, 'utf8'); } catch { return nul
 // ---- regex trích xuất ----
 const RE_ERROR_CODE = /\b[A-Z][A-Z0-9]{2,}_[A-Z0-9_]+\b/g;
 const RE_ENDPOINT = /\b(GET|POST|PUT|PATCH|DELETE)\s+([A-Za-z0-9_{}:.,\-\/]+)/gi;
-const RE_ENV = /\b(?:ASPNETCORE|DOTNET|MIRATS|ConnectionStrings|POSTGRES|PG|REDIS|OAUTH|AUTH|VITE)_[A-Z0-9_]{2,}\b|Parameters:[A-Za-z0-9]+/g;
+// Env: SNAKE_UPPER (prefix mở rộng) + dạng Section__Key (config .NET: Proxy__KnownNetworks).
+const RE_ENV = /\b(?:ASPNETCORE|DOTNET|MIRATS|CONNECTIONSTRINGS|POSTGRES|PG|REDIS|REDISCLI|OAUTH|AUTH|VITE|PROXY|NPM|WEBAUTHN|PGADMIN|INITIAL|CORS|BACKEND|FRONTEND)_[A-Z0-9_]{1,}[A-Z0-9]\b|\b[A-Za-z][A-Za-z0-9]*__[A-Za-z][A-Za-z0-9_]*\b|Parameters:[A-Za-z0-9]+/g;
 const RE_LINK = /\[[^\]]*\]\(([^)\s]+)\)/g;
+
+// Chuẩn hoá env để so sánh: tách thành các từ (gạch dưới + biên camelCase),
+// hoa hết, nối bằng gạch dưới đơn. Nhờ đó PROXY_KNOWN_NETWORKS (compose/.env)
+// và Proxy__KnownNetworks (container .NET) được coi là một.
+function normEnv(t) {
+  return String(t)
+    .split(/__+/)
+    .flatMap((p) => p.split(/(?=[A-Z][a-z])|_+/))
+    .filter((w) => w.length > 0)
+    .map((w) => w.toUpperCase())
+    .join('_');
+}
 
 // Chuẩn hoá route path: lowercase, bỏ prefix api/v1, placeholder -> '*'
 function normalizeRoute(p) {
@@ -92,7 +105,7 @@ function expandBraces(p) {
 }
 
 // ---- index code ----
-function buildTokenIndex(codeDirs, re) {
+function buildTokenIndex(codeDirs, re, norm) {
   const files = [];
   for (const d of codeDirs) listFiles(path.join(ROOT, d), CODE_EXTS, files);
   for (const f of ROOT_FILES) files.push(path.join(ROOT, f));
@@ -101,7 +114,7 @@ function buildTokenIndex(codeDirs, re) {
     const text = read(f);
     if (!text) continue;
     const m = text.match(re);
-    if (m) for (const t of m) set.add(t);
+    if (m) for (const t of m) set.add(norm ? norm(t) : t);
   }
   return set;
 }
@@ -203,7 +216,7 @@ function main() {
   }
 
   const errIdx = buildTokenIndex(codeDirs, RE_ERROR_CODE);
-  const envIdx = buildTokenIndex(codeDirs, RE_ENV);
+  const envIdx = buildTokenIndex(codeDirs, RE_ENV, normEnv);
   const routeIdx = buildRouteIndex();
 
   let nErr = 0, nEp = 0, nEnv = 0, nLink = 0;
@@ -249,7 +262,7 @@ function main() {
       const t = m[0];
       if (seenEnv.has(t)) continue;
       seenEnv.add(t); nEnv++;
-      if (!envIdx.has(t)) missEnv.push(t + '   (' + rel + ')');
+      if (!envIdx.has(normEnv(t))) missEnv.push(t + '   (' + rel + ')');
     }
 
     RE_LINK.lastIndex = 0;
@@ -289,4 +302,37 @@ function main() {
   process.exit(totalMiss === 0 ? 0 : 1);
 }
 
-main();
+// ---- self-test: kiểm tra parser trên chuỗi mẫu (không cần repo) ----
+function selfTest() {
+  let pass = 0, fail = 0;
+  const eq = (name, got, want) => {
+    const ok = JSON.stringify(got) === JSON.stringify(want);
+    if (ok) { pass++; console.log('  ok: ' + name); }
+    else { fail++; console.log('  FAIL: ' + name + '\n    got:  ' + JSON.stringify(got) + '\n    want: ' + JSON.stringify(want)); }
+  };
+  const envs = (s) => {
+    RE_ENV.lastIndex = 0;
+    const out = [];
+    let m;
+    while ((m = RE_ENV.exec(s)) !== null) out.push(m[0]);
+    return out;
+  };
+
+  // [1] SNAKE các prefix + Section__Key
+  eq('env snake', envs('dùng POSTGRES_PASSWORD và REDIS_PORT, AUTH_SIGNING_KEY.'), ['POSTGRES_PASSWORD', 'REDIS_PORT', 'AUTH_SIGNING_KEY']);
+  eq('env proxy/npm/webauthn', envs('PROXY_KNOWN_NETWORKS, NPM_NETWORK_NAME, WEBAUTHN_RPID, PROXY_FORWARD_LIMIT.'), ['PROXY_KNOWN_NETWORKS', 'NPM_NETWORK_NAME', 'WEBAUTHN_RPID', 'PROXY_FORWARD_LIMIT']);
+  eq('env Section__Key', envs('cấu hình Proxy__KnownNetworks và Auth__WebAuthn__RPId.'), ['Proxy__KnownNetworks', 'Auth__WebAuthn__RPId']);
+  eq('env trong bảng', envs('| `VITE_API_BASE_URL` | `/api/v1` |'), ['VITE_API_BASE_URL']);
+  eq('env trong code', envs('```\nPOSTGRES_DB=aspire-react-db\n```'), ['POSTGRES_DB']);
+  // [2] chuẩn hoá so khớp compose vs container
+  eq('normEnv', [normEnv('Proxy__KnownNetworks'), normEnv('PROXY_KNOWN_NETWORKS'), normEnv('Auth__SigningKey'), normEnv('AUTH_SIGNING_KEY')], ['PROXY_KNOWN_NETWORKS', 'PROXY_KNOWN_NETWORKS', 'AUTH_SIGNING_KEY', 'AUTH_SIGNING_KEY']);
+  // [3] không bắt chữ thường / câu văn
+  eq('env bỏ qua text thường', envs('mật khẩu và chữ ký bình thường.'), []);
+  eq('env bỏ qua số phiên bản', envs('bản 10.0.10 và Redis 8.'), []);
+
+  console.log(fail === 0 ? `SELF-TEST: PASS (${pass})` : `SELF-TEST: FAIL (${fail}/${pass + fail})`);
+  process.exit(fail === 0 ? 0 : 1);
+}
+
+if (process.argv.includes('--self-test')) selfTest();
+else main();

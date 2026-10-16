@@ -41,6 +41,18 @@ Quy tắc backend (fail-closed): chỉ tin header proxy từ `Proxy__KnownNetwor
   auth/CORS + `NPM_NETWORK_NAME`, `PROXY_KNOWN_NETWORKS`,
   `WEBAUTHN_RPID/ORIGINS`; `PROXY_FORWARD_LIMIT` 1/2/3).
 
+## 5. Biến môi trường bắt buộc theo cấu hình (đối chiếu `.env.example`)
+
+| Biến | (a) | (b) | (c) | Nguồn sự thật |
+|---|---|---|---|---|
+| `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `AUTH_SIGNING_KEY`, `AUTH_BOOTSTRAP_ADMIN_PASSWORD`, `CORS_ALLOWED_ORIGINS` | Bắt buộc | Bắt buộc | Bắt buộc | `docker-compose.yml:30,48,74,79,83` |
+| `NPM_NETWORK_NAME` | — | Bắt buộc | Bắt buộc | `docker-compose.npm.yml` (network external) |
+| `PROXY_KNOWN_NETWORKS` | Khuyến nghị | Bắt buộc | Bắt buộc (+ IP cloudflared) | `ProxyOptions.cs` (mặc định loopback) |
+| `PROXY_FORWARD_LIMIT` | 1 | 2 | 3 | `ProxyOptions.cs` (mặc định 2) |
+| `PROXY_TRUST_CLOUDFLARE` | `false` | `false` | `true` (NPM tunnel-only) | `ProxyOptions.cs` (mặc định false) |
+| `WEBAUTHN_RPID`, `WEBAUTHN_ORIGINS` | — | Bắt buộc | Bắt buộc | `Fido2Service.cs:36-38` |
+| `FRONTEND_PORT`, `BACKEND_PORT` | Mở | Bị gỡ (override) | Bị gỡ | `docker-compose.npm.yml` (`ports: !reset []`) |
+
 ## Nguồn tham chiếu
 
 - `docs/DEPLOYMENT.md` (§4.5 TLS, §8.5/§8.8 sự cố, §9 env, §11 NPM/tunnel)
