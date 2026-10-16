@@ -226,11 +226,22 @@ function main() {
   for (const f of files) {
     let text = read(f);
     if (text == null) { console.error('Không đọc được: ' + f); continue; }
-    // Bỏ khối ```mermaid: nhãn sơ đồ (tên bảng/entity VIẾT HOA) không phải
-    // error_code/endpoint/env — sơ đồ kiểm chứng bằng mermaid parse + review.
-    text = text.replace(/```mermaid\r?\n[\s\S]*?```/g, '');
     const rel = path.relative(ROOT, f);
     let m;
+
+    // Endpoint trong sequenceDiagram: trích METHOD + route từ message để đối
+    // chiếu với code (VD `FE->>API: POST /auth/login`). Các khối mermaid còn
+    // lại (ERD/C4/flowchart: nhãn bảng VIẾT HOA gây nhiễu) vẫn bỏ qua —
+    // sơ đồ kiểm chứng bằng mermaid parse + review.
+    const seqEndpoints = [];
+    for (const b of text.matchAll(/```mermaid\r?\n([\s\S]*?)```/g)) {
+      if (/^\s*sequenceDiagram/m.test(b[1])) {
+        RE_ENDPOINT.lastIndex = 0;
+        let em;
+        while ((em = RE_ENDPOINT.exec(b[1])) !== null) seqEndpoints.push(em);
+      }
+    }
+    text = text.replace(/```mermaid\r?\n[\s\S]*?```/g, '');
 
     RE_ERROR_CODE.lastIndex = 0;
     while ((m = RE_ERROR_CODE.exec(text)) !== null) {
@@ -254,6 +265,17 @@ function main() {
         if (seenEp.has(key)) continue;
         seenEp.add(key); nEp++;
         if (!endpointMatches(routeIdx, method, p)) missEp.push(key + '   (' + rel + ')');
+      }
+    }
+    for (const em of seqEndpoints) {
+      const method = em[1].toUpperCase();
+      const rawPath = cleanPath(em[2]);
+      if (!rawPath) continue;
+      for (const p of expandBraces(rawPath)) {
+        const key = method + ' ' + p;
+        if (seenEp.has(key)) continue;
+        seenEp.add(key); nEp++;
+        if (!endpointMatches(routeIdx, method, p)) missEp.push(key + '   (' + rel + ' — trong sơ đồ)');
       }
     }
 
