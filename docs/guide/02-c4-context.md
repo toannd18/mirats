@@ -1,6 +1,8 @@
-# 02 — Sơ đồ C4 mức 1: Bối cảnh hệ thống (Context)
+# 02 — Sơ đồ bối cảnh hệ thống (dạng flowchart)
 
 > Ai dùng Mirats, hệ thống tương tác với cái gì bên ngoài.
+> (Tương đương C4 mức 1 — dùng flowchart vì layout C4 chồng nhãn các mũi tên
+> song song, xem ghi chú cuối.)
 
 ## 1. Mục đích / đối tượng đọc
 
@@ -10,23 +12,35 @@ hệ thống — người dùng và hệ ngoài nào chạm vào Mirats.
 ## 2. Sơ đồ
 
 ```mermaid
-C4Context
-  title System Context - Mirats (AspireReact)
+flowchart LR
+    staff([Nhân viên])
 
-  Person(staff, "Nhân viên", "Thủ kho, kỹ thuật, quản trị")
-  System(mirats, "Mirats", "Quản lý tài sản CNTT đa công ty")
+    subgraph BROWSER["Dùng trình duyệt"]
+        browser[React SPA<br/>qua HTTPS]
+    end
 
-  System_Ext(browser, "Trình duyệt", "React SPA qua HTTPS")
-  System_Ext(cloudflare, "Cloudflare", "Edge + Tunnel (cấu hình c)")
-  System_Ext(npm, "Nginx Proxy Manager", "Terminate TLS, reverse proxy")
+    subgraph EXT["Ngoài hệ thống"]
+        direction TB
+        cf[Cloudflare<br/>Edge + Tunnel]
+        npm[Nginx Proxy Manager<br/>Terminate TLS]
+    end
 
-  Rel(staff, browser, "Đăng nhập, thao tác")
-  Rel(browser, cloudflare, "HTTPS (c)")
-  Rel(browser, npm, "HTTPS (b)")
-  Rel(browser, mirats, "HTTP trực tiếp (a, không khuyến nghị)")
-  Rel(cloudflare, npm, "Tunnel HTTPS:443")
-  Rel(npm, mirats, "Proxy HTTP nội bộ")
+    mirats[Mirats<br/>Quản lý tài sản đa công ty]
+
+    staff --> browser
+    browser -- "HTTPS (c)" --> cf
+    browser -- "HTTPS (b)" --> npm
+    browser -- "HTTP (a)" --> mirats
+    cf -- "Tunnel 443" --> npm
+    npm -- "HTTP nội bộ" --> mirats
+
+    style BROWSER fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style EXT fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
 ```
+
+> Lý do dùng flowchart thay vì `C4Context`: layout C4 tự động chồng nhãn các
+> mũi tên song song lên nhau (đã render kiểm chứng). Nội dung tương đương C4
+> mức 1 (người dùng + hệ thống + hệ ngoài).
 
 > Không có tích hợp chiều ra (mail/webhook/API công khai cho hệ khác) trong
 > code hiện tại — backup và cảnh báo trong `DEPLOYMENT.md` đều làm thủ công.

@@ -17,7 +17,7 @@ erDiagram
     DEPARTMENTS ||--o{ USERS : contains
     LOCATIONS ||--o{ USERS : sites
     USERS ||--o{ USER_GROUPS : joins
-    PERMISSION_GROUPS ||--o{ USER_GROUPS : members
+    PERMISSION_GROUPS ||--o{ USER_GROUPS : has
     PERMISSION_GROUPS ||--o{ GROUP_PERMISSIONS : grants
     USERS ||--o{ USER_PERMISSIONS : grants_direct
     USERS ||--o{ USER_CREDENTIALS : sessions

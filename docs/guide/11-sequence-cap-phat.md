@@ -16,18 +16,18 @@ sequenceDiagram
     participant API as API
     participant DB as Postgres
 
-    U->>FE: Chọn tài sản + đối tượng (Người dùng/Phòng ban/Hệ thống)
+    U->>FE: Chọn tài sản + đối tượng
     FE->>API: POST /assets/{id}/checkout
-    API->>DB: SELECT ... FOR UPDATE (khóa hàng)
-    alt Đã lưu trữ / đang cấp / không Pending
-        API-->>U: 400 ASSET_ARCHIVED / ALREADY_CHECKED_OUT / NOT_DEPLOYABLE
-    else Target khác company
+    API->>DB: SELECT ... FOR UPDATE
+    alt Không cấp được
+        API-->>U: 400 ARCHIVED / CHECKED_OUT / NOT_DEPLOYABLE
+    else Sai company
         API-->>U: 400 COMPANY_MISMATCH
-    else Tới Hệ thống thiếu LocationId
+    else Thiếu LocationId
         API-->>U: 400 LOCATION_REQUIRED
     else OK
-        API->>DB: Tạo assignment + Status=Deployed + ActionLog (1 transaction)
-        API-->>U: 200 "Asset checked out successfully."
+        API->>DB: Assignment + Deployed + ActionLog (1 transaction)
+        API-->>U: 200 checked out
     end
 ```
 

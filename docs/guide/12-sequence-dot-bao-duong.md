@@ -15,26 +15,26 @@ sequenceDiagram
     participant API as API
     participant DB as Postgres
 
-    U->>FE: Chọn hệ thống (+ template nếu nhiều)
+    U->>FE: Chọn hệ thống
     FE->>API: POST /maintenance/campaigns
-    API->>DB: Resolve version hiện hành đã publish
-    alt Chưa có template/version
+    API->>DB: Resolve version đã publish
+    alt Thiếu template/version
         API-->>U: 400 NO_TEMPLATE / NO_CURRENT_VERSION
-    else Đã có đợt InProgress
+    else Đã có InProgress
         API-->>U: 400 CAMPAIGN_ALREADY_IN_PROGRESS
     else OK
-        API->>DB: Tạo campaign + snapshot thiết bị + executors
+        API->>DB: Campaign + snapshots + executors
         API-->>U: 201 campaign
     end
-    loop Từng thiết bị × hạng mục
+    loop Từng thiết bị
         FE->>API: POST /campaigns/{id}/results
-        API->>DB: Check snapshot/item/param + upsert (409 RESULT_CONCURRENT_WRITE → thử lại)
+        API->>DB: Upsert (409 → thử lại)
     end
     FE->>API: POST /campaigns/{id}/complete
-    alt Còn thiếu kết quả
-        API-->>U: 400 CAMPAIGN_RESULTS_INCOMPLETE (kèm "x/y bản ghi")
+    alt Thiếu kết quả
+        API-->>U: 400 INCOMPLETE (kèm "x/y")
     else Đủ
-        API-->>U: 200 hoàn thành (bất biến từ đây)
+        API-->>U: 200 hoàn thành
     end
 ```
 

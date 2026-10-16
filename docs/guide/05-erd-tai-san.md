@@ -19,6 +19,7 @@ erDiagram
     SUPPLIERS ||--o{ ASSETS : supplies
     DEPRECIATIONS ||--o{ ASSET_MODELS : depreciates
     LOCATIONS ||--o{ ASSETS : stores
+    SYSTEM_POSITIONS ||--o{ ASSETS : installed_at
     ASSETS ||--o{ ASSIGNMENTS : history
     ASSETS ||--o| ASSIGNMENTS : current
 
@@ -31,6 +32,7 @@ erDiagram
         bool is_confirmed
         uuid model_id FK "SET NULL"
         uuid company_id FK "SET NULL"
+        uuid system_position_id FK "vị trí lắp đặt"
         uuid current_assignment_id FK "SET NULL, null = sẵn sàng"
     }
     ASSET_MODELS {
@@ -59,6 +61,11 @@ erDiagram
         uuid asset_id FK "CASCADE — lịch sử giữ lại"
         string target_type "User/Department/SystemPosition"
         uuid target_id
+    }
+    SYSTEM_POSITIONS {
+        uuid id PK
+        string code UK
+        string name
     }
 ```
 

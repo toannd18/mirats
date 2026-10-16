@@ -1,41 +1,47 @@
-# 03 — Sơ đồ C4 mức 2: Container
+# 03 — Sơ đồ container (dạng flowchart)
 
 > Mirats gồm những khối triển khai (container) nào, nói chuyện với nhau ra sao.
+> (Tương đương C4 mức 2 — dùng flowchart vì layout C4 tràn chữ, xem ghi chú cuối.)
 
 ## 1. Mục đích / đối tượng đọc
 
 Dev + vận hành: biết request đi qua những hop nào (quan trọng cho debug IP,
 scheme, TLS), dữ liệu nằm ở đâu (Postgres/Redis/volume).
 
-## 2. Sơ đồ (cấu hình đủ: prod sau NPM + tunnel)
+## 2. Sơ đồ (dạng flowchart — C4 gốc bị tràn chữ tiếng Việt dài, xem ghi chú cuối)
 
 ```mermaid
-C4Container
-  title Container Diagram - Mirats
+flowchart TB
+    staff([Nhân viên<br/>Thủ kho, kỹ thuật, quản trị])
 
-  Person(staff, "Nhân viên", "Dùng trình duyệt")
+    subgraph EDGE["Ngoài hệ thống"]
+        cf[Cloudflare edge<br/>Tunnel, HTTPS + Access]
+    end
 
-  Container_Boundary(edge, "Ngoài hệ thống") {
-    Container(cf, "Cloudflare edge", "Tunnel", "HTTPS + Access (c)")
-  }
+    subgraph HOST["Server triển khai"]
+        npm[Nginx Proxy Manager<br/>Terminate TLS, proxy HTTP]
+        tfd[(cloudflared<br/>Tunnel client)]
+        fe[Frontend<br/>React SPA + Nginx]
+        api[Backend API<br/>.NET 10, REST /api/v1]
+        pg[(PostgreSQL 18<br/>Dữ liệu nghiệp vụ)]
+        redis[(Redis 8<br/>OutputCache)]
+    end
 
-  Container_Boundary(host, "Server triển khai") {
-    Container(npm, "Nginx Proxy Manager", "Nginx", "Terminate TLS, proxy HTTP")
-    ContainerDb(cloudflared, "cloudflared", "Tunnel client", "Egress tới edge")
-    Container(fe, "Frontend", "React SPA + Nginx", "Same-origin, proxy /api")
-    Container(api, "Backend API", ".NET 10", "REST /api/v1, JWT tự ký")
-    ContainerDb(pg, "PostgreSQL 18", "Database", "Dữ liệu nghiệp vụ")
-    ContainerDb(redis, "Redis 8", "Cache", "OutputCache reference-data")
-  }
+    staff -- HTTPS --> cf
+    cf -- Tunnel --> tfd
+    tfd -- HTTPS:443 --> npm
+    npm -- HTTP --> fe
+    fe -- "/api" --> api
+    api --> pg
+    api --> redis
 
-  Rel(staff, cf, "HTTPS")
-  Rel(cf, cloudflared, "Tunnel")
-  Rel(cloudflared, npm, "HTTPS:443")
-  Rel(npm, fe, "HTTP, giữ Host/XFF")
-  Rel(fe, api, "HTTP /api, append XFF")
-  Rel(api, pg, "Đọc/ghi", "Npgsql/EF")
-  Rel(api, redis, "Cache", "StackExchange.Redis")
+    style EDGE fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style HOST fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
 ```
+
+> Lý do dùng flowchart thay vì `C4Container`: layout C4 tự động tràn chữ mô tả
+> tiếng Việt dài ra ngoài hình cylinder/container (đã render kiểm chứng). Nội
+> dung tương đương C4 mức 2 (người → container → DB).
 
 Dev (Aspire) thay `fe` bằng Vite dev-server HTTPS + `api` chạy `dotnet run`,
 bỏ NPM/tunnel; Postgres/Redis do Aspire cấp container tương đương.

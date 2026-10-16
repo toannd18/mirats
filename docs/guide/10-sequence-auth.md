@@ -19,16 +19,16 @@ sequenceDiagram
     U->>FE: Nhập username + password
     FE->>API: POST /auth/login
     API->>DB: Ghi auth_login_attempts (IP thật)
-    alt IP burst > 30 lỗi/phút
+    alt IP burst quá 30/phút
         API-->>U: 400 ACCOUNT_LOCKED
-    else Sai user/password/inactive
-        API-->>U: 400 INVALID_CREDENTIALS (message chung)
+    else Sai user/password
+        API-->>U: 400 INVALID_CREDENTIALS
     else Đúng + mustChangePassword
-        API-->>U: 200 + accessToken + mustChangePassword=true
+        API-->>U: 200 + accessToken + mustChange=true
     else Đúng
-        API-->>U: 200 + accessToken, Set-Cookie refreshToken (Secure, Lax)
+        API-->>U: 200 + accessToken, Set-Cookie
     end
-    Note over FE,API: Access token hết hạn → POST /auth/refresh (đọc cookie) →<br/>cặp token mới (rotation) + thu hồi cái cũ
+    Note over FE,API: Hết hạn access token → POST /auth/refresh → cặp mới
 ```
 
 - Refresh token chỉ lưu **hash** (`user_credentials`), rotation + thu hồi,

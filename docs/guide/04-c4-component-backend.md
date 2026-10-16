@@ -1,6 +1,8 @@
-# 04 — Sơ đồ C4 mức 3: Component backend
+# 04 — Sơ đồ component backend (dạng flowchart)
 
 > Trong backend .NET có những khối code nào, request đi qua chúng theo thứ tự gì.
+> (Tương đương C4 mức 3 — dùng flowchart vì layout C4 chồng nhãn mũi tên, xem
+> ghi chú cuối.)
 
 ## 1. Mục đích / đối tượng đọc
 
@@ -10,32 +12,37 @@ request đi qua pipeline nào, log/audit gắn ở đâu.
 ## 2. Sơ đồ
 
 ```mermaid
-C4Component
-  title Component Diagram - Backend API (.NET 10)
+flowchart TB
+    spa[Frontend SPA<br/>REST /api/v1]
 
-  Container(spa, "Frontend SPA", "React", "Gọi REST /api/v1")
+    subgraph API["Backend API (.NET 10)"]
+        direction TB
+        web[Web Controllers<br/>30 controllers]
+        pipe[Middleware pipeline<br/>ProxyHeaders, CORS, JWT, PwdGate]
+        app[Application CQRS<br/>Commands/Queries, 30 modules]
+        beh[Behaviors<br/>CacheInvalidation, Validation, ActionLog]
+        infra[Infrastructure<br/>DbContext, services, auth]
+        dom[Domain<br/>Entities, PermissionCatalog]
+    end
 
-  Container_Boundary(api, "Backend API") {
-    Component(web, "Web (Controllers)", "ASP.NET Core", "30 controllers, thin MediatR mapping")
-    Component(pipe, "Middleware pipeline", "ASP.NET Core", "ProxyHeaders, CORS, JWT, PwdGate, OutputCache")
-    Component(app, "Application (CQRS)", "MediatR", "Commands/Queries/Validators theo 30 module")
-    Component(beh, "Behaviors", "MediatR", "CacheInvalidation, Validation, ActionLog")
-    Component(infra, "Infrastructure", "EF Core", "DbContext, services, auth, networking")
-    Component(dom, "Domain", "C#", "Entities, enums, PermissionCatalog, contracts")
-  }
+    pg[(PostgreSQL<br/>45+ bảng)]
+    redis[(Redis<br/>Reference-data)]
 
-  ContainerDb(pg, "PostgreSQL", "EF Core", "45+ bảng")
-  ContainerDb(redis, "Redis", "OutputCache", "Reference-data")
+    spa --> web
+    web --> pipe
+    pipe --> app
+    app --> beh
+    app --> infra
+    app --> dom
+    infra --> pg
+    infra --> redis
 
-  Rel(spa, web, "REST/JSON", "HTTPS")
-  Rel(web, pipe, "Đi qua pipeline")
-  Rel(pipe, app, "Send command/query")
-  Rel(app, beh, "Validation, Log+Commit, Evict")
-  Rel(app, infra, "DbContext + services")
-  Rel(app, dom, "Dùng entities/contracts")
-  Rel(infra, pg, "Đọc/ghi")
-  Rel(infra, redis, "Cache/evict")
+    style API fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
 ```
+
+> Lý do dùng flowchart thay vì `C4Component`: layout C4 tự động chồng nhãn các
+> mũi tên quan hệ lên nhau khi mô tả dài (đã render kiểm chứng). Nội dung tương
+> đương C4 mức 3 (container → component → DB).
 
 ## 3. Thứ tự pipeline (quan trọng — sai thứ tự là bug)
 
