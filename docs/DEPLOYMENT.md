@@ -434,20 +434,20 @@ Script sẽ:
 
 ### 11.3 Chuyển từ (b) sang (c) — thêm Cloudflare Tunnel
 
-1. Trên dashboard Cloudflare: **Public Hostname** cùng domain trỏ về
-   `http://<NPM-host>:80` (luồng tunnel → NPM là **HTTP nội bộ**).
-2. **Force SSL ở NPM GIỮ BẬT** (browser → edge → tunnel → NPM: browser thấy
-   HTTPS; tunnel và chặng NPM→frontend là HTTP nội bộ). Chỉ gặp vòng lặp
-   redirect nếu ai đó đặt scheme forward `https` tới upstream chỉ serve HTTP —
-   giữ forward scheme `http` cho upstream Mirats (frontend nginx chỉ nghe 80).
-3. **Khuyến nghị Cloudflare Access** (Zero Trust) trước NPM cho (c).
-4. **Tăng cường tùy chọn — cloudflared → NPM bằng HTTPS**: NPM đã giữ chứng chỉ
-   Let's Encrypt hợp lệ của domain (dùng cho browser), nên tunnel có thể gọi
-   vào `https://<NPM-host>:443` với `originRequest: { originServerName:
-   "<domain>" }` (verify chuẩn public CA, không cần `noTLSVerify`). Cách này mã
-   hóa nốt chặng nội bộ cuối, nhưng **KHÔNG thay thế** suy luận scheme ở
-   backend (chặng NPM→frontend vẫn là HTTP nên `X-Forwarded-Proto` tới backend
-   vẫn là `http` — xem bước 5).
+1. Trên dashboard Cloudflare: **Public Hostname** cùng domain, service trỏ về
+   **`https://<NPM-host>:443`** (xem bước 2 — tunnel BẮT BUỘC gọi NPM bằng HTTPS).
+2. **Force SSL ở NPM GIỮ BẬT** (đúng ở mọi cấu hình — browser và tunnel đều vào
+   NPM bằng HTTPS). Đã đo bằng NPM thật: request **HTTP** (kèm cả
+   `X-Forwarded-Proto: https` như cloudflared gửi) vào host Force SSL → NPM trả
+   **`301` về `https://...`, KHÔNG forward** (logproxy sau NPM không nhận gì) —
+   tunnel gọi HTTP sẽ gãy tại đây. Đây là hậu quả khi làm sai, không phải vòng
+   lặp redirect (không quan sát thấy loop trong mọi phép đo).
+3. **cloudflared → NPM BẮT BUỘC bằng HTTPS** (từ "tăng cường tùy chọn" thành yêu
+   cầu cứng): `originRequest: { originServerName: "<domain>" }`, cổng 443.
+   NPM đã giữ chứng chỉ Let's Encrypt hợp lệ của domain nên verify chuẩn public
+   CA — **KHÔNG dùng `noTLSVerify`**. Đã đo đường HTTPS: request tới backend
+   (400 từ app = đã forward), header `XFP=https, XS=https`, Host giữ nguyên.
+4. **Khuyến nghị Cloudflare Access** (Zero Trust) trước NPM cho (c).
 5. Backend: thêm IP egress của `cloudflared` vào `PROXY_KNOWN_NETWORKS`, nâng
    `PROXY_FORWARD_LIMIT` lên 3, và bật `PROXY_TRUST_CLOUDFLARE=true` để backend
    ưu tiên `CF-Connecting-IP`. **Điều kiện an toàn:** NPM ở (c) CHỈ được nhận
