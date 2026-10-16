@@ -336,6 +336,17 @@ Script sẽ:
 - **Khắc phục:** đặt `INITIAL_ADMIN_EMAIL` chưa dùng + `AUTH_BOOTSTRAP_ADMIN_PASSWORD` khác rỗng, rồi
   `docker compose restart server`. Seeder chỉ tạo khi user **chưa** tồn tại và không ghi đè hash đã có.
 
+### 8.8 Trình duyệt báo ERR_TOO_MANY_REDIRECTS sau khi bật tunnel
+
+- **Triệu chứng:** mở domain qua tunnel thì trình duyệt báo lặp chuyển hướng vô hạn.
+- **Nguyên nhân:** cloudflared kết nối NPM bằng **HTTP** trong khi proxy host bật
+  **Force SSL** — NPM trả `301` về `https://...` (đã đo bằng NPM thật: HTTP kèm cả
+  `X-Forwarded-Proto: https` vẫn bị 301, không forward). Trình duyệt theo về
+  chính domain qua tunnel, lặp lại từ đầu.
+- **Khắc phục:** chuyển cloudflared sang `https://<NPM-host>:443` +
+  `originRequest.originServerName = <domain>` (xem §11.3). NPM đã có cert LE hợp
+  lệ nên verify chuẩn, không dùng `noTLSVerify`.
+
 ---
 
 ## 9. Biến môi trường tham chiếu đầy đủ
