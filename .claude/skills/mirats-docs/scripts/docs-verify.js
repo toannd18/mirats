@@ -211,8 +211,11 @@ function main() {
   const seenErr = new Set(), seenEp = new Set(), seenEnv = new Set(), seenLink = new Set();
 
   for (const f of files) {
-    const text = read(f);
+    let text = read(f);
     if (text == null) { console.error('Không đọc được: ' + f); continue; }
+    // Bỏ khối ```mermaid: nhãn sơ đồ (tên bảng/entity VIẾT HOA) không phải
+    // error_code/endpoint/env — sơ đồ kiểm chứng bằng mermaid parse + review.
+    text = text.replace(/```mermaid\r?\n[\s\S]*?```/g, '');
     const rel = path.relative(ROOT, f);
     let m;
 
@@ -220,6 +223,9 @@ function main() {
     while ((m = RE_ERROR_CODE.exec(text)) !== null) {
       const t = m[0];
       if (ERROR_CODE_DENYLIST.has(t) || seenErr.has(t)) continue;
+      // Bỏ tên file tài liệu (VD DEVELOPMENT_WORKFLOW.md) — không phải error_code.
+      const after = text.slice(m.index + t.length, m.index + t.length + 4);
+      if (after.toLowerCase().startsWith('.md')) continue;
       seenErr.add(t); nErr++;
       if (!errIdx.has(t)) missErr.push(t + '   (' + rel + ')');
     }
