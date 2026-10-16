@@ -430,19 +430,32 @@ Script sẽ:
 
 1. Trên dashboard Cloudflare: **Public Hostname** cùng domain trỏ về
    `http://<NPM-host>:80` (luồng tunnel → NPM là **HTTP nội bộ**).
-2. Vì luồng vào NPM đã là HTTP, **KHÔNG bật Force SSL kiểu redirect-loop**:
-   giữ Force SSL ở NPM (browser → edge là HTTPS, edge → tunnel → NPM là HTTP —
-   NPM terminate đúng 1 lần ở edge). Nếu gặp vòng lặp redirect, kiểm tra tab SSL
-   của proxy host (phải là "Force SSL" + scheme forward `http`, không phải
-   `https` loop).
+2. **Force SSL ở NPM GIỮ BẬT** (browser → edge → tunnel → NPM: browser thấy
+   HTTPS; tunnel và chặng NPM→frontend là HTTP nội bộ). Chỉ gặp vòng lặp
+   redirect nếu ai đó đặt scheme forward `https` tới upstream chỉ serve HTTP —
+   giữ forward scheme `http` cho upstream Mirats (frontend nginx chỉ nghe 80).
 3. **Khuyến nghị Cloudflare Access** (Zero Trust) trước NPM cho (c).
-4. Backend: thêm IP egress của `cloudflared` vào `PROXY_KNOWN_NETWORKS`, nâng
+4. **Tăng cường tùy chọn — cloudflared → NPM bằng HTTPS**: NPM đã giữ chứng chỉ
+   Let's Encrypt hợp lệ của domain (dùng cho browser), nên tunnel có thể gọi
+   vào `https://<NPM-host>:443` với `originRequest: { originServerName:
+   "<domain>" }` (verify chuẩn public CA, không cần `noTLSVerify`). Cách này mã
+   hóa nốt chặng nội bộ cuối, nhưng **KHÔNG thay thế** suy luận scheme ở
+   backend (chặng NPM→frontend vẫn là HTTP nên `X-Forwarded-Proto` tới backend
+   vẫn là `http` — xem bước 5).
+5. Backend: thêm IP egress của `cloudflared` vào `PROXY_KNOWN_NETWORKS`, nâng
    `PROXY_FORWARD_LIMIT` lên 3, và bật `PROXY_TRUST_CLOUDFLARE=true` để backend
    ưu tiên `CF-Connecting-IP`. **Điều kiện an toàn:** NPM ở (c) CHỈ được nhận
    kết nối qua tunnel (firewall chặn truy cập trực tiếp vào NPM) — nếu NPM vẫn
    reachable trực tiếp, client có thể giả `CF-Connecting-IP` và mạo danh IP bất
    kỳ. Ở (a)/(b) giữ `false` (mặc định): header này bị bỏ qua vô điều kiện.
-5. Khi `Proxy__KnownNetworks` để trống ngoài Development, backend log WARNING
+6. Hành vi header thật của NPM (đã đo bằng image `jc21/nginx-proxy-manager`
+   chính thức): `X-Forwarded-Proto` từ edge **được giữ nguyên** (có `https` →
+   backend thấy `https`); khi vắng, NPM **tự đặt `http`** theo scheme chặng của
+   nó; `X-Forwarded-Scheme` **luôn là scheme NPM terminate** (`https` khi Force
+   SSL). Vì vậy backend suy `Scheme=https` từ `X-Forwarded-Scheme` khi
+   `X-Forwarded-Proto` vắng/http — bắt buộc cho (b) (browser không bao giờ gửi
+   `X-Forwarded-Proto`), vô hại ở (c) (`X-Forwarded-Proto=https` thắng).
+7. Khi `Proxy__KnownNetworks` để trống ngoài Development, backend log WARNING
    lúc khởi động và bỏ qua mọi header proxy (fail-closed) — brute-force/audit
    sẽ thấy IP container proxy.
 
