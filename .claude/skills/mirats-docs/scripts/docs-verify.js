@@ -37,7 +37,10 @@ const DEFAULT_CODE_DIRS = [
   'aspire-react/frontend/src',
 ];
 
-const CODE_EXTS = ['.cs', '.json', '.jsonc', '.csproj', '.env', '.ts', '.tsx', '.js'];
+const CODE_EXTS = ['.cs', '.json', '.jsonc', '.csproj', '.env', '.ts', '.tsx', '.js', '.yml', '.yaml'];
+
+// File cấu hình ở repo root (không nằm trong codeDirs) — vẫn là nguồn sự thật cho env.
+const ROOT_FILES = ['docker-compose.yml', 'docker-compose.npm.yml', '.env.example'];
 
 // Token placeholder trong ví dụ JSON của docs — không phải error_code thật.
 const ERROR_CODE_DENYLIST = new Set(['SOME_CODE', 'EXAMPLE_CODE', 'ERROR_CODE', 'XXXX']);
@@ -92,6 +95,7 @@ function expandBraces(p) {
 function buildTokenIndex(codeDirs, re) {
   const files = [];
   for (const d of codeDirs) listFiles(path.join(ROOT, d), CODE_EXTS, files);
+  for (const f of ROOT_FILES) files.push(path.join(ROOT, f));
   const set = new Set();
   for (const f of files) {
     const text = read(f);
