@@ -402,6 +402,12 @@ Script sẽ:
 
 ### 11.2 Chuyển từ (a) sang (b) — NPM + domain nội bộ
 
+> **Tuyến khuyến nghị cho (b): NPM → frontend nginx → backend** (đã đo header
+> đầy đủ ở bước 6). Không dùng tuyến NPM → backend trực tiếp: tuyến đó đòi
+> CORS + phải serve static bundle ở chỗ khác, trong khi frontend nginx đã làm
+> sẵn same-origin (`/api` proxy về `server:5000`, giữ `Host`/`XFF`, giữ XFP
+> gốc) — một origin duy nhất cho browser, không CORS prod.
+
 1. **Cloudflare API token** (quyền Edit zone DNS) — chỉ dùng để NPM xin chứng chỉ
    Let's Encrypt qua **DNS challenge**, không public gì.
 2. **Bản ghi A trên DNS NỘI BỘ** (split DNS, VD Pi-hole/AD DNS) trỏ domain về IP
@@ -449,12 +455,20 @@ Script sẽ:
    reachable trực tiếp, client có thể giả `CF-Connecting-IP` và mạo danh IP bất
    kỳ. Ở (a)/(b) giữ `false` (mặc định): header này bị bỏ qua vô điều kiện.
 6. Hành vi header thật của NPM (đã đo bằng image `jc21/nginx-proxy-manager`
-   chính thức): `X-Forwarded-Proto` từ edge **được giữ nguyên** (có `https` →
-   backend thấy `https`); khi vắng, NPM **tự đặt `http`** theo scheme chặng của
-   nó; `X-Forwarded-Scheme` **luôn là scheme NPM terminate** (`https` khi Force
-   SSL). Vì vậy backend suy `Scheme=https` từ `X-Forwarded-Scheme` khi
-   `X-Forwarded-Proto` vắng/http — bắt buộc cho (b) (browser không bao giờ gửi
-   `X-Forwarded-Proto`), vô hại ở (c) (`X-Forwarded-Proto=https` thắng).
+   chính thức, proxy host HTTPS với cert tự ký, request browser-like không kèm
+   `X-Forwarded-Proto`):
+
+   | Đầu vào NPM | NPM gửi đi: XFP | XS | XFF |
+   |---|---|---|---|
+   | HTTP + `XFP:https` sẵn có (mô phỏng edge) | `https` (giữ nguyên) | `http` (scheme chặng nó) | append đúng |
+   | HTTP, không XFP | `http` (tự đặt) | `http` | append đúng |
+   | **HTTPS, không XFP (đúng như browser ở (b))** | **`https`** | **`https`** | append đúng, Host giữ nguyên |
+
+   Hệ quả: ở (b)/(c) cấu hình đúng, backend luôn nhận `X-Forwarded-Proto=https`
+   → `Request.Scheme=https` trực tiếp, QR sinh link https. Suy luận dự phòng từ
+   `X-Forwarded-Scheme` trong code **không kích hoạt** ở cấu hình đúng — nó chỉ
+   còn là **lớp phòng thủ** cho proxy lạ tự ghi đè XFP thành http (không xóa,
+   giữ nguyên vì vô hại: chỉ chạy khi XFP vắng/http + peer tin cậy + XS=https).
 7. Khi `Proxy__KnownNetworks` để trống ngoài Development, backend log WARNING
    lúc khởi động và bỏ qua mọi header proxy (fail-closed) — brute-force/audit
    sẽ thấy IP container proxy.
