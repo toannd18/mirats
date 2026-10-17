@@ -39,12 +39,26 @@ namespace aspire_react.Server.Application.Users.Commands;
 /// a regular user may only assign a company equal to their own scope or clear to floater;
 /// a superuser (scope null) is unrestricted. Validated BEFORE any mutation.
 /// </remarks>
+/// <remarks>
+/// [FIX BUG-O 2026-10-18] The three REQUIRED text fields (FirstName / LastName / Email) were the
+/// last survivors of the BUG-E/N "unconditional assign" bug class in this handler: they were copied
+/// to the entity with no null check, so ANY partial payload — e.g. the superuser-demote call
+/// `{"id":..,"isSuperUser":false}` — wiped all three to "". They now follow the same patch
+/// convention as the rest of the handler (absent/null → keep, sent → applied, "" → 400 from the
+/// validator, which was also made conditional on the field being sent).
+/// </remarks>
 public record UpdateUserCommand : IRequest<UpdateUserResult>, ILoggableCommand<UpdateUserResult>
 {
     public Guid Id { get; init; }
-    public string FirstName { get; init; } = string.Empty;
-    public string LastName { get; init; } = string.Empty;
-    public string Email { get; init; } = string.Empty;
+    // [FIX BUG-O 2026-10-18] Patch-safety cho 3 field VĂN BẢN BẮT BUỘC: để nullable để phân biệt
+    // "không gửi" với "gửi chuỗi rỗng". Trước fix chúng non-nullable + handler gán VÔ ĐIỀU KIỆN, nên
+    // payload thiếu field bind thành "" rồi bị validator `NotEmpty` chặn `400` (đo thật: MỌI PATCH
+    // /users/{id} đều fail); nếu validation bị bỏ qua thì handler ghi "" ⇒ XOÁ TRẮNG (lớp bug BUG-E/N).
+    // Quy ước nay (giống EmployeeNumber/JobTitle):
+    //   không gửi / null → GIỮ NGUYÊN;  gửi chuỗi rỗng "" → bị validator chặn `400` (NotEmpty).
+    public string? FirstName { get; init; }
+    public string? LastName { get; init; }
+    public string? Email { get; init; }
     public string? EmployeeNumber { get; init; }
     public string? JobTitle { get; init; }
     // Task M2: nullable so a partial payload that omits these does NOT silently reset them to
@@ -168,15 +182,20 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
 
         var previousIsSuperUser = user.IsSuperUser;
         var previousEmail = user.Email;
+        var previousFirstName = user.FirstName;
+        var previousLastName = user.LastName;
         var previousIsActive = user.IsActive;
         var previousCompanyId = user.CompanyId;
         var previousDepartmentId = user.DepartmentId;
         var previousLocationId = user.LocationId;
 
         // Update local entity properties
-        user.FirstName = request.FirstName.Trim();
-        user.LastName = request.LastName.Trim();
-        user.Email = request.Email.Trim().ToLowerInvariant();
+        // [FIX BUG-O] Patch semantics cho 3 field bắt buộc: KHÔNG gửi (null) → GIỮ NGUYÊN.
+        // Trước fix: gán vô điều kiện ⇒ payload thiếu field bị validator chặn 400; nếu validation bị
+        // bỏ qua (gọi handler trực tiếp) thì ghi "" = xoá trắng tên/email.
+        if (request.FirstName is not null) user.FirstName = request.FirstName.Trim();
+        if (request.LastName is not null) user.LastName = request.LastName.Trim();
+        if (request.Email is not null) user.Email = request.Email.Trim().ToLowerInvariant();
         // [FIX-N1] Patch semantics for the two free-text fields: ABSENT → keep the stored value
         // (before the fix they were assigned unconditionally → a partial payload wiped them).
         if (request.EmployeeNumber is not null) user.EmployeeNumber = request.EmployeeNumber.Trim();
@@ -233,6 +252,10 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
             {
                 changes = new Dictionary<string, object?>
                 {
+                    // [FIX BUG-O] Tên cũng vào `changes` — chính 2 field này từng bị xoá trắng âm thầm
+                    // mà ActionLog không ghi lại, nên không ai phát hiện được từ nhật ký.
+                    ["firstName"] = new { old = previousFirstName, @new = user.FirstName },
+                    ["lastName"] = new { old = previousLastName, @new = user.LastName },
                     ["email"] = new { old = previousEmail, @new = user.Email },
                     ["isActive"] = new { old = previousIsActive, @new = user.IsActive },
                     ["isSuperUser"] = new { old = previousIsSuperUser, @new = user.IsSuperUser },

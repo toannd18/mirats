@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Users.Commands;
+using aspire_react.Server.Application.Users.Validators;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -309,5 +310,152 @@ public class UserUpdatePatchSafetyTests
         Assert.Equal("COMPANY_MISMATCH", result.ErrorCode);
         var reloaded = await ctx.Users.SingleAsync(x => x.Id == user.Id);
         Assert.Null(reloaded.CompanyId);
+    }
+
+    // =========================================================================
+    // BUG-O (2026-10-18) — the 3 REQUIRED text fields were the last "unconditional assign" leftovers:
+    // a partial payload WIPED FirstName/LastName/Email to "". Reproduced live on the dev DB by the
+    // superuser-demote call `{"id":..,"isSuperUser":false}` (see docs/BACKLOG.md § BUG-O).
+    // =========================================================================
+
+    /// <summary>
+    /// Repro của BUG-O: payload CHỈ có `isSuperUser` (đúng lệnh hạ quyền superuser đã chạy trên DB dev)
+    /// phải ĐỔI được cờ mà KHÔNG động tới tên/email.
+    /// </summary>
+    [Fact]
+    public async Task Update_PartialPayload_OnlyIsSuperUser_PreservesRequiredTextFields()
+    {
+        await using var ctx = CreateContext(nameof(Update_PartialPayload_OnlyIsSuperUser_PreservesRequiredTextFields));
+        // Giữ LẠI 1 superuser khác ⇒ lệnh hạ quyền không bị guard SELF_LOCKOUT chặn
+        // (đúng tình huống thật trên DB dev: `admin` vẫn là superuser khi hạ 2 user test).
+        var keeper = NewUser();
+        keeper.Username = "keeper";
+        keeper.Email = "keeper@example.test";
+        keeper.IsSuperUser = true;
+        var user = NewUser();
+        user.IsSuperUser = true;
+        ctx.Users.AddRange(keeper, user);
+        await ctx.SaveChangesAsync();
+
+        var handler = BuildHandler(ctx, new TestHelpers.FakeScope { Super = true }, ActorId);
+
+        var result = await handler.Handle(new UpdateUserCommand
+        {
+            Id = user.Id,
+            IsSuperUser = false   // CHỈ field này — trước BUG-O phần còn lại bị xoá trắng
+        }, CancellationToken.None);
+
+        Assert.True(result.Success);
+        var reloaded = await ctx.Users.SingleAsync(x => x.Id == user.Id);
+        Assert.False(reloaded.IsSuperUser);              // field được gửi → áp dụng
+        Assert.Equal("First", reloaded.FirstName);        // 3 field không gửi → GIỮ NGUYÊN (trước fix = "")
+        Assert.Equal("Last", reloaded.LastName);
+        Assert.Equal("u1@example.test", reloaded.Email);
+        Assert.Equal("EMP-1", reloaded.EmployeeNumber);
+        Assert.Equal("Original Title", reloaded.JobTitle);
+    }
+
+    /// <summary>Payload thiếu field vẫn phải ghi được `changes` của đúng field được gửi (audit trail).</summary>
+    [Fact]
+    public async Task Update_PartialPayload_LogMeta_OnlyRecordsSentFields()
+    {
+        await using var ctx = CreateContext(nameof(Update_PartialPayload_LogMeta_OnlyRecordsSentFields));
+        var keeper = NewUser();
+        keeper.Username = "keeper";
+        keeper.Email = "keeper@example.test";
+        keeper.IsSuperUser = true;
+        var user = NewUser();
+        user.IsSuperUser = true;
+        ctx.Users.AddRange(keeper, user);
+        await ctx.SaveChangesAsync();
+
+        var handler = BuildHandler(ctx, new TestHelpers.FakeScope { Super = true }, ActorId);
+
+        var result = await handler.Handle(new UpdateUserCommand
+        {
+            Id = user.Id,
+            IsSuperUser = false
+        }, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.LogMeta);
+        Assert.Contains("\"isSuperUser\":{\"old\":true,\"new\":false}", result.LogMeta);  // đổi thật
+        Assert.Contains("\"firstName\":{\"old\":\"First\",\"new\":\"First\"}", result.LogMeta); // không đổi
+    }
+
+    /// <summary>Gửi ĐỦ 3 field → cập nhật đúng (kèm trim tên và lowercase email như trước).</summary>
+    [Fact]
+    public async Task Update_FullPayload_UpdatesRequiredTextFields()
+    {
+        await using var ctx = CreateContext(nameof(Update_FullPayload_UpdatesRequiredTextFields));
+        var user = NewUser();
+        ctx.Users.Add(user);
+        await ctx.SaveChangesAsync();
+
+        var handler = BuildHandler(ctx, new TestHelpers.FakeScope { Super = true }, ActorId);
+
+        var result = await handler.Handle(new UpdateUserCommand
+        {
+            Id = user.Id,
+            FirstName = "  Nguyen Van  ",   // có khoảng trắng thừa → trim
+            LastName = "  A  ",
+            Email = "  NEW.Mail@Example.Test  ",
+            IsActive = false
+        }, CancellationToken.None);
+
+        Assert.True(result.Success);
+        var reloaded = await ctx.Users.SingleAsync(x => x.Id == user.Id);
+        Assert.Equal("Nguyen Van", reloaded.FirstName);
+        Assert.Equal("A", reloaded.LastName);
+        Assert.Equal("new.mail@example.test", reloaded.Email);
+    }
+
+    /// <summary>Validator: payload tối thiểu (chỉ cờ) phải HỢP LỆ — không được bắt buộc 3 field text.</summary>
+    [Fact]
+    public async Task Validator_PartialPayload_OnlyIsSuperUser_IsValid()
+    {
+        await using var ctx = CreateContext(nameof(Validator_PartialPayload_OnlyIsSuperUser_IsValid));
+        var user = NewUser();
+        ctx.Users.Add(user);
+        await ctx.SaveChangesAsync();
+
+        var validator = new UpdateUserCommandValidator(ctx);
+        var validation = await validator.ValidateAsync(new UpdateUserCommand
+        {
+            Id = user.Id,
+            IsSuperUser = false
+        });
+
+        Assert.True(validation.IsValid, string.Join(" | ", validation.Errors.Select(e => e.PropertyName + ": " + e.ErrorMessage)));
+    }
+
+    /// <summary>
+    /// Validator: GỬI chuỗi rỗng cho field bắt buộc → vẫn bị chặn (field bắt buộc không thể bị xoá trắng
+    /// qua payload). Trước BUG-O không cần test này vì gán vô điều kiện đã "tự xoá"; nay là ràng buộc thật.
+    /// </summary>
+    [Theory]
+    [InlineData("Email")]
+    [InlineData("FirstName")]
+    [InlineData("LastName")]
+    public async Task Validator_RequiredTextField_SentEmpty_IsRejected(string field)
+    {
+        await using var ctx = CreateContext(nameof(Validator_RequiredTextField_SentEmpty_IsRejected) + field);
+        var user = NewUser();
+        ctx.Users.Add(user);
+        await ctx.SaveChangesAsync();
+
+        var validator = new UpdateUserCommandValidator(ctx);
+        var command = new UpdateUserCommand { Id = user.Id };
+        command = field switch
+        {
+            "Email" => command with { Email = "" },
+            "FirstName" => command with { FirstName = "" },
+            _ => command with { LastName = "" }
+        };
+
+        var validation = await validator.ValidateAsync(command);
+
+        Assert.False(validation.IsValid);
+        Assert.Contains(validation.Errors, e => e.PropertyName == field);
     }
 }

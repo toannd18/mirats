@@ -3200,11 +3200,43 @@ Chuỗi MC-7 (được duyệt từng bước): hạng mục checklist có thể
     - **Đường ghi duy nhất là `PUT /api/v1/users/{id}`** (policy `admin`), field `isSuperUser`. **Không có endpoint riêng** cho việc này — đã rà toàn bộ `UsersController` (GET, GET `me`, GET `{id}`, PUT `{id}/groups`, POST, PUT `{id}`, POST `{id}/reset-password`, DELETE `{id}`) và grep `IsSuperUser` toàn solution: chỉ 2 chỗ GHI — `UpdateUserCommand.cs:185` (patch, `nullable` → absent thì giữ) và `CreateUserCommand.cs:129` (lúc tạo).
     - Guard duy nhất: **`SELF_LOCKOUT`** (`UpdateUserCommand.cs:133` → `WouldDemoteSuperUserLockoutAsync`) chặn hạ superuser **CUỐI CÙNG** — không cản ở đây vì `admin` vẫn là superuser.
     - Đã gọi `PUT /api/v1/users/{id}` body `{id, firstName, lastName, email, isSuperUser:false}` cho `qa-aud8-super` (`cb87aa58-…`) và `qa-phase4-b2-062851` (`b5176d9f-…`) → **HTTP 200 ×2**; kiểm lại `GET /users/{id}`: `isSuperUser=false`, `firstName/lastName/email` **KHÔNG đổi**. ActionLog: `ActionType=2 (Update)`, `ItemType=10 (User)`, `ActionDate=2026-10-17T23:06:34Z` (2 bản ghi).
-    - ⚠️ **Cạm bẫy đã gặp (ghi lại để không lặp):** `UpdateUserCommand` gán **VÔ ĐIỀU KIỆN** `FirstName`/`LastName`/`Email` (`UpdateUserCommand.cs:177-179`, khác patch-semantics của các field còn lại) ⇒ payload PATCH chỉ gửi `{isSuperUser:false}` sẽ **xoá trắng** 3 trường này. Vì vậy phải gửi kèm giá trị hiện tại. (Đây là cùng lớp lỗi BUG-E/N — chưa đăng ký backlog, chờ quyết định.)
+    - ⚠️ **Cạm bẫy đã gặp (ghi lại để không lặp):** `UpdateUserCommand` gán **VÔ ĐIỀU KIỆN** `FirstName`/`LastName`/`Email` (`UpdateUserCommand.cs:177-179`, khác patch-semantics của các field còn lại) ⇒ payload PATCH chỉ gửi `{isSuperUser:false}` sẽ **xoá trắng** 3 trường này. Vì vậy phải gửi kèm giá trị hiện tại. (Đây là cùng lớp lỗi BUG-E/N — chưa đăng ký backlog, chờ quyết định.) **⚠️ ĐÍNH CHÍNH 2026-10-18 (đã đo lại trên API thật + DB tạm, xem mục BUG-O ở cuối file):** payload thiếu field bị validator chặn **`400 Validation failed`** — dữ liệu **KHÔNG** bị xoá trắng; hệ quả thật là **không thể PATCH**. Việc "xoá trắng" chỉ xảy ra ở tầng handler nếu validation bị bỏ qua.
   - **Trạng thái CUỐI CÙNG của phân quyền trên DB dev (SQL CHỈ-ĐỌC):** chỉ **`admin`** có `IsSuperUser = true`; chỉ **`admin`** thuộc group (`Superuser`); **0** user test thuộc bất kỳ group nào và **0** user test còn cờ superuser; group `Admin` = 0 thành viên; 49 user / 1 active (`admin`) / 48 inactive.
 - **Quy tắc mới áp dụng từ 2026-10-18 (người dùng chốt):** thí nghiệm SQL (chèn dữ liệu, `EXPLAIN` với dữ liệu nạp thêm) và fixture **CHỈ trên DB tạm**; **KHÔNG** tạo user test có quyền Admin trên DB dev.
 - **Stack dev:** đã `aspire stop` (AppHost cũ) rồi khởi động lại bằng đúng cách cũ → container postgres MỚI `postgres-tjrjwutq` dùng lại volume `postgres-data`; `GET /api/v1/assets/{id}/timeline` trên **5428 = HTTP 200** (LL-3 đã có hiệu lực trên stack chính), `/health` = 200 `Healthy`.
 - **Tồn đọng có chủ đích:** backlog **MT-TZ** (endpoint cũ trả mốc không `Z` → FE lệch 7 tiếng; hướng xử lý tập trung + xử lý `-infinity`) đã đăng ký trong `docs/BACKLOG.md` — **CHƯA làm**; **`docs/guide/` Cluster C (từ trang 31) — CHƯA làm**.
+
+---
+
+## 2026-10-18 — BUG-O: fix patch-safety `UpdateUserCommand` (FirstName/LastName/Email) + audit 21 file `Update*Command`
+
+- **Đăng ký + fix + verify xong.** Chi tiết đầy đủ (gồm bảng đo): `docs/BACKLOG.md` § **BUG-O**.
+- **Fix:** DTO 3 field → `string?` (null = không gửi); handler `if (request.X is not null)` (Email vẫn
+  `trim()` + `ToLowerInvariant()`); validator bọc `When(x => x.X is not null, () => RuleFor(…))` cho cả 3;
+  `LogMeta.changes` bổ sung `firstName`/`lastName` (trước đây chỉ có `email`).
+- **Hành vi TRƯỚC fix (ĐÃ ĐO — worktree `fa7ba18` + API thật trên DB tạm `bugo_verify_pre`):**
+  `PUT {id,isSuperUser:false}` → **`400 Validation failed`** (`Email/First name/Last name is required.`);
+  `PUT {id,jobTitle}` → **400**; dữ liệu không đổi (validator `NotEmpty()` vô điều kiện chặn trước handler).
+  ⇒ Hệ quả reachable: **không thể PATCH**; "xoá trắng" là lỗi **tiềm ẩn ở tầng handler** (chỉ xảy ra nếu
+  validation bị bỏ qua). Dòng 3203 ở trên đã được đính chính theo kết quả đo này.
+- **Verify SAU fix (DB TẠM `bugo_verify` — tạo mới + DROP sau, KHÔNG đụng DB dev):** API standalone 5431
+  (Release), schema + seed do `StartupDataSeeder` chạy trên DB tạm:
+  - `PUT {id,isSuperUser:false}` → **200**, `firstName/lastName/email/jobTitle` **giữ nguyên**, cờ true→false.
+  - `PUT` đủ field → **200**, `'  Nguyen Van  '` → `Nguyen Van`, email HOA → lowercase.
+  - `PUT {email:""}` / `{firstName:""}` / `{lastName:""}` → **400** đúng field tương ứng.
+  - SQL read-only: `action_logs` = 1 create + 2 update (3 ca 400 **không** sinh log); `changes` có
+    `firstName`/`lastName`; `users` lưu đúng giá trị.
+  - Dọn: DROP `bugo_verify` + `bugo_verify_pre`, gỡ worktree, không còn process listen 5431/5432.
+  - DB dev xác nhận nguyên vẹn sau khi xong: **49 users / 44 assets / 6 installations**, `/health` 5428 = 200.
+- **FE impact: 0** — `UserFormModal` luôn gửi đủ 3 field + 3 rule `required` (chặn chuỗi rỗng); không có
+  caller nào PUT thiếu field; "vô hiệu hoá user" dùng `DELETE` (không dùng PUT).
+- **Audit cùng lớp lỗi (toàn bộ 21 file `Update*Command.cs`):** **không còn** chỗ nào gán vô điều kiện field
+  optional của request (các nghi vấn `UpdateAsset`/`Manufacturer`/`Supplier`/`Company`/`Group` đều đã có guard).
+  Quan sát phụ chưa sửa/chưa đăng ký: `UpdateConsumableCommand.cs:127` ghi `LogMeta` `minAmt` luôn `old == new`.
+- **Docs:** `docs/API.md` § `PUT /users/{id}` — bảng giá trị + ví dụ 3 (payload tối thiểu chỉ `{id,isSuperUser}`)
+  + ghi chú BUG-O; `docs-verify` PASS (error codes 0 mismatch, endpoints 0 mismatch, links 0 mismatch).
+- **Gates:** 6/6 PASS — `dotnet format`, build Release, **590/590 test** (`Category!=Concurrency`), FE lint,
+  FE build, `audit-sweeps.ps1`.
 
 
 

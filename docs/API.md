@@ -59,7 +59,11 @@ gửi **sentinel `Guid.Empty`**:
 | `"00000000-0000-0000-0000-000000000000"` (`Guid.Empty`) | **Xoá về null** — `companyId` → user thành *floater* (không thuộc công ty nào); `departmentId`/`locationId` → bỏ gán |
 | GUID thật | Gán giá trị đó |
 
-Hai field text (`employeeNumber`, `jobTitle`): không gửi → giữ nguyên; gửi chuỗi rỗng `""` → xoá nội dung.
+Năm field text:
+- `employeeNumber`, `jobTitle`: không gửi → giữ nguyên; gửi chuỗi rỗng `""` → xoá nội dung.
+- `firstName`, `lastName`, `email`: không gửi → **giữ nguyên**; gửi giá trị → cập nhật (tên được `trim`,
+  email được `lowercase`); gửi chuỗi rỗng `""` hoặc email sai định dạng → `400` (validator `NotEmpty` /
+  `EmailAddress`) — 3 field bắt buộc về giá trị nên **không thể bị xoá** qua payload.
 
 Ràng buộc phía server (người gọi thường; **superuser bỏ qua toàn bộ** các check phạm vi):
 
@@ -68,7 +72,10 @@ Ràng buộc phía server (người gọi thường; **superuser bỏ qua toàn 
 - `departmentId`/`locationId` mới: phải **tồn tại** → nếu không: `400` `RESOURCE_NOT_FOUND`;
   nếu trỏ tới một công ty thật thì công ty đó phải thuộc phạm vi người gọi → nếu không:
   `400` `COMPANY_MISMATCH`.
-- `firstName`/`lastName`/`email` là **bắt buộc** (không nullable) — payload phải gửi đủ 3 field này.
+- `firstName`/`lastName`/`email` là **bắt buộc về giá trị nhưng không bắt buộc có mặt** trong payload
+  (patch semantics, BUG-O 2026-10-18): không gửi → giữ nguyên; gửi `""` → `400` (field bắt buộc
+  không thể xoá). Trước bản fix này payload **phải** gửi đủ 3 field, nếu không sẽ `400` — xem
+  `docs/BACKLOG.md` § BUG-O.
 
 **Ví dụ 1 — payload tối thiểu (chỉ đổi tên; công ty/phòng ban/địa điểm giữ nguyên):**
 
@@ -104,6 +111,22 @@ Content-Type: application/json
 ```
 
 → `200` với `data.companyId/departmentId/locationId = null`.
+
+**Ví dụ 3 — chỉ đổi cờ (payload tối thiểu thật sự; tên/email/liên hệ giữ nguyên):**
+
+```http
+PUT /api/v1/users/3f1c9a4e-7b2d-4c88-9f01-2a5b6c7d8e9f HTTP/1.1
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "id": "3f1c9a4e-7b2d-4c88-9f01-2a5b6c7d8e9f",
+  "isSuperUser": false
+}
+```
+
+→ `200`; `firstName`/`lastName`/`email`/`employeeNumber`/`jobTitle` **không đổi**, `isSuperUser` = `false`.
+Lưu ý: hạ quyền **superuser cuối cùng** của hệ thống bị guard `SELF_LOCKOUT` chặn (`400`).
 
 > Quy ước sentinel `Guid.Empty` này đã dùng sẵn trong dự án (`CompanyScopeService` trả `Guid.Empty`
 > cho user không công ty; `AssetMaintenance.CompanyId = Guid.Empty` = floater). Trước bản fix

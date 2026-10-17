@@ -689,3 +689,54 @@
 - **Phạm vi ước lượng:** ~10–20 endpoint trả DTO có trường ngày + (nếu chọn (b)) 1 migration + rà lại FE các chỗ
   format ngày. **Không** nằm trong phạm vi LL-3 (LL-3 chỉ chuẩn hoá đúng 2 trường của nguồn mình:
   `occurredAt`, `maintenanceCompletionDate`).
+
+---
+
+## BUG-O — UpdateUserCommand: FirstName/LastName/Email gán VÔ ĐIỀU KIỆN ⇒ payload thiếu field bị chặn 400 (và tiềm ẩn xoá trắng)
+
+- **Trạng thái: RESOLVED 2026-10-18** (fix + test + verify trên Postgres thật của **DB TẠM**, không đụng DB dev).
+- **Phát hiện:** 2026-10-18 — 3 field cuối cùng của lớp lỗi "gán vô điều kiện" (BUG-E/N) còn sót trong
+  `UpdateUserCommandHandler`: `user.FirstName = request.FirstName.Trim();` + LastName + Email (trước fix
+  `UpdateUserCommand.cs:177-179`), trong khi **mọi field khác của handler đã conditional** từ FIX-N1.
+  Root cause phía DTO: 3 property khai báo `public string X { get; init; } = string.Empty;` ⇒ JSON **thiếu**
+  field vẫn bind thành `""`, không phân biệt được với "gửi chuỗi rỗng".
+- **Hành vi TRƯỚC fix (ĐÃ ĐO bằng API thật trên DB tạm `bugo_verify_pre`, worktree `fa7ba18` — không suy đoán):**
+  - **Qua HTTP:** payload thiếu bất kỳ field nào trong 3 field ⇒ **`400 Validation failed`**
+    (`Email is required.` / `First name is required.` / `Last name is required.`) vì validator khai `NotEmpty()`
+    **vô điều kiện**. Đo thực tế: `PUT {id,isSuperUser:false}` → 400; `PUT {id,jobTitle:"…"}` → 400;
+    dữ liệu **không** bị đổi. ⇒ Hệ quả thực tế là **không thể PATCH** (`/users/{id}` bắt gửi đủ 3 field),
+    **không phải** wipe âm thầm.
+  - **Ở tầng handler (tiềm ẩn):** nếu validation bị bỏ qua (gọi handler trực tiếp từ seed/import/test, hoặc
+    validator bị gỡ) thì 3 field bị ghi đè `""` ⇒ **xoá trắng** tên/email; client gửi `null` tường minh còn
+    gây `NullReferenceException` tại `.Trim()`.
+- **Fix (2 tầng, đúng patch-semantics của dự án):**
+  1. DTO: 3 property → `string?` (null = không gửi).
+  2. Handler: `if (request.FirstName is not null) …` / LastName / Email (Email vẫn `trim().ToLowerInvariant()`).
+  3. Validator: bọc `When(x => x.Field is not null, () => RuleFor(…))` cho cả 3 ⇒ **không gửi = không validate**,
+     **gửi `""` = vẫn 400** (field bắt buộc không thể bị xoá qua payload).
+  4. `LogMeta.changes` bổ sung `firstName`/`lastName` — trước đây chỉ có `email`, nên đúng 2 field từng bị xoá
+     âm thầm lại là 2 field **không có** trong nhật ký.
+- **Hành vi SAU fix (ĐO bằng API + SQL read-only trên DB tạm `bugo_verify`):**
+  | Request | Kết quả đo được |
+  |---|---|
+  | `PUT {id, isSuperUser:false}` | `200`; `firstName/lastName/email/jobTitle` **giữ nguyên**; `isSuperUser` true→false |
+  | `PUT {id, firstName, lastName, email, jobTitle}` | `200`; `'  Nguyen Van  '` → `Nguyen Van`; email HOA → lowercase |
+  | `PUT {id, email:""}` / `{firstName:""}` / `{lastName:""}` | `400 Validation failed` đúng field (`Email is required.` …) |
+  | DB | `FirstName/LastName/Email` đúng như trên; `action_logs` = 1 create + 2 update (3 ca 400 **không** sinh log), `changes` có `firstName`/`lastName` |
+- **Frontend impact: 0** — `UserFormModal` **luôn gửi đủ** 3 field và 3 rule `required` chặn chuỗi rỗng
+  (`UserFormModal.tsx:216-246`); không có caller nào PUT thiếu field; "vô hiệu hoá user" dùng `DELETE`
+  (không dùng PUT); `employeeNumber`/`jobTitle` giữ nguyên quy ước cũ (`""` = xoá nội dung).
+- **Tests:** `UserUpdatePatchSafetyTests` 9 → **16** (thêm `Update_PartialPayload_OnlyIsSuperUser_PreservesRequiredTextFields`,
+  `Update_PartialPayload_LogMeta_OnlyRecordsSentFields`, `Update_FullPayload_UpdatesRequiredTextFields`,
+  `Validator_PartialPayload_OnlyIsSuperUser_IsValid`, `Validator_RequiredTextField_SentEmpty_IsRejected` ×3).
+- **Rà soát cùng lớp lỗi — toàn bộ 21 file `Update*Command.cs`: KHÔNG còn chỗ nào** gán vô điều kiện một field
+  optional của request. Các chỗ từng bị nghi (đã đọc code, đều ĐÚNG): `UpdateAssetCommand` (guard
+  `IsNullOrEmpty`/`IsNullOrWhiteSpace` tại `:113`, `:121`), `UpdateManufacturer`/`UpdateSupplier` (guard
+  `IsNullOrWhiteSpace`), `UpdateCompany`/`UpdateGroup` (`if (request.Name is not null)`),
+  `UpdateMaintenance`/`Category`/`Component`/`Consumable`/`CustomField`/`Department`/`Location`/`Model`/
+  `SystemInfo`/`SystemPosition` (guard đầy đủ), `UpdateGroupPermissions`/`UpdateUserGroups` (full-replace
+  **theo thiết kế**). Hai chỗ dùng `?? <giá trị cũ>` (`Component.Notes`, `License.Serial`/`Notes`) là pattern
+  BUG-N đã duyệt (hệ quả đã biết: không thể xoá về rỗng) — **không** thuộc lớp lỗi này.
+- **Quan sát phụ (chưa sửa, chưa đăng ký):** `UpdateConsumableCommand.cs:127` ghi
+  `minAmt = new { old = c.MinAmt, @new = c.MinAmt }` ⇒ `LogMeta` của `minAmt` luôn `old == new` (audit sai,
+  không ảnh hưởng dữ liệu).
