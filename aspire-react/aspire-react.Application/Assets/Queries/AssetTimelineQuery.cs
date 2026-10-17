@@ -57,11 +57,26 @@ public static class AssetTimelineRefTypes
 /// <param name="EventType">Loại sự kiện (xem <see cref="AssetTimelineEventTypes"/> + tên ActionType SCREAMING_SNAKE).</param>
 /// <param name="OccurredAt">Thời điểm sự kiện xảy ra (UTC) — KHÔNG phải thời điểm tạo bản ghi (trừ đợt bảo dưỡng, xem docs).</param>
 /// <param name="Title">Tiêu đề hiển thị (tiếng Việt).</param>
-/// <param name="Details">Chi tiết phụ (có thể null): hệ thống/địa điểm/đối tượng/ghi chú, ngăn cách bằng " · ".</param>
+/// <param name="Details">
+/// Chi tiết phụ dạng VĂN BẢN (có thể null): hệ thống/địa điểm/đối tượng/ghi chú, ngăn cách bằng " · ".
+/// <b>KHÔNG bao giờ chứa ngày/giờ đã format</b> — mọi mốc thời gian hiển thị đều nằm ở trường có cấu trúc
+/// (<see cref="OccurredAt"/> và <see cref="MaintenanceCompletionDate"/>, đều là UTC) để FE tự format theo
+/// giờ địa phương. Server format ngày thành chuỗi sẽ khoá cứng múi giờ/định dạng và lệch với phần còn lại.
+/// </param>
 /// <param name="ActorName">Tên người thực hiện (null khi không xác định — VD dòng backfill).</param>
 /// <param name="RefType">Loại bản ghi nguồn (xem <see cref="AssetTimelineRefTypes"/>; null nếu không có).</param>
 /// <param name="RefId">Id bản ghi nguồn để FE mở link (null nếu không có).</param>
 /// <param name="IsEstimated">True khi MỐC THỜI GIAN của sự kiện là ước tính (chỉ có thể xảy ra với sự kiện lắp của dòng backfill).</param>
+/// <param name="MaintenanceCompletionDate">
+/// [UTC] Ngày HOÀN THÀNH của phiếu bảo dưỡng (<c>asset_maintenances.CompletionDate</c>) — CHỈ có giá trị khi
+/// <paramref name="EventType"/> = <see cref="AssetTimelineEventTypes.Maintenance"/>. <c>null</c> ở sự kiện
+/// MAINTENANCE nghĩa là phiếu CHƯA hoàn thành (FE tự hiển thị nhãn, server không gửi chuỗi "Chưa hoàn thành").
+/// <para>
+/// Không có trường riêng cho ngày BẮT ĐẦU của phiếu bảo dưỡng/đợt bảo dưỡng vì mốc đó CHÍNH LÀ
+/// <paramref name="OccurredAt"/> (xem quy tắc nguồn trong tài liệu lớp handler) — thêm trường trùng giá trị
+/// chỉ tạo nguy cơ lệch dữ liệu.
+/// </para>
+/// </param>
 public sealed record AssetTimelineEventDto(
     string EventType,
     DateTime OccurredAt,
@@ -70,7 +85,8 @@ public sealed record AssetTimelineEventDto(
     string? ActorName,
     string? RefType,
     Guid? RefId,
-    bool IsEstimated);
+    bool IsEstimated,
+    DateTime? MaintenanceCompletionDate = null);
 
 /// <summary>
 /// Truy vấn lý lịch thiết bị. <paramref name="Cursor"/> là con trỏ đục (opaque) lấy từ
@@ -600,14 +616,12 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                               {
                                   c.Id,
                                   c.BatchNumber,
-                                  c.StartDate,
                                   c.Status,
-                                  c.ReviewerId,
                                   SystemName = (string?)sys.Name
                               }).ToListAsync(cancellationToken);
 
             foreach (var c in rows)
-                campaigns[c.Id] = new TimelineCampaignInfo(c.BatchNumber, c.StartDate, c.Status, c.SystemName, c.ReviewerId);
+                campaigns[c.Id] = new TimelineCampaignInfo(c.BatchNumber, c.Status, c.SystemName);
         }
 
         return new TimelineLookups(userNames, departmentNames, positionNames, campaigns);
@@ -680,13 +694,14 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                     lookups.Campaigns.TryGetValue(c.CampaignId ?? Guid.Empty, out var campaign);
                     var batch = string.IsNullOrWhiteSpace(campaign?.BatchNumber) ? "(không số đợt)" : campaign!.BatchNumber!;
 
+                    // KHÔNG ghi "Bắt đầu đợt: <ngày>" vào Details: mốc đó chính là OccurredAt (nguồn đợt bảo dưỡng
+                    // lấy Campaign.StartDate làm mốc sự kiện) ⇒ đã có sẵn ở trường có cấu trúc UTC cho FE format.
                     return new AssetTimelineEventDto(
                         AssetTimelineEventTypes.MaintenanceCampaign,
                         c.OccurredAt,
                         $"Đưa vào đợt bảo dưỡng {batch}",
                         JoinDetails(
                             campaign?.SystemName == null ? null : $"Hệ thống: {campaign.SystemName}",
-                            campaign == null ? null : $"Bắt đầu đợt: {campaign.StartDate:dd/MM/yyyy}",
                             campaign == null ? null : $"Trạng thái đợt: {DescribeCampaignStatus(campaign.Status)}",
                             c.PositionName == null ? null : $"Vị trí trong đợt: {c.PositionName}"),
                         // Người phụ trách đợt: lấy từ candidate (ActorUserId = Campaign.ReviewerId) để tên được
@@ -702,19 +717,19 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                     var typeLabel = DescribeMaintenanceType(c.MaintenanceType ?? AssetMaintenanceType.Maintenance);
                     var title = string.IsNullOrWhiteSpace(c.MaintenanceTitle) ? typeLabel : $"{typeLabel}: {c.MaintenanceTitle}";
 
+                    // Details = null: ngày bắt đầu là OccurredAt, ngày hoàn thành là trường có cấu trúc bên dưới;
+                    // server KHÔNG format ngày thành chuỗi (nhãn "Chưa hoàn thành" do FE suy ra từ null).
                     return new AssetTimelineEventDto(
                         AssetTimelineEventTypes.Maintenance,
                         c.OccurredAt,
                         title,
-                        JoinDetails(
-                            $"Bắt đầu: {c.OccurredAt:dd/MM/yyyy}",
-                            c.CompletionDate.HasValue
-                                ? $"Hoàn thành: {c.CompletionDate.Value:dd/MM/yyyy}"
-                                : "Chưa hoàn thành"),
+                        null,
                         ResolveActorName(c.ActorUserId, c.ActorName, lookups),
                         c.RefType,
                         c.RefId,
-                        false);
+                        false,
+                        // Cột CompletionDate cũng là `timestamp without time zone` ⇒ cùng quy tắc Kind với StartDate.
+                        c.CompletionDate.HasValue ? ToApiKind(c.CompletionDate.Value) : null);
                 }
 
             default:
@@ -858,13 +873,16 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
         string? MaintenanceTitle = null,
         DateTime? CompletionDate = null);
 
-    /// <summary>Thông tin đợt bảo dưỡng tra cứu theo lô cho TRANG hiện tại.</summary>
+    /// <summary>
+    /// Thông tin đợt bảo dưỡng tra cứu theo lô cho TRANG hiện tại. KHÔNG chứa <c>StartDate</c>/<c>ReviewerId</c>:
+    /// mốc thời gian của sự kiện đã nằm ở <see cref="TimelineCandidate.OccurredAt"/> (lấy từ
+    /// <c>Campaign.StartDate</c>) và tên người phụ trách đã nằm ở <see cref="TimelineCandidate.ActorUserId"/>
+    /// (lấy từ <c>Campaign.ReviewerId</c>).
+    /// </summary>
     private sealed record TimelineCampaignInfo(
         string? BatchNumber,
-        DateTime StartDate,
         MaintenanceCampaignStatus Status,
-        string? SystemName,
-        Guid? ReviewerId);
+        string? SystemName);
 
     /// <summary>Tên tra cứu theo lô (chỉ cho trang đã chọn) — tránh N+1 và tránh INNER JOIN làm mất dòng.</summary>
     private sealed record TimelineLookups(

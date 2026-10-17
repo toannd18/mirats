@@ -33,10 +33,22 @@ dotnet build aspire-react.sln --configuration Release --no-restore *> $null
 Report "dotnet build Release" $LASTEXITCODE
 Pop-Location
 
+# Gate 3: KHONG duoc nuot output nua (bai hoc 2026-10-18: gate 3 fail 1 lan nhung khong biet
+# test nao fail vi moi thu di vao $null). Ghi log + xuat TRX, ca hai trong logs/ (da gitignore).
 Write-Host "3/6 dotnet test (Category!=Concurrency)"
 Push-Location $be
-dotnet test aspire-react.sln --configuration Release --no-build --filter "Category!=Concurrency" *> $null
-Report "dotnet test" $LASTEXITCODE
+$gate3Log = Join-Path $repo 'logs\gate-3-dotnet-test.log'
+$gate3TrxDir = Join-Path $repo 'logs\trx'
+New-Item -ItemType Directory -Force -Path (Split-Path $gate3Log), $gate3TrxDir | Out-Null
+dotnet test aspire-react.sln --configuration Release --no-build --filter "Category!=Concurrency" --logger "trx;LogFileName=dotnet-test.trx" --results-directory $gate3TrxDir *> $gate3Log
+$gate3Exit = $LASTEXITCODE
+Report "dotnet test" $gate3Exit
+if ($gate3Exit -ne 0) {
+  Write-Host ("  log     : {0}" -f $gate3Log) -ForegroundColor Yellow
+  Write-Host ("  ket qua : {0}\dotnet-test.trx" -f $gate3TrxDir) -ForegroundColor Yellow
+  Write-Host "  --- cac dong FAIL/loi trong log ---" -ForegroundColor Yellow
+  Get-Content $gate3Log | Select-String -Pattern '\[FAIL\]|Failed |Error Message|Stack Trace' | Select-Object -First 30 | ForEach-Object { Write-Host ("  " + $_.Line.Trim()) }
+}
 Pop-Location
 
 Write-Host "4/6 npm run lint"

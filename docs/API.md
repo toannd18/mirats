@@ -156,6 +156,9 @@ Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**
 | `maintenance_campaign_device_snapshots` | thiết bị được đưa vào một đợt bảo dưỡng (snapshot chứa asset) | `MAINTENANCE_CAMPAIGN` | `maintenanceCampaign` (`refId` = `CampaignId`) | `MaintenanceCampaign.StartDate` |
 | `asset_maintenances` | phiếu bảo dưỡng / sửa chữa (chưa soft-delete) | `MAINTENANCE` | `assetMaintenance` | `StartDate` |
 
+> Với 2 nguồn cuối, `occurredAt` **chính là** ngày bắt đầu của phiếu/đợt (mốc nghiệp vụ người dùng đặt) — DTO
+> **không** có thêm trường `<…>StartDate` trùng giá trị; FE hiển thị "Bắt đầu" từ `occurredAt`.
+
 **Khử trùng — điều kiện lọc phải giữ nguyên khi thêm nguồn mới**
 
 - `action_logs`: **BỎ** `Checkout`/`Checkin` có `TargetType = SystemPosition`, vì chính thao tác đó đã được biểu diễn bằng sự kiện `INSTALL`/`REMOVE` ở nguồn 1 (không bỏ sẽ lặp). Điều kiện chính xác:
@@ -168,13 +171,22 @@ Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**
 | Trường | Kiểu | Ghi chú |
 |--------|------|---------|
 | `eventType` | string | Xem bảng nguồn ở trên. **Ổn định** — FE dùng để chọn icon/màu. |
-| `occurredAt` | ISO-8601 UTC | Thời điểm SỰ KIỆN xảy ra (KHÔNG phải thời điểm tạo bản ghi). |
+| `occurredAt` | ISO-8601 UTC (có `Z`) | Thời điểm SỰ KIỆN xảy ra (KHÔNG phải thời điểm tạo bản ghi). Với `MAINTENANCE`/`MAINTENANCE_CAMPAIGN` đây là ngày **bắt đầu** của phiếu/đợt. |
 | `title` | string | Tiêu đề tiếng Việt ghép sẵn (VD `Lắp vào vị trí Kệ A1`, `Tháo khỏi vị trí Kệ A1`, `Cấp phát`, `Sửa chữa: Thay quạt`). |
-| `details` | string? | Chi tiết phụ: hệ thống / địa điểm / đối tượng / ghi chú, ngăn cách bằng `" · "`. |
+| `details` | string? | Chi tiết phụ dạng **VĂN BẢN**: hệ thống / địa điểm / đối tượng / ghi chú, ngăn cách bằng `" · "`. **KHÔNG bao giờ chứa ngày/giờ đã format** — mọi mốc thời gian nằm ở trường có cấu trúc (`occurredAt`, `maintenanceCompletionDate`) để FE tự format theo múi giờ người dùng. |
 | `actorName` | string? | Người thực hiện; `null` khi không xác định (VD dòng backfill không có người ghi). Riêng nguồn `MAINTENANCE_CAMPAIGN` = **người phụ trách đợt** (`MaintenanceCampaign.ReviewerId`). |
 | `refType` | string? | Loại bản ghi nguồn để mở link: `assetInstallation` \| `actionLog` \| `assetMaintenance` \| `maintenanceCampaign`. |
 | `refId` | guid? | Id bản ghi nguồn (FE mở link theo `refType`). Bản ghi có thể đã bị xoá ⇒ FE phải chịu được 404. |
 | `isEstimated` | bool | `true` khi **mốc thời gian là ước tính**: chỉ đúng với sự kiện `INSTALL` của dòng `Source = Backfill` (backfill chỉ ước tính `StartedAt`; mốc THÁO luôn là mốc thật). |
+| `maintenanceCompletionDate` | ISO-8601 UTC (có `Z`) \| null | Ngày **hoàn thành** của phiếu (`asset_maintenances.CompletionDate`). Chỉ có giá trị khi `eventType = MAINTENANCE`; `null` tại `MAINTENANCE` nghĩa là **phiếu chưa hoàn thành** (FE tự hiển thị nhãn — server không gửi chuỗi `"Chưa hoàn thành"`). |
+
+**Quy ước ngày giờ (ràng buộc với FE ở LL-4)**
+
+- **Mọi mốc thời gian trong DTO là UTC và có hậu tố `Z`.** Server **không** format ngày/giờ thành chuỗi ở bất kỳ
+  trường nào (`details` chỉ chứa văn bản/nhãn, không chứa ngày).
+- FE hiển thị bằng `new Date(x).toLocaleString('vi-VN')` (chuỗi có `Z` ⇒ JS quy đổi đúng về giờ máy người dùng).
+  **Không** tự ghép chuỗi ngày từ `details`, không tự cộng/trừ múi giờ.
+- Lý do: server format ngày sẽ khoá cứng múi giờ + định dạng và lệch với các màn hình khác (xem backlog **MT-TZ**).
 
 **Phân trang — CURSOR, không offset**
 
@@ -196,12 +208,28 @@ Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**
       "actorName": "Nguyễn Văn A",
       "refType": "assetInstallation",
       "refId": "0f0c9b1e-0000-0000-0000-000000000000",
-      "isEstimated": false
+      "isEstimated": false,
+      "maintenanceCompletionDate": null
+    },
+    {
+      "eventType": "MAINTENANCE",
+      "occurredAt": "2026-10-15T00:00:00Z",
+      "title": "Sửa chữa: Thay quạt",
+      "details": null,
+      "actorName": "Nguyễn Văn A",
+      "refType": "assetMaintenance",
+      "refId": "3b7e5a90-1111-2222-3333-444455556666",
+      "isEstimated": false,
+      "maintenanceCompletionDate": "2026-10-16T00:00:00Z"
     }
   ],
-  "pagination": { "limit": 50, "count": 1, "hasMore": true, "nextCursor": "MjAyNjEwMTdUMDkzMDAwWnwwZjBjOWIxZXww" }
+  "pagination": { "limit": 50, "count": 2, "hasMore": true, "nextCursor": "MjAyNjEwMTdUMDkzMDAwWnwwZjBjOWIxZXww" }
 }
 ```
+
+> Sự kiện `MAINTENANCE` cho thấy quy ước: ngày **bắt đầu** = `occurredAt`, ngày **hoàn thành** =
+> `maintenanceCompletionDate` (cả hai đều UTC có `Z`); `details` là `null` vì phiếu bảo dưỡng không có văn bản phụ
+> nào khác. Với phiếu chưa hoàn thành thì `maintenanceCompletionDate` = `null`.
 
 **Lỗi**
 
@@ -211,6 +239,15 @@ Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**
 | 400 | `cursor` không giải mã được | `INVALID_CURSOR` |
 
 **Ghi chú triển khai (đã kiểm chứng trên Postgres thật — bằng chứng LL-3)**
+
+- **Server KHÔNG format ngày/giờ thành chuỗi (quyết định 2026-10-18, phương án A).** Trước đây `details` chứa các
+  chuỗi ghép `"Bắt đầu: dd/MM/yyyy"`, `"Hoàn thành: dd/MM/yyyy"`, `"Bắt đầu đợt: dd/MM/yyyy"` — cách đó khoá cứng
+  múi giờ/định dạng của server và buộc FE đọc ngày trong văn bản. Nay: mốc bắt đầu = `occurredAt`, mốc hoàn thành =
+  `maintenanceCompletionDate` (đều UTC có `Z`); nhãn "chưa hoàn thành" do FE suy ra từ `null`. Kèm dọn 2 trường
+  lookup không còn ai dùng (`TimelineCampaignInfo.StartDate`, `.ReviewerId`).
+  Test chặn tái phát: `Timeline_Details_NeverContainFormattedDates`,
+  `Timeline_MaintenanceEvent_CompletionDate_IsUtcOrNull`, `Timeline_CampaignEvent_StartDateIsOccurredAt_NotADetailsString`,
+  `Timeline_Json_ExposesZuluTimestamps_AndNoDateStringInDetails`.
 
 - **`occurredAt` luôn là UTC có hậu tố `Z`.** Cột `asset_maintenances.StartDate` là `timestamp without time zone`
   (khác 3 nguồn còn lại đều `timestamp with time zone`), nên giá trị đọc ra phải được **chuẩn hoá `Kind = Utc`**

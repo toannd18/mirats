@@ -3170,6 +3170,31 @@ Chuỗi MC-7 (được duyệt từng bước): hạng mục checklist có thể
 - **Ghi chú sự cố kèm theo:** trong lúc verify, **Docker Desktop bị tắt** (daemon `npipe` mất) → AppHost (pid 13132) + mọi container sập. Đã khởi động lại Docker Desktop (29.6.2) → start AppHost lại (pid 16576) → container MỚI (postgres-cmxkvbzq, keycloak-hwhepdnd, cache-ettwjdtf). Vì volume `postgres-data`/`keycloak-data` đã bị xóa ở bước RESET trước đó (và AppHost tạo volume mới trống), **DB vẫn trống (không mất dữ liệu gì thêm)**; realm `aspire-react` import lại từ file — user `admin/<REDACTED_DEV_PASSWORD>` đã tồn tại (create trả 409) và đã gán lại realm role `admin` (204) → **login OK**.
 - **Stack hiện tại (sau sự cố):** AppHost pid 16576, containers postgres-cmxkvbzq / keycloak-hwhepdnd / cache-ettwjdtf; frontend `http://localhost:5173` (200), API `http://localhost:5428` (Healthy), Keycloak `https://localhost:8080`. DB: trống (đúng trạng thái reset). **Nếu tắt Docker Desktop lần nữa → stack sẽ sập tương tự.**
 
+### 🧾 LL-3 (LÝ LỊCH THIẾT BỊ / ASSET TIMELINE) — DUYỆT, CHUẨN HOÁ NGÀY GIỜ, DỌN DẸP (2026-10-18)
+
+- **Người dùng đã DUYỆT LL-3**, chấp nhận 2 deviation: (1) `isEstimated = true` **chỉ** cho sự kiện `INSTALL` của dòng backfill; (2) mốc sự kiện đợt bảo dưỡng = `MaintenanceCampaign.StartDate` (không dùng `snapshot.CreatedAt`).
+- **Múi giờ `asset_maintenances.StartDate` — KẾT LUẬN: cột chứa wall-clock UTC**, nên `ToApiKind(Utc)` của LL-3 là **ĐÚNG** (không sai 7 tiếng). Bằng chứng: 12/12 bản ghi thật có `CreatedAt` khớp `action_logs.ActionDate AT TIME ZONE 'UTC'` (lệch vài ms) và lệch `AT TIME ZONE 'Asia/Ho_Chi_Minh'` **đúng `−07:00:00`**; FE gửi `dayjs(...).toISOString()` (có `Z`), BE ghi `DateTime.SpecifyKind(..., Unspecified)` (chỉ đổi Kind, không đổi giá trị). **Quyết định của người dùng: PHƯƠNG ÁN A** — timeline giữ chuẩn `Z`.
+- **Sửa LL-3 theo phương án A** (`AssetTimelineQuery.cs` + test + `docs/API.md`):
+  - Bỏ **mọi** format ngày/giờ phía server trong `details` (`"Bắt đầu: dd/MM/yyyy"`, `"Hoàn thành: …"`, `"Bắt đầu đợt: …"`).
+  - Thêm trường có cấu trúc **`maintenanceCompletionDate`** (ISO-8601 UTC có `Z`; `null` = phiếu chưa hoàn thành — FE tự hiển thị nhãn).
+  - Mốc **BẮT ĐẦU** của phiếu/đợt = chính `occurredAt` (không thêm trường trùng giá trị; đã ghi rõ trong API.md).
+  - Dọn 2 trường lookup chết: `TimelineCampaignInfo.StartDate`, `.ReviewerId`.
+  - +4 test (canary chống tái phát): `Timeline_MaintenanceEvent_CompletionDate_IsUtcOrNull`, `Timeline_Details_NeverContainFormattedDates`, `Timeline_CampaignEvent_StartDateIsOccurredAt_NotADetailsString`, `Timeline_Json_ExposesZuluTimestamps_AndNoDateStringInDetails` → **33/33 PASS**.
+- **Backup DB dev (2 mốc):**
+  - **TRƯỚC LL-1** (rollback point): `D:\Person\Applications\aspire-react-backups\aspire-react-db-dev-20261018-040653.dump` — 362.761 bytes, SHA256 `3F2A277386518945CFCD4C7D66BDF9535A7AA558FCF98E159EC4E33E462B4F2A` (14 migration, **KHÔNG** có bảng `asset_installations`).
+  - **SAU LL-1 + sau backfill** (mới, theo yêu cầu): `aspire-react-db-dev-postll1-20261018-053314.dump` — 374.401 bytes, SHA256 `AAB2F08613E4B14D54900A5BE0E375491103AF060D3B9DE0EEFB5F25702F0DD4`, tạo 2026-10-18 05:33:15, TOC 359 mục / 48 `TABLE DATA`, **có** bảng `asset_installations`. **Đã thử restore vào DB TẠM `ll3_restore_check` (pg_restore exit 0)** → 16 migration, 6 dòng lý lịch = 6 dòng backfill = 6 asset đang gắn vị trí, `btree_gist`=1, exclusion constraint=1; sau đó **DROP** và xác nhận sạch (`db_tam_con_lai=KHONG`).
+- **11/11 phép kiểm bất biến toàn DB dev = 0** (I1..I11), `installations_total = backfill_rows(Source=3) = mounted_assets = 6`, `Source=1/2 = 0`.
+- **Gate 3 "fail thoáng qua":** **KHÔNG lấy được tên test** — gate 3 ghi `*> $null` và không bật TRX logger; đã quét toàn repo: không có `TestResults/*.trx`. Chạy lại đúng lệnh gate 3 **5 lần → 5/5 PASS (579/579, ~7 giây/lần)**. Đã sửa `scripts/precommit-gates.ps1`: gate 3 ghi log ra **`logs/gate-3-dotnet-test.log`** + `--logger "trx;LogFileName=…"` vào **`logs/trx/`** (cả hai đã nằm trong `.gitignore`, không làm bẩn working tree).
+- **Fixture TEST còn lại trên DB dev — ĐỂ NGUYÊN, KHÔNG hard-delete** (quyết định của người dùng). Đã gỡ liên kết group **Admin** của cả 3 qua API `PUT /api/v1/users/{id}/groups` body `{groupIds:[]}` → HTTP 200 ×3 (kiểm lại `user_groups` = 0 dòng ⇒ 3 user này không còn quyền nào):
+  - `qa-ll3-scope-1018044849` — `7916c854-9e87-4c4c-a41f-c2245685f6e6` (IsActive=false)
+  - `qa-ll3-scope-1018044921` — `bdbd3153-3eb9-4432-830e-f70f551faa3b` (IsActive=false)
+  - `qa-ll3-scope-1018045421` — `88992b8d-819f-4a74-b1cc-a41d2ff35cd6` (IsActive=false)
+  - 3 phiếu bảo trì fixture trên asset `PRT-AST-30244` = `dc767700-0a6b-43ac-b608-1f10db7e8184` (đã soft-delete, `Title = "QA-LL3 fixture: sua chua (bang chung timeline)"`): `2193de55-47f8-4288-ac87-37bc1426217e`, `12e28b57-480c-477d-85dc-a4acee5e7e5a`, `892ec4dd-4f4b-44fe-98e7-206fc4ddb33e`.
+  - **Phát hiện thêm (KHÔNG do LL-3, chưa xử lý):** user `qa-users-0904065135` (từ task trước) **vẫn đang giữ group Admin** trên DB dev — cân nhắc dọn theo quy tắc mới.
+- **Quy tắc mới áp dụng từ 2026-10-18 (người dùng chốt):** thí nghiệm SQL (chèn dữ liệu, `EXPLAIN` với dữ liệu nạp thêm) và fixture **CHỈ trên DB tạm**; **KHÔNG** tạo user test có quyền Admin trên DB dev.
+- **Stack dev:** đã `aspire stop` (AppHost cũ) rồi khởi động lại bằng đúng cách cũ → container postgres MỚI `postgres-tjrjwutq` dùng lại volume `postgres-data`; `GET /api/v1/assets/{id}/timeline` trên **5428 = HTTP 200** (LL-3 đã có hiệu lực trên stack chính), `/health` = 200 `Healthy`.
+- **Tồn đọng có chủ đích:** backlog **MT-TZ** (endpoint cũ trả mốc không `Z` → FE lệch 7 tiếng; hướng xử lý tập trung + xử lý `-infinity`) đã đăng ký trong `docs/BACKLOG.md` — **CHƯA làm**; **`docs/guide/` Cluster C (từ trang 31) — CHƯA làm**.
+
 
 
 

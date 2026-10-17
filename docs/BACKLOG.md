@@ -653,3 +653,39 @@
   (`MaintenanceCampaignsController.cs:125`). Client không bao giờ thấy `TEMPLATE_NOT_FOUND`.
 - **Fix đã áp dụng:** ERROR_CODES.md — thay bằng `NOT_FOUND` + message verbatim.
   FE không khớp chuỗi này → không bug FE. `docs-verify` trên ERROR_CODES.md: error codes 0 mismatch.
+
+---
+
+## MT-TZ — Endpoint CŨ trả mốc `timestamp without time zone` KHÔNG có hậu tố `Z` → FE đọc lệch 7 tiếng (CHƯA LÀM)
+
+- **Trạng thái: OPEN** (đăng ký 2026-10-18 theo quyết định của người dùng khi duyệt LL-3 — **KHÔNG** sửa trong LL-3/LL-4).
+- **Bối cảnh (đã kiểm chứng trên DB dev thật + API thật):** mọi cột `timestamp without time zone` của app này
+  chứa **wall-clock UTC**, không phải giờ VN. Bằng chứng: đối chiếu 12/12 bản ghi `asset_maintenances` —
+  `CreatedAt` khớp `action_logs.ActionDate AT TIME ZONE 'UTC'` trong vài ms, còn lệch
+  `AT TIME ZONE 'Asia/Ho_Chi_Minh'` **đúng `−07:00:00`**. Các endpoint bảo trì CŨ vẫn trả giá trị **không** `Z`:
+  - `GET /api/v1/maintenances/{id}` → `"startDate":"2026-09-01T00:00:00"`
+  - `GET /api/v1/assets/{id}/maintenances` → `"startDate":"2026-09-01T00:00:00"`
+
+  trong khi `GET /api/v1/assets/{id}/timeline` (LL-3, đã chuẩn hoá) trả `"occurredAt":"2026-09-01T00:00:00Z"`.
+- **Hệ quả:** FE `formatDate`/`formatDateTime` (`frontend/src/utils/format.ts`) = `new Date(value)`; JS hiểu chuỗi
+  **không** `Z` là giờ LOCAL ⇒ CÙNG một bản ghi hiển thị lệch 7 tiếng giữa trang Bảo trì và timeline. Hiển thị
+  chỉ-ngày thường không lộ, nhưng hiển thị có giờ sẽ lộ; với mốc "nửa đêm giờ VN" do người dùng chọn thì trang
+  cũ lệch cả NGÀY so với timeline.
+- **Hướng xử lý (rà soát tập trung — KHÔNG vá lẻ từng endpoint):**
+  1. Rà TẤT CẢ cột `timestamp without time zone`:
+     `SELECT table_name, column_name FROM information_schema.columns WHERE data_type = 'timestamp without time zone' AND table_schema = 'public'`
+     → lập bảng phân loại: cột nào app ghi bằng UTC wall-clock (đa số) vs cột nào thực sự là "ngày nghiệp vụ" thuần.
+  2. Chọn MỘT hướng, áp cho toàn bộ:
+     - **(a)** gán `Kind = Utc` khi ĐỌC — tập trung ở tầng cấu hình EF (`AppDbContext`/`ValueConverter` hoặc
+       `EnableLegacyTimestampBehavior` + converter) ⇒ JSON tự có `Z`, không phải sửa từng handler; **hoặc**
+     - **(b)** chuyển hẳn các cột đó sang `timestamptz` (migration + backfill `... AT TIME ZONE 'UTC'`) —
+       sạch nhất về lâu dài nhưng đụng nhiều bảng/endpoint.
+  3. **Xử lý `-infinity`/`infinity`:** đã gặp 1 dòng thật `asset_maintenances.StartDate = -infinity`
+     (id `cd796eb5…`, asset `DOC-AST-001`, đã soft-delete). Hai giá trị này không map được sang `DateTime`
+     ⇒ phải quyết định trước khi bật converter: chặn bằng CHECK constraint ở tầng DB, hay map về
+     `MinValue`/`MaxValue` khi đọc.
+  4. Sau khi đổi: chạy `docs-verify`, mở UI THẬT cả 2 màn hình (Bảo trì + timeline) trên CÙNG một bản ghi để xác
+     nhận khớp nhau, thêm test canary Kind, và cập nhật bảng trong `docs/API.md`.
+- **Phạm vi ước lượng:** ~10–20 endpoint trả DTO có trường ngày + (nếu chọn (b)) 1 migration + rà lại FE các chỗ
+  format ngày. **Không** nằm trong phạm vi LL-3 (LL-3 chỉ chuẩn hoá đúng 2 trường của nguồn mình:
+  `occurredAt`, `maintenanceCompletionDate`).

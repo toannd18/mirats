@@ -625,6 +625,192 @@ public class AssetTimelineQueryTests
         Assert.Equal(new DateTime(2026, 3, 4, 10, 30, 0, DateTimeKind.Utc), maint.OccurredAt);
     }
 
+    /// <summary>
+    /// [LL-3][Hợp đồng DTO] Ngày hoàn thành của phiếu bảo dưỡng trả ở trường CÓ CẤU TRÚC (UTC, JSON có 'Z');
+    /// <c>null</c> = phiếu CHƯA hoàn thành (server không gửi chuỗi "Chưa hoàn thành" và không format "Bắt đầu: ...").
+    /// Cột <c>CompletionDate</c> là <c>timestamp without time zone</c> ⇒ đây là canary Kind thứ hai như <c>StartDate</c>.
+    /// </summary>
+    [Fact]
+    public async Task Timeline_MaintenanceEvent_CompletionDate_IsUtcOrNull()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_MaintenanceEvent_CompletionDate_IsUtcOrNull));
+        var fx = await SeedAsync(db);
+
+        // Npgsql trả cột `timestamp without time zone` với Kind=Unspecified ⇒ mô phỏng đúng dữ liệu thật.
+        db.AssetMaintenances.Add(new AssetMaintenance
+        {
+            AssetId = fx.Asset.Id,
+            Title = "Đã xong",
+            Type = AssetMaintenanceType.Repair,
+            CompanyId = Guid.NewGuid(),
+            StartDate = new DateTime(2026, 3, 4, 10, 30, 0, DateTimeKind.Unspecified),
+            CompletionDate = new DateTime(2026, 3, 9, 16, 45, 0, DateTimeKind.Unspecified),
+            CreatedById = fx.Creator.Id
+        });
+        db.AssetMaintenances.Add(new AssetMaintenance
+        {
+            AssetId = fx.Asset.Id,
+            Title = "Chưa xong",
+            Type = AssetMaintenanceType.Maintenance,
+            CompanyId = Guid.NewGuid(),
+            StartDate = new DateTime(2026, 3, 5, 8, 0, 0, DateTimeKind.Unspecified),
+            CreatedById = fx.Creator.Id
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+
+        Assert.True(result.Success);
+        var done = result.Events!.Single(e => e.Title.Contains("Đã xong"));
+        var undone = result.Events!.Single(e => e.Title.Contains("Chưa xong"));
+
+        Assert.NotNull(done.MaintenanceCompletionDate);
+        Assert.Equal(DateTimeKind.Utc, done.MaintenanceCompletionDate!.Value.Kind);
+        Assert.Equal(new DateTime(2026, 3, 9, 16, 45, 0, DateTimeKind.Utc), done.MaintenanceCompletionDate.Value);
+
+        // Mốc BẮT ĐẦU của phiếu = OccurredAt (UTC) — không có trường riêng, không lặp trong Details.
+        Assert.Equal(new DateTime(2026, 3, 4, 10, 30, 0, DateTimeKind.Utc), done.OccurredAt);
+
+        Assert.Null(undone.MaintenanceCompletionDate);
+        Assert.Null(done.Details);
+        Assert.Null(undone.Details);
+    }
+
+    /// <summary>
+    /// [LL-3][Hợp đồng DTO] Server KHÔNG bao giờ format ngày/giờ thành chuỗi trong <c>details</c> — quét cả 4 nguồn
+    /// để chặn việc thêm lại chuỗi ngày (mọi mốc hiển thị phải là trường có cấu trúc UTC cho FE tự format).
+    /// </summary>
+    [Fact]
+    public async Task Timeline_Details_NeverContainFormattedDates()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_Details_NeverContainFormattedDates));
+        var fx = await SeedAsync(db);
+        var position = new SystemPosition { Code = "LL3-POS", Name = "Vị trí 1", SystemInfoId = fx.System.Id };
+        db.SystemPositions.Add(position);
+
+        db.AssetInstallations.Add(LedgerRow(fx, position.Id, position.Name, Base.AddDays(1), Base.AddDays(2)));
+        db.ActionLogs.Add(new ActionLog
+        {
+            ItemType = ItemType.Asset,
+            ItemId = fx.Asset.Id,
+            ActionType = ActionType.Audit,
+            CreatedBy = fx.Creator.Id,
+            ActionDate = Base.AddDays(3),
+            LocationName = "Kho A",
+            Note = "kiểm kê định kỳ"
+        });
+        db.MaintenanceCampaignDeviceSnapshots.Add(new MaintenanceCampaignDeviceSnapshot
+        {
+            CampaignId = fx.Campaign.Id,
+            AssetId = fx.Asset.Id,
+            AssetTag = fx.Asset.AssetTag,
+            AssetName = fx.Asset.Name,
+            SystemPositionName = position.Name,
+            CreatedAt = Base.AddDays(4)
+        });
+        db.AssetMaintenances.Add(new AssetMaintenance
+        {
+            AssetId = fx.Asset.Id,
+            Title = "Thay quạt",
+            Type = AssetMaintenanceType.Repair,
+            CompanyId = Guid.NewGuid(),
+            StartDate = Base.AddDays(5),
+            CompletionDate = Base.AddDays(6),
+            CreatedById = fx.Creator.Id
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+
+        Assert.True(result.Success);
+        // Dòng lý lịch đã đóng ⇒ 2 sự kiện (INSTALL + REMOVE) + ActionLog + đợt bảo dưỡng + phiếu bảo dưỡng = 5.
+        Assert.Equal(5, result.Events!.Count);
+        // Cả 4 nguồn đều góp mặt (so theo tập, không phụ thuộc thứ tự).
+        Assert.Equal(
+            new[] { "INSTALL", "REMOVE", "AUDIT", "MAINTENANCE_CAMPAIGN", "MAINTENANCE" }.OrderBy(x => x).ToArray(),
+            result.Events.Select(e => e.EventType).OrderBy(x => x).ToArray());
+        Assert.All(result.Events, e =>
+        {
+            if (e.Details == null)
+                return;
+
+            Assert.DoesNotMatch(@"\d{1,2}/\d{1,2}/\d{2,4}", e.Details);   // dd/MM/yyyy (kiểu VN)
+            Assert.DoesNotMatch(@"\d{4}-\d{2}-\d{2}", e.Details);         // yyyy-MM-dd (kiểu ISO)
+            Assert.DoesNotContain("Bắt đầu", e.Details);
+        });
+    }
+
+    /// <summary>
+    /// [LL-3][Hợp đồng DTO] Sự kiện MAINTENANCE_CAMPAIGN: mốc "bắt đầu đợt" CHÍNH LÀ <c>occurredAt</c> (UTC) —
+    /// không còn chuỗi "Bắt đầu đợt: dd/MM/yyyy" trong <c>details</c>.
+    /// </summary>
+    [Fact]
+    public async Task Timeline_CampaignEvent_StartDateIsOccurredAt_NotADetailsString()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_CampaignEvent_StartDateIsOccurredAt_NotADetailsString));
+        var fx = await SeedAsync(db);   // Campaign.StartDate = Base + 3 ngày
+
+        db.MaintenanceCampaignDeviceSnapshots.Add(new MaintenanceCampaignDeviceSnapshot
+        {
+            CampaignId = fx.Campaign.Id,
+            AssetId = fx.Asset.Id,
+            AssetTag = fx.Asset.AssetTag,
+            AssetName = fx.Asset.Name,
+            SystemPositionName = "Vị trí đợt",
+            CreatedAt = Base
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+
+        var only = Assert.Single(result.Events!);
+        Assert.Equal("MAINTENANCE_CAMPAIGN", only.EventType);
+        Assert.Equal(DateTimeKind.Utc, only.OccurredAt.Kind);
+        Assert.Equal(fx.Campaign.StartDate, only.OccurredAt);           // mốc nghiệp vụ của đợt
+        Assert.DoesNotContain("Bắt đầu đợt", only.Details!);
+        Assert.Contains("Trạng thái đợt", only.Details!);
+    }
+
+    /// <summary>
+    /// [LL-3][Hợp đồng DTO] Kiểm ở tầng JSON (Web defaults — camelCase, giống API): mốc thời gian phải có hậu tố
+    /// 'Z' (UTC) và <c>details</c> phải là null/không chứa ngày đã format.
+    /// </summary>
+    [Fact]
+    public async Task Timeline_Json_ExposesZuluTimestamps_AndNoDateStringInDetails()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_Json_ExposesZuluTimestamps_AndNoDateStringInDetails));
+        var fx = await SeedAsync(db);
+
+        db.AssetMaintenances.Add(new AssetMaintenance
+        {
+            AssetId = fx.Asset.Id,
+            Title = "Kiểm JSON",
+            Type = AssetMaintenanceType.Repair,
+            CompanyId = Guid.NewGuid(),
+            StartDate = new DateTime(2026, 3, 4, 10, 30, 0, DateTimeKind.Unspecified),
+            CompletionDate = new DateTime(2026, 3, 9, 16, 45, 0, DateTimeKind.Unspecified),
+            CreatedById = fx.Creator.Id
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            result, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var ev = doc.RootElement.GetProperty("events")[0];
+
+        Assert.Equal("MAINTENANCE", ev.GetProperty("eventType").GetString());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, ev.GetProperty("details").ValueKind);
+
+        var occurredAt = ev.GetProperty("occurredAt").GetString()!;
+        Assert.EndsWith("Z", occurredAt);
+
+        var completion = ev.GetProperty("maintenanceCompletionDate").GetString()!;
+        Assert.EndsWith("Z", completion);
+        Assert.StartsWith("2026-03-09T16:45:00", completion);
+    }
+
     [Fact]
     public async Task Timeline_CampaignEvent_ActorIsResolved_EvenAloneOnPage()
     {
