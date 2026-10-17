@@ -183,6 +183,8 @@ Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`Au
 | `INSTALLATION_END_BEFORE_START` | 400 | POST {id}/checkin, /archive | [LL-2b] Mốc kết thúc trước `StartedAt` của dòng đang mở (VD checkout đặt ở tương lai). Chặn TRƯỚC SaveChanges; SQLSTATE **23514** (`CHECK "EndedAt" >= "StartedAt"`) được map cùng mã này làm lưới an toàn |
 | `INSTALLATION_PERIOD_OVERLAP` | **409** | POST {id}/checkout | [LL-2] Khoảng lắp đặt mới chồng khoảng đã có (SQLSTATE 23P01) — rollback, xem §1.5 |
 | `TARGET_NOT_FOUND` | 400 | POST {id}/checkout | Target (vị trí hệ thống/user/department) không tồn tại hoặc đã bị xóa giữa validator và handler (LL-2, nhánh SystemPosition) |
+| `TIMESTAMP_IN_FUTURE` | 400 | POST {id}/checkout, /checkin | [Bước 0.2 / LL-3] Mốc `checkoutAt`/`checkinAt` do client gửi vượt hiện tại quá **5 phút** (mốc quá khứ vẫn hợp lệ). Chặn ở **validator** (`AssetTimestampRules`) → trả qua `ValidationExceptionHandler`; response giữ `errors` theo từng field |
+| `INVALID_CURSOR` | 400 | GET {id}/timeline | [LL-3] `cursor` phân trang của lý lịch thiết bị không giải mã được (base64url hỏng/sai định dạng). Asset không tồn tại **hoặc** ngoài scope → 404 `{status,message}` KHÔNG có mã (hide-existence) |
 
 ### Categories (`/api/v1/categories`)
 
@@ -522,6 +524,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `INVALID_RETURN_QTY` — Accessories (400)
 - `INVALID_STANDARD_PARAM` — MaintenanceCampaigns (400)
 - `INVALID_CREDENTIALS` — Auth login (400), Auth password (400), Auth passkeys/login (**401**)
+- `INVALID_CURSOR` — Assets timeline (400)
 - `INVALID_SUPPLIER` — AssetMaintenances (400)
 - `INVALID_TARGET_TYPE` — Licenses (400)
 - `ITEM_NAME_REQUIRED` — MaintenanceTemplates (400)
@@ -575,6 +578,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `TEMPLATE_SYSTEM_MISMATCH` — MaintenanceCampaigns (400)
 - `TEMPLATE_VERSION_IN_USE` — MaintenanceTemplates (400)
 - `THRESHOLD_OPERATOR_REQUIRED` / `THRESHOLD_VALUE_REQUIRED` — MaintenanceTemplates (400)
+- `TIMESTAMP_IN_FUTURE` — Assets checkout/checkin (400; [Bước 0.2 / LL-3] mốc thời gian > now + 5 phút)
 - `TITLE_REQUIRED` — AssetMaintenances (400)
 - `USER_NOT_FOUND` — Users PUT/DELETE (404, camelCase errorCode — body không errorCode), Auth `/auth/password` + passkeys/register/options (**401**, không error_code)
 - `VALIDATION_ERROR` — Users (400 — chỉ password ban đầu < 8 ký tự)

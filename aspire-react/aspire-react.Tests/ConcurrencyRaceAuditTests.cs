@@ -17,6 +17,10 @@ namespace aspire_react.Tests;
 /// `dotnet test --filter "Category=Concurrency"` while the stack is up). They do not assert a pass/fail
 /// on the race outcome — they record evidence for the audit report.
 ///
+/// [BƯỚC 0.1 / LL-3] SAFETY GATE: mọi test trong class dùng `[ThrowawayDbFact]` — chỉ chạy khi
+/// `MIRATS_TEST_THROWAWAY_DB=1` (xác nhận stack đang trỏ vào DB TẠM). Thiếu cờ → SKIP kèm lý do, để
+/// không ghi fixture vào DB dev/prod. Xem `ThrowawayDbGuard`.
+///
 /// [ITEM D 2026-10-02] SELF-CLEANUP: every test now returns/checks-in whatever it allocated and then
 /// attempts to DELETE each fixture it created — all through the API (no SQL, §8). The outcome is
 /// printed and recorded under "&lt;resource&gt;_cleanup" so residue is never silent. Some fixtures are
@@ -257,7 +261,7 @@ public class ConcurrencyRaceAuditTests
     // Race scenarios
     // =========================================================================
 
-    [Fact]
+    [ThrowawayDbFact]
     public async Task LicenseSeat_OneFreeSeat_TwoConcurrentCheckouts()
     {
         var results = new List<object>();
@@ -291,7 +295,7 @@ public class ConcurrencyRaceAuditTests
         }
     }
 
-    [Fact]
+    [ThrowawayDbFact]
     public async Task Accessory_OneRemaining_TwoConcurrentCheckouts()
     {
         var results = new List<object>();
@@ -320,7 +324,7 @@ public class ConcurrencyRaceAuditTests
         }
     }
 
-    [Fact]
+    [ThrowawayDbFact]
     public async Task Component_Bulk_OneRemaining_TwoConcurrentAllocates()
     {
         var results = new List<object>();
@@ -367,7 +371,7 @@ public class ConcurrencyRaceAuditTests
         }
     }
 
-    [Fact]
+    [ThrowawayDbFact]
     public async Task Consumable_OneRemaining_TwoConcurrentCheckouts()
     {
         var results = new List<object>();
@@ -418,7 +422,7 @@ public class ConcurrencyRaceAuditTests
     /// nên delete-guard chặn thật là <c>ASSET_CONFIRMED_CANNOT_DELETE</c> (ASSET_HAS_INSTALLATION_HISTORY
     /// đứng sau trong thứ tự guard — LL-1) — báo cáo là BLOCKED, không bỏ qua.
     /// </summary>
-    [Fact]
+    [ThrowawayDbFact]
     public async Task AssetInstallation_ArchiveAndCheckinConcurrently_InvariantHolds()
     {
         var results = new List<object>();

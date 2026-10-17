@@ -53,6 +53,12 @@ public class CheckoutAssetCommandValidator : AbstractValidator<CheckoutAssetComm
         RuleFor(x => x.TargetType).IsInEnum();
         RuleFor(x => x.TargetId).NotEmpty();
 
+        // [Bước 0.2] Mốc checkout do client gửi không được ở tương lai quá 5 phút (400 TIMESTAMP_IN_FUTURE).
+        RuleFor(x => x.CheckoutAt)
+            .Must(v => !AssetTimestampRules.IsBeyondFutureWindow(v, DateTime.UtcNow))
+            .WithMessage(AssetTimestampRules.Message)
+            .WithErrorCode(AssetTimestampRules.Code);
+
         RuleFor(x => x.LocationId)
             .NotEmpty().When(x => x.TargetType == AssignmentTargetType.SystemPosition)
             .WithMessage("LocationId is required when checking out to a SystemPosition.");

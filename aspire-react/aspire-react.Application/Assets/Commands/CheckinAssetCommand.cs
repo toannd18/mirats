@@ -3,6 +3,7 @@ using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Application.Common.Interfaces;
+using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,6 +17,21 @@ public record CheckinAssetCommand(
     Guid CurrentUserId) : IRequest<CheckinResult>;
 
 public record CheckinResult(bool Success, string Message, string? ErrorCode = null);
+
+/// <summary>
+/// [Bước 0.2] Validator cho checkin — hiện chỉ chặn mốc thời gian ở tương lai. Các bất biến nghiệp vụ
+/// (asset tồn tại / đang cấp phát / lý lịch nhất quán) do handler kiểm tra trong transaction + FOR UPDATE.
+/// </summary>
+public class CheckinAssetCommandValidator : AbstractValidator<CheckinAssetCommand>
+{
+    public CheckinAssetCommandValidator()
+    {
+        RuleFor(x => x.CheckinAt)
+            .Must(v => !AssetTimestampRules.IsBeyondFutureWindow(v, DateTime.UtcNow))
+            .WithMessage(AssetTimestampRules.Message)
+            .WithErrorCode(AssetTimestampRules.Code);
+    }
+}
 
 public class CheckinAssetCommandHandler : IRequestHandler<CheckinAssetCommand, CheckinResult>
 {
