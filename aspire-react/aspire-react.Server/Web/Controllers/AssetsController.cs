@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using aspire_react.Server.Application.Assets;
 using aspire_react.Server.Application.Assets.Commands;
 using aspire_react.Server.Application.Assets.DTOs;
 using aspire_react.Server.Application.Assets.Queries;
@@ -35,6 +36,17 @@ public class AssetsController : ControllerBase
     private Guid GetCurrentUserId() => _currentUserService.GetLocalUserId();
 
     private Task<Guid?> GetUserCompanyIdAsync() => _companyScope.GetCurrentUserCompanyIdAsync();
+
+    /// <summary>
+    /// [LL-2] Error-code → HTTP status cho các thao tác có ghi lý lịch lắp đặt (checkout/checkin/archive).
+    /// Mặc định 400 — giữ NGUYÊN body/hành vi cũ; riêng xung đột khoảng lắp đặt
+    /// (<see cref="InstallationLedger.Overlap"/> — SQLSTATE 23P01) trả 409, theo precedent
+    /// RESULT_CONCURRENT_WRITE (409) của MaintenanceCampaigns.
+    /// </summary>
+    private IActionResult MapLedgerFailure(string message, string? errorCode)
+        => errorCode == InstallationLedger.Overlap
+            ? Conflict(new { status = "error", message, error_code = errorCode })
+            : BadRequest(new { status = "error", message, error_code = errorCode });
 
     // ==================== LIST ====================
     // [Giai đoạn 3 — Assets, section CUỐI] Thin MediatR mapping over ListAssetsQuery (filters +
@@ -163,7 +175,7 @@ public class AssetsController : ControllerBase
         var result = await _mediator.Send(new CheckoutAssetCommand(
             id, request.TargetType, request.TargetId, request.Note,
             request.CheckoutAt, request.LocationId, userId));
-        if (!result.Success) return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        if (!result.Success) return MapLedgerFailure(result.Message, result.ErrorCode);
         return Ok(new { status = "success", message = result.Message, data = new { assignment_id = result.Assignment?.Id } });
     }
 
@@ -175,7 +187,7 @@ public class AssetsController : ControllerBase
     {
         var userId = GetCurrentUserId();
         var result = await _mediator.Send(new CheckinAssetCommand(id, request.LocationId, request.Note, request.CheckinAt, userId));
-        if (!result.Success) return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        if (!result.Success) return MapLedgerFailure(result.Message, result.ErrorCode);
         return Ok(new { status = "success", message = result.Message });
     }
 
@@ -187,7 +199,7 @@ public class AssetsController : ControllerBase
     {
         var userId = GetCurrentUserId();
         var result = await _mediator.Send(new ArchiveAssetCommand(id, request.LocationId, userId, request.Note));
-        if (!result.Success) return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        if (!result.Success) return MapLedgerFailure(result.Message, result.ErrorCode);
         return Ok(new { status = "success", message = result.Message });
     }
 

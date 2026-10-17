@@ -63,10 +63,16 @@ public class CheckinAssetCommandHandler : IRequestHandler<CheckinAssetCommand, C
 
             asset.CurrentAssignmentId = null;
             asset.CheckinCounter++;
-            asset.LastCheckin = request.CheckinAt ?? DateTime.UtcNow;
+            // [LL-2] Mốc thời gian checkin dùng CHUNG cho LastCheckin và EndedAt của lý lịch lắp đặt.
+            var endedAt = request.CheckinAt ?? DateTime.UtcNow;
+            asset.LastCheckin = endedAt;
             asset.Status = AssetStatus.Pending; // check-in returns to Pending — Archived stays false (check-in is NOT archiving)
             asset.SystemPositionId = null;
             asset.LocationId = request.LocationId;
+
+            // [LL-2] Tháo thiết bị khỏi vị trí → ĐÓNG dòng đang mở (chỉ khi EndedAt IS NULL),
+            // cùng mốc thời gian với checkin. Không mở dòng mới (checkin không phải lắp đặt).
+            await InstallationLedger.CloseOpenAsync(_context, asset.Id, endedAt, cancellationToken);
 
             _actionLogService.LogAction(
                 itemType: ItemType.Asset,
@@ -90,6 +96,17 @@ public class CheckinAssetCommandHandler : IRequestHandler<CheckinAssetCommand, C
                 }));
 
             await _context.SaveChangesAsync(cancellationToken);
+
+            // [LL-2] Bất biến: đã tháo khỏi vị trí → KHÔNG được còn dòng mở nào.
+            // Kiểm tra sau SaveChanges, trước Commit → sai thì rollback, không ghi gì.
+            if (!await InstallationLedger.IsConsistentAsync(_context, asset, cancellationToken))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return new CheckinResult(false,
+                    "Lý lịch lắp đặt của thiết bị không nhất quán với trạng thái hiện tại — thao tác đã được hoàn tác.",
+                    InstallationLedger.Inconsistent);
+            }
+
             await transaction.CommitAsync(cancellationToken);
 
             return new CheckinResult(true, "Asset checked in successfully.");

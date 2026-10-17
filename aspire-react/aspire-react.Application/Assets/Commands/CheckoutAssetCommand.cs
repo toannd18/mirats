@@ -145,6 +145,10 @@ public class CheckoutAssetCommandHandler : IRequestHandler<CheckoutAssetCommand,
                 ["checkout_counter"] = asset.CheckoutCounter
             };
 
+            // [LL-2] Mốc thời gian của lần checkout: dùng CHUNG cho Assignment.AssignedAt và
+            // StartedAt của lý lịch lắp đặt (một mốc duy nhất — không gọi DateTime.UtcNow hai lần).
+            var startedAt = request.CheckoutAt ?? DateTime.UtcNow;
+
             // Create Assignment
             var assignment = new Assignment
             {
@@ -152,11 +156,32 @@ public class CheckoutAssetCommandHandler : IRequestHandler<CheckoutAssetCommand,
                 TargetType = request.TargetType,
                 TargetId = request.TargetId,
                 AssignedById = request.CurrentUserId,
-                AssignedAt = request.CheckoutAt ?? DateTime.UtcNow,
+                AssignedAt = startedAt,
                 Note = request.Note
             };
             _context.Assignments.Add(assignment);
             await _context.SaveChangesAsync(cancellationToken);
+
+            // [LL-2] Checkout tới SystemPosition → MỞ khoảng lắp đặt mới (Source=Api, StartedAt =
+            // cùng mốc với Assignment; denormalize tên vị trí + tên hệ thống; LoggedById/LoggedByName).
+            // Checkout tới User/Department KHÔNG ghi lý lịch. Bất biến "SystemPositionId != null ⟺
+            // đúng 1 dòng mở" được kiểm tra sau SaveChanges (xem IsConsistentAsync bên dưới).
+            if (request.TargetType == AssignmentTargetType.SystemPosition)
+            {
+                var position = await _context.SystemPositions.AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Id == request.TargetId, cancellationToken);
+                if (position == null)
+                    return new CheckoutResult(false, "Target not found or has been deleted.", ErrorCode: "TARGET_NOT_FOUND");
+
+                var systemInfoName = await _context.SystemInfos.AsNoTracking()
+                    .Where(s => s.Id == position.SystemInfoId)
+                    .Select(s => s.Name)
+                    .FirstOrDefaultAsync(cancellationToken);
+                var actorName = await InstallationLedger.ResolveActorNameAsync(_context, request.CurrentUserId, cancellationToken);
+
+                InstallationLedger.Open(_context, asset.Id, position, systemInfoName, startedAt,
+                    request.CurrentUserId, actorName, AssetInstallationSource.Api);
+            }
 
             // Update Asset
             asset.CurrentAssignmentId = assignment.Id;
@@ -185,7 +210,32 @@ public class CheckoutAssetCommandHandler : IRequestHandler<CheckoutAssetCommand,
                     }
                 }));
 
-            await _context.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException pg
+                && pg.SqlState == Npgsql.PostgresErrorCodes.ExclusionViolation)
+            {
+                // [LL-2] EX_asset_installations_no_overlap (SQLSTATE 23P01): thiết bị đã có một khoảng
+                // lắp đặt chồng với khoảng mới (VD checkout lùi ngày về trước mốc tháo của lần trước).
+                // Trả 409 INSTALLATION_PERIOD_OVERLAP — KHÔNG để lọt 500 thô.
+                await transaction.RollbackAsync(cancellationToken);
+                return new CheckoutResult(false,
+                    "Khoảng lắp đặt bị chồng với lý lịch đã có của thiết bị — kiểm tra lại thời điểm checkout.",
+                    ErrorCode: InstallationLedger.Overlap);
+            }
+
+            // [LL-2] Bất biến: SystemPositionId != null ⟺ ĐÚNG 1 dòng mở (chưa superseded) trỏ đúng vị trí.
+            // Kiểm tra sau SaveChanges, trước Commit → phá bất biến thì rollback, không ghi gì.
+            if (!await InstallationLedger.IsConsistentAsync(_context, asset, cancellationToken))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return new CheckoutResult(false,
+                    "Lý lịch lắp đặt của thiết bị không nhất quán với trạng thái hiện tại — thao tác đã được hoàn tác.",
+                    ErrorCode: InstallationLedger.Inconsistent);
+            }
+
             await transaction.CommitAsync(cancellationToken);
 
             return new CheckoutResult(true, "Asset checked out successfully.", assignment);

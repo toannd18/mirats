@@ -87,13 +87,14 @@ ComponentAllocation (`COMPONENT_COMPANY_REQUIRED`, `COMPANY_MISMATCH`), Consumab
 Dup-check **không hồi tố**: chỉ áp dụng cho request mới; dữ liệu trùng tạo trước fix vẫn tồn tại
 (audit dữ liệu thật đã làm cho BUG-F/K/I trước khi fix).
 
-### 1.5 409 Conflict — trường hợp duy nhất
+### 1.5 409 Conflict — 2 trường hợp
 
 | Code | Endpoint | Ý nghĩa |
 |---|---|---|
 | `RESULT_CONCURRENT_WRITE` | `POST /maintenance/campaigns/{id}/results` | BUG-D retry-merge cạn 3 lần retry do race INSERT-vs-INSERT trên unique key (DeviceSnapshot × Item × Param). Không phải 500 — client được yêu cầu thử lại. |
+| `INSTALLATION_PERIOD_OVERLAP` | `POST /assets/{id}/checkout` | [LL-2] Khoảng lắp đặt mới CHỒNG khoảng đã có của cùng thiết bị (VD checkout lùi ngày về trước mốc tháo lần trước) — exclusion constraint `EX_asset_installations_no_overlap`, SQLSTATE **23P01**. Transaction đã rollback, không ghi gì (không lọt 500). |
 
-Đây là **case 409 duy nhất** của API.
+Đây là **2 case 409** của API.
 
 ### 1.6 Response lỗi KHÔNG có error_code (chỉ `status` + `message`)
 
@@ -178,6 +179,8 @@ Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`Au
 | `ASSET_NOT_DEPLOYED` | 400 | POST {id}/checkin | Status ≠ Deployed |
 | `LOCATION_REQUIRED` | 400 | POST {id}/checkout | Checkout tới SystemPosition thiếu LocationId |
 | `COMPANY_MISMATCH` (checkout) | 400 | POST {id}/checkout | Target không cùng company với asset |
+| `INSTALLATION_LEDGER_INCONSISTENT` | 400 | POST {id}/checkout, /checkin, /archive | [LL-2] Bất biến "`SystemPositionId != null` ⟺ đúng 1 dòng mở (chưa superseded)" bị phá — transaction đã rollback, không ghi gì |
+| `INSTALLATION_PERIOD_OVERLAP` | **409** | POST {id}/checkout | [LL-2] Khoảng lắp đặt mới chồng khoảng đã có (SQLSTATE 23P01) — rollback, xem §1.5 |
 
 ### Categories (`/api/v1/categories`)
 
@@ -500,6 +503,8 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `GROUP_NOT_FOUND` — Users UpdateUserGroups (400, error_code snake — quirk)
 - `INSUFFICIENT_ALLOCATION` — Components (400)
 - `INSUFFICIENT_STOCK` — Components, Consumables, Accessories (400)
+- `INSTALLATION_LEDGER_INCONSISTENT` — Assets (400)
+- `INSTALLATION_PERIOD_OVERLAP` — Assets (**409**)
 - `INVALID_ASSIGNEE` — AssetMaintenances (400)
 - `INVALID_CATEGORY` — Components, Licenses (400)
 - `INVALID_CHECKLIST_ITEM` — MaintenanceCampaigns (400)
@@ -543,7 +548,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `POSITION_IN_USE_BY_ASSET` — SystemInfos (400)
 - `POSITION_IN_USE_BY_CHECKLIST` — SystemInfos (400)
 - `RESOURCE_NOT_FOUND` — AssetModels (400, BUG-H), Users Create/Update (DepartmentId/LocationId, 400)
-- `RESULT_CONCURRENT_WRITE` — MaintenanceCampaigns (**409** — duy nhất)
+- `RESULT_CONCURRENT_WRITE` — MaintenanceCampaigns (**409**)
 - `RESULT_NOT_FOUND` — MaintenanceCampaigns (404)
 - `RESULT_TARGET_REQUIRED` — MaintenanceCampaigns (400)
 - `SEAT_ALREADY_ASSIGNED` — Licenses (400)
