@@ -121,6 +121,13 @@ public class CheckoutAssetCommandHandler : IRequestHandler<CheckoutAssetCommand,
             }
 
             // ──── SystemPositionId + LocationId logic ────
+            // [LL-2b] PRE-CHECK trước khi thay đổi BẤT CỨ thứ gì (kể cả assignment): bất biến lý lịch của
+            // trạng thái HIỆN TẠI phải đúng — không handler nào được tự đóng dòng để che dữ liệu lệch.
+            // Checkout không đóng khoảng nào → closingAt = null. Vi phạm → 400, không ghi gì.
+            var preError = await InstallationLedger.ValidateBeforeChangeAsync(_context, asset, null, cancellationToken);
+            if (preError != null)
+                return new CheckoutResult(false, InstallationLedger.DescribeError(preError), ErrorCode: preError);
+
             if (request.TargetType == AssignmentTargetType.SystemPosition)
             {
                 if (!request.LocationId.HasValue)
@@ -164,12 +171,16 @@ public class CheckoutAssetCommandHandler : IRequestHandler<CheckoutAssetCommand,
 
             // [LL-2] Checkout tới SystemPosition → MỞ khoảng lắp đặt mới (Source=Api, StartedAt =
             // cùng mốc với Assignment; denormalize tên vị trí + tên hệ thống; LoggedById/LoggedByName).
-            // Checkout tới User/Department KHÔNG ghi lý lịch. Bất biến "SystemPositionId != null ⟺
-            // đúng 1 dòng mở" được kiểm tra sau SaveChanges (xem IsConsistentAsync bên dưới).
+            // Checkout tới User/Department KHÔNG ghi lý lịch và KHÔNG đóng khoảng nào (nhánh else phía
+            // trên chỉ xoá con trỏ SystemPositionId/LocationId) — nếu asset còn dòng mở mà con trỏ đã
+            // NULL thì đó là dữ liệu lệch và đã bị pre-check (ValidateBeforeChangeAsync) chặn từ TRƯỚC
+            // khi ghi bất cứ thứ gì. Sau SaveChanges còn một post-check bất biến (xem dưới).
             if (request.TargetType == AssignmentTargetType.SystemPosition)
             {
                 var position = await _context.SystemPositions.AsNoTracking()
                     .FirstOrDefaultAsync(p => p.Id == request.TargetId, cancellationToken);
+                // [LL-2] Phòng thủ: validator đã kiểm tra target tồn tại, nhưng vị trí có thể bị xoá giữa
+                // lúc validate và lúc handler chạy. Trả 400 TARGET_NOT_FOUND (không 500).
                 if (position == null)
                     return new CheckoutResult(false, "Target not found or has been deleted.", ErrorCode: "TARGET_NOT_FOUND");
 
@@ -231,8 +242,7 @@ public class CheckoutAssetCommandHandler : IRequestHandler<CheckoutAssetCommand,
             if (!await InstallationLedger.IsConsistentAsync(_context, asset, cancellationToken))
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return new CheckoutResult(false,
-                    "Lý lịch lắp đặt của thiết bị không nhất quán với trạng thái hiện tại — thao tác đã được hoàn tác.",
+                return new CheckoutResult(false, InstallationLedger.DescribeError(InstallationLedger.Inconsistent),
                     ErrorCode: InstallationLedger.Inconsistent);
             }
 

@@ -236,4 +236,129 @@ public class AssetInstallationLedgerTests
         Assert.Null(await InstallationLedger.ResolveActorNameAsync(db, null, CancellationToken.None));
         Assert.Null(await InstallationLedger.ResolveActorNameAsync(db, Guid.NewGuid(), CancellationToken.None));
     }
+
+    // ==================== [LL-2b] Pre-check TRƯỚC khi thay đổi ====================
+    // Handler checkout/checkin/archive gọi ValidateBeforeChangeAsync() sau khi đã khoá hàng asset
+    // (FOR UPDATE) và TRƯỚC mọi thay đổi change tracker. Pre-check KHÔNG tự sửa dữ liệu để che lệch.
+
+    [Fact]
+    public async Task ValidateBeforeChange_Ok_WhenMountedWithOneOpenRow()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(ValidateBeforeChange_Ok_WhenMountedWithOneOpenRow));
+        var (assetId, pos) = await SeedAsync(db, mounted: true, "20");
+        var startedAt = new DateTime(2026, 10, 10, 8, 0, 0, DateTimeKind.Utc);
+        InstallationLedger.Open(db, assetId, pos, null, startedAt, null, null, AssetInstallationSource.Api);
+        await db.SaveChangesAsync();
+
+        var asset = await db.Assets.SingleAsync(a => a.Id == assetId);
+        Assert.Null(await InstallationLedger.ValidateBeforeChangeAsync(db, asset, null, CancellationToken.None));
+        // closingAt = StartedAt đúng biên của CHECK (EndedAt >= StartedAt) → vẫn hợp lệ.
+        Assert.Null(await InstallationLedger.ValidateBeforeChangeAsync(db, asset, startedAt, CancellationToken.None));
+        Assert.Null(await InstallationLedger.ValidateBeforeChangeAsync(db, asset, startedAt.AddMinutes(30), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ValidateBeforeChange_Ok_WhenNotMountedAndNoRows()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(ValidateBeforeChange_Ok_WhenNotMountedAndNoRows));
+        var (assetId, _) = await SeedAsync(db, mounted: false, "21");
+
+        var asset = await db.Assets.SingleAsync(a => a.Id == assetId);
+        Assert.Null(await InstallationLedger.ValidateBeforeChangeAsync(db, asset, null, CancellationToken.None));
+        Assert.Null(await InstallationLedger.ValidateBeforeChangeAsync(db, asset, DateTime.UtcNow, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(true)]  // checkout (không đóng khoảng) → closingAt = null
+    [InlineData(false)] // checkin/archive (đóng khoảng)
+    public async Task ValidateBeforeChange_Inconsistent_WhenMountedWithoutOpenRow(bool closingAtNull)
+    {
+        await using var db = TestHelpers.CreateContext($"{nameof(ValidateBeforeChange_Inconsistent_WhenMountedWithoutOpenRow)}_{closingAtNull}");
+        var (assetId, _) = await SeedAsync(db, mounted: true, closingAtNull ? "22" : "23");
+
+        var asset = await db.Assets.SingleAsync(a => a.Id == assetId);
+        var error = await InstallationLedger.ValidateBeforeChangeAsync(db, asset,
+            closingAtNull ? null : DateTime.UtcNow, CancellationToken.None);
+        Assert.Equal(InstallationLedger.Inconsistent, error);
+    }
+
+    /// <summary>Kịch bản LL-2b #5: <c>SystemPositionId NULL</c> nhưng CÒN dòng mở → checkout tới User
+    /// (pre-check với closingAt = null) phải bị chặn bằng INCONSISTENT, không tự đóng dòng nào.</summary>
+    [Fact]
+    public async Task ValidateBeforeChange_Inconsistent_WhenNotMountedButOpenRowExists()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(ValidateBeforeChange_Inconsistent_WhenNotMountedButOpenRowExists));
+        var (assetId, pos) = await SeedAsync(db, mounted: false, "24");
+        InstallationLedger.Open(db, assetId, pos, null, DateTime.UtcNow.AddDays(-3), null, null, AssetInstallationSource.Api);
+        await db.SaveChangesAsync();
+
+        var asset = await db.Assets.SingleAsync(a => a.Id == assetId); // SystemPositionId = null, 1 dòng mở
+        var error = await InstallationLedger.ValidateBeforeChangeAsync(db, asset, null, CancellationToken.None);
+
+        Assert.Equal(InstallationLedger.Inconsistent, error);
+        // KHÔNG có dòng nào bị sửa: pre-check chỉ đọc.
+        Assert.Null((await db.AssetInstallations.SingleAsync(i => i.AssetId == assetId)).EndedAt);
+    }
+
+    [Fact]
+    public async Task ValidateBeforeChange_Inconsistent_WhenOpenRowPointsToAnotherPosition()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(ValidateBeforeChange_Inconsistent_WhenOpenRowPointsToAnotherPosition));
+        var (assetId, pos) = await SeedAsync(db, mounted: true, "25");
+        var otherPos = new SystemPosition { Code = "LL2-2026-951", Name = "Vị trí khác", SystemInfoId = pos.SystemInfoId };
+        db.SystemPositions.Add(otherPos);
+        await db.SaveChangesAsync();
+        InstallationLedger.Open(db, assetId, otherPos, null, DateTime.UtcNow, null, null, AssetInstallationSource.Api);
+        await db.SaveChangesAsync();
+
+        var asset = await db.Assets.SingleAsync(a => a.Id == assetId);
+        Assert.Equal(InstallationLedger.Inconsistent,
+            await InstallationLedger.ValidateBeforeChangeAsync(db, asset, DateTime.UtcNow, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ValidateBeforeChange_EndBeforeStart_WhenClosingBeforeOpenStartedAt()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(ValidateBeforeChange_EndBeforeStart_WhenClosingBeforeOpenStartedAt));
+        var (assetId, pos) = await SeedAsync(db, mounted: true, "26");
+        var startedAt = new DateTime(2026, 10, 17, 12, 0, 0, DateTimeKind.Utc);
+        InstallationLedger.Open(db, assetId, pos, null, startedAt, null, null, AssetInstallationSource.Api);
+        await db.SaveChangesAsync();
+
+        var asset = await db.Assets.SingleAsync(a => a.Id == assetId);
+        Assert.Equal(InstallationLedger.EndBeforeStart,
+            await InstallationLedger.ValidateBeforeChangeAsync(db, asset, startedAt.AddSeconds(-1), CancellationToken.None));
+        // Vẫn là bất biến đúng (chỉ mốc thời gian sai) — không bị báo nhầm là INCONSISTENT.
+        Assert.NotEqual(InstallationLedger.Inconsistent,
+            await InstallationLedger.ValidateBeforeChangeAsync(db, asset, startedAt.AddSeconds(-1), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ValidateBeforeChange_IgnoresSupersededOpenRow()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(ValidateBeforeChange_IgnoresSupersededOpenRow));
+        var (assetId, pos) = await SeedAsync(db, mounted: true, "27");
+        var correct = InstallationLedger.Open(db, assetId, pos, null, DateTime.UtcNow, null, null, AssetInstallationSource.Api);
+        db.AssetInstallations.Add(new AssetInstallation
+        {
+            AssetId = assetId,
+            SystemPositionId = pos.Id,
+            StartedAt = DateTime.UtcNow.AddDays(-9),
+            SupersededAt = DateTime.UtcNow.AddDays(-8),
+            CorrectsEntryId = correct.Id
+        });
+        await db.SaveChangesAsync();
+
+        var asset = await db.Assets.SingleAsync(a => a.Id == assetId);
+        Assert.Null(await InstallationLedger.ValidateBeforeChangeAsync(db, asset, DateTime.UtcNow.AddDays(1), CancellationToken.None));
+    }
+
+    [Fact]
+    public void DescribeError_MapsLedgerCodes()
+    {
+        Assert.Contains("không nhất quán", InstallationLedger.DescribeError(InstallationLedger.Inconsistent));
+        Assert.Contains("trước mốc bắt đầu", InstallationLedger.DescribeError(InstallationLedger.EndBeforeStart));
+        Assert.NotEqual(InstallationLedger.DescribeError(InstallationLedger.Inconsistent),
+            InstallationLedger.DescribeError(InstallationLedger.EndBeforeStart));
+    }
 }

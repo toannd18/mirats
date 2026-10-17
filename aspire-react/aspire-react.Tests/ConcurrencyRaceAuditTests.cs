@@ -397,4 +397,109 @@ public class ConcurrencyRaceAuditTests
             ReportCleanup("consumable", rep);
         }
     }
+
+    // =========================================================================
+    // [LL-2b] Lý lịch lắp đặt — Archive vs Checkin trên CÙNG asset đang gắn vị trí
+    // =========================================================================
+
+    /// <summary>
+    /// [LL-2b] Race Archive ⟷ Checkin trên cùng một asset ĐANG GẮN vị trí hệ thống. Cả hai thao tác đều
+    /// xoá `SystemPositionId` và ĐÓNG dòng lý lịch đang mở; cả hai handler nay đều chạy trong transaction
+    /// + khoá hàng <c>FOR UPDATE</c> trên asset (Archive được bọc ở LL-2), nên phải TUẦN TỰ hoá:
+    /// <list type="bullet">
+    ///   <item>không response nào ≥ 500 (không lọt 500 thô, không deadlock);</item>
+    ///   <item>tối đa một thao tác thắng (thao tác sau trả 400 hợp lệ: ASSET_ALREADY_ARCHIVED / ASSET_NOT_CHECKED_OUT);</item>
+    ///   <item>trạng thái cuối ∈ {Archived, Pending} — không còn Deployed (đã tháo khỏi vị trí);</item>
+    ///   <item>asset KHÔNG còn xuất hiện trong danh sách asset của hệ thống (proxy qua API cho
+    ///     <c>SystemPositionId == null</c> ⇒ không còn khoảng lắp đặt mở ⇒ bất biến giữ nguyên).</item>
+    /// </list>
+    /// Bất biến DB thật (SystemPositionId ⟺ đúng 1 dòng mở) được kiểm bằng SQL sau khi chạy — xem báo cáo.
+    /// Fixture: asset/system/position để nguyên sau test. Asset tạo qua API luôn <c>IsConfirmed = true</c>
+    /// nên delete-guard chặn thật là <c>ASSET_CONFIRMED_CANNOT_DELETE</c> (ASSET_HAS_INSTALLATION_HISTORY
+    /// đứng sau trong thứ tự guard — LL-1) — báo cáo là BLOCKED, không bỏ qua.
+    /// </summary>
+    [Fact]
+    public async Task AssetInstallation_ArchiveAndCheckinConcurrently_InvariantHolds()
+    {
+        var results = new List<object>();
+        string? locationId = null, systemId = null, positionId = null, assetId = null;
+        try
+        {
+            var suffix = (int.Parse(RunId.Substring(3)) % 1000).ToString("D3"); // 3 chữ số cuối của mmss
+            var loc = await PostJsonAsync("/api/v1/locations", new { name = $"QCR-LL2-LOC-{RunId}" });
+            locationId = ExtractId(loc.body);
+
+            var sys = await PostJsonAsync("/api/v1/system-infos", new { code = $"QCS-2026-{suffix}", name = $"QCR LL2 System {RunId}" });
+            systemId = ExtractId(sys.body);
+            var pos = await PostJsonAsync($"/api/v1/system-infos/{systemId}/positions", new { code = $"QCP-2026-{suffix}", name = $"QCR LL2 Position {RunId}" });
+            positionId = ExtractId(pos.body);
+            results.Add(new { step = "fixtures", loc = loc.status, sys = sys.status, pos = pos.status, positionId });
+
+            // physical=false → asset KHÔNG auto-confirm (để delete-guard ASSET_HAS_INSTALLATION_HISTORY
+            // là guard chặn thật, không bị ASSET_CONFIRMED_CANNOT_DELETE che trước).
+            var asset = await PostJsonAsync("/api/v1/assets", new
+            {
+                assetTag = $"QCR-LL2-{RunId}",
+                name = $"QCR LL2 Asset {RunId}",
+                physical = false,
+                requestable = false
+            });
+            assetId = ExtractId(asset.body);
+
+            var mount = await PostJsonAsync($"/api/v1/assets/{assetId}/checkout",
+                new { targetType = "SystemPosition", targetId = positionId, locationId, note = "LL-2b: gan vi tri" });
+            results.Add(new { step = "mount", status = mount.status, body = mount.body });
+            _output.WriteLine($"[LL-2b] mount asset {assetId} -> position {positionId}: HTTP {mount.status}");
+            Assert.Equal(200, mount.status);
+
+            // RACE: archive vs checkin, cùng asset, cùng thời điểm
+            var res = await FireTwoAsync(
+                () => PostJsonAsync($"/api/v1/assets/{assetId}/archive", new { locationId, note = "LL-2b race: archive" }),
+                () => PostJsonAsync($"/api/v1/assets/{assetId}/checkin", new { locationId, note = "LL-2b race: checkin" }));
+            results.Add(new
+            {
+                step = "race",
+                sArchive = res.s1,
+                bArchive = res.b1,
+                sCheckin = res.s2,
+                bCheckin = res.b2
+            });
+            Record("asset_ll2_archive_vs_checkin", results);
+            _output.WriteLine($"[LL-2b race] archive={res.s1} checkin={res.s2}");
+            _output.WriteLine($"  archive body: {Shorten(res.b1)}");
+            _output.WriteLine($"  checkin body: {Shorten(res.b2)}");
+
+            // (1) Không 500
+            Assert.True(res.s1 < 500, $"archive trả HTTP {res.s1}: {Shorten(res.b1)}");
+            Assert.True(res.s2 < 500, $"checkin trả HTTP {res.s2}: {Shorten(res.b2)}");
+            // (2) Ít nhất một thao tác thành công (tuần tự hoá, không cùng hỏng)
+            Assert.True(res.s1 == 200 || res.s2 == 200,
+                $"không thao tác nào thành công: archive={res.s1}, checkin={res.s2}");
+
+            // (3) Trạng thái cuối không còn Deployed
+            var (getStatus, getBody) = await GetAsync($"/api/v1/assets/{assetId}");
+            Assert.Equal(200, getStatus);
+            using var doc = JsonDocument.Parse(getBody);
+            var dto = doc.RootElement.GetProperty("data");
+            var status = dto.GetProperty("status").GetString();
+            _output.WriteLine($"[LL-2b] trang thai cuoi = {status}");
+            Assert.True(status is "Archived" or "Pending", $"trạng thái cuối = {status} (mong đợi Archived/Pending)");
+
+            // (4) Không còn gắn vị trí: asset biến mất khỏi danh sách asset của hệ thống
+            var (sysStatus, sysBody) = await GetAsync($"/api/v1/systems/{systemId}/assets?pageSize=100");
+            Assert.Equal(200, sysStatus);
+            var stillMounted = ParseArray(sysBody)
+                .Any(row => row.TryGetProperty("assetId", out var a) && a.GetString() == assetId
+                            && row.TryGetProperty("systemPositionId", out var sp) && sp.ValueKind != JsonValueKind.Null);
+            _output.WriteLine($"[LL-2b] con gan vi tri sau race = {stillMounted}");
+            Assert.False(stillMounted, "asset vẫn còn SystemPositionId sau race (bất biến lý lịch có thể đã lệch)");
+        }
+        finally
+        {
+            var rep = new CleanupReport();
+            if (assetId != null) await TryDeleteAsync(rep, $"asset {assetId}", $"/api/v1/assets/{assetId}");
+            ReportCleanup("asset_ll2", rep);
+            _output.WriteLine("[LL-2b] fixture giu lai co chu dich de kiem bat bien bang SQL (system/position/location)");
+        }
+    }
 }

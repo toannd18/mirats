@@ -10,6 +10,9 @@ namespace aspirereact.Server.Migrations
     /// ghi bảng <c>asset_installations</c>.
     /// <para>
     /// Không có thay đổi schema (Up/Down do EF sinh ra rỗng); migration này CHỈ chạy SQL dữ liệu.
+    /// Sau INSERT, một khối PL/pgSQL kiểm tra bất biến LL-2 và <c>RAISE EXCEPTION</c> nếu còn lệch —
+    /// migration FAIL thay vì để lại dữ liệu lệch im lặng (khối lệnh nằm trong transaction của migration
+    /// nên toàn bộ backfill được rollback).
     /// </para>
     /// <inheritdoc />
     public partial class AssetInstallationBackfill : Migration
@@ -55,6 +58,48 @@ namespace aspirereact.Server.Migrations
                         AND tstzrange(ai."StartedAt", ai."EndedAt", '[)')
                             && tstzrange(COALESCE(a."LastCheckout", a."CreatedAt"), NULL, '[)')
                   );
+                """);
+
+            // [LL-2b] KHÔNG để lệch im lặng: sau backfill, mọi asset đang gắn vị trí PHẢI có đúng 1 dòng
+            // lý lịch đang mở (chưa superseded). Nếu còn lệch (VD asset có 2 dòng mở, hoặc bị bỏ qua vì
+            // chồng khoảng) → RAISE EXCEPTION để migration FAIL và transaction của migration rollback.
+            // Kèm vế ngược (không gắn vị trí mà vẫn còn dòng mở) vì đó cũng là phá bất biến của LL-2.
+            migrationBuilder.Sql(
+                """
+                DO $ll2_backfill_check$
+                DECLARE
+                    mounted_bad integer;
+                    mounted_tags text;
+                    unmounted_bad integer;
+                    unmounted_tags text;
+                BEGIN
+                    SELECT count(*), string_agg(a."AssetTag", ', ' ORDER BY a."AssetTag")
+                      INTO mounted_bad, mounted_tags
+                      FROM assets a
+                     WHERE a."SystemPositionId" IS NOT NULL
+                       AND (SELECT count(*) FROM asset_installations i
+                             WHERE i."AssetId" = a."Id"
+                               AND i."EndedAt" IS NULL
+                               AND i."SupersededAt" IS NULL) <> 1;
+
+                    IF mounted_bad > 0 THEN
+                        RAISE EXCEPTION 'AssetInstallationBackfill FAILED: % asset(s) dang gan vi tri nhung khong co dung 1 dong ly lich mo: %', mounted_bad, mounted_tags;
+                    END IF;
+
+                    SELECT count(*), string_agg(a."AssetTag", ', ' ORDER BY a."AssetTag")
+                      INTO unmounted_bad, unmounted_tags
+                      FROM assets a
+                     WHERE a."SystemPositionId" IS NULL
+                       AND EXISTS (SELECT 1 FROM asset_installations i
+                                    WHERE i."AssetId" = a."Id"
+                                      AND i."EndedAt" IS NULL
+                                      AND i."SupersededAt" IS NULL);
+
+                    IF unmounted_bad > 0 THEN
+                        RAISE EXCEPTION 'AssetInstallationBackfill FAILED: % asset(s) KHONG gan vi tri nhung con dong ly lich mo: %', unmounted_bad, unmounted_tags;
+                    END IF;
+                END
+                $ll2_backfill_check$;
                 """);
         }
 

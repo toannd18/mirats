@@ -25,6 +25,55 @@ public static class InstallationLedger
     public const string Overlap = "INSTALLATION_PERIOD_OVERLAP";
 
     /// <summary>
+    /// [LL-2b] Mốc kết thúc (checkin/archive) TRƯỚC mốc bắt đầu của khoảng đang mở → 400.
+    /// Chặn trước SaveChanges; SQLSTATE 23514 (CHECK <c>EndedAt &gt;= StartedAt</c>) là lưới an toàn.
+    /// </summary>
+    public const string EndBeforeStart = "INSTALLATION_END_BEFORE_START";
+
+    /// <summary>
+    /// Kiểm tra TRƯỚC khi thay đổi (pre-check) — KHÔNG sửa dữ liệu để che lệch:
+    /// <list type="number">
+    ///   <item>Bất biến của trạng thái HIỆN TẠI: <c>SystemPositionId != null</c> ⟺ đúng 1 dòng mở
+    ///     (chưa superseded) trỏ đúng vị trí → <see cref="Inconsistent"/>.</item>
+    ///   <item>Nếu lệnh sắp ĐÓNG khoảng (<paramref name="closingAt"/> != null): mốc kết thúc không được
+    ///     trước <c>StartedAt</c> của dòng đang mở → <see cref="EndBeforeStart"/>.</item>
+    /// </list>
+    /// Trả về error code (null = được phép thay đổi). Gọi SAU khi đã khoá hàng asset (FOR UPDATE) và
+    /// TRƯỚC mọi thay đổi change tracker.
+    /// </summary>
+    public static async Task<string?> ValidateBeforeChangeAsync(
+        IApplicationDbContext context,
+        Asset asset,
+        DateTime? closingAt,
+        CancellationToken cancellationToken)
+    {
+        if (!await IsConsistentAsync(context, asset, cancellationToken))
+            return Inconsistent;
+
+        if (closingAt.HasValue)
+        {
+            var openStartedAt = await context.AssetInstallations.AsNoTracking()
+                .Where(i => i.AssetId == asset.Id && i.EndedAt == null && i.SupersededAt == null)
+                .Select(i => (DateTime?)i.StartedAt)
+                .OrderBy(d => d)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (openStartedAt.HasValue && closingAt.Value < openStartedAt.Value)
+                return EndBeforeStart;
+        }
+
+        return null;
+    }
+
+    /// <summary>Message hiển thị cho người dùng theo error code pre-check của sổ lý lịch (LL-2b).</summary>
+    public static string DescribeError(string errorCode) => errorCode switch
+    {
+        Inconsistent => "Lý lịch lắp đặt của thiết bị không nhất quán với trạng thái hiện tại — thao tác đã được hoàn tác.",
+        EndBeforeStart => "Mốc thời gian kết thúc trước mốc bắt đầu lắp đặt — kiểm tra lại thời điểm tháo/lưu trữ.",
+        _ => "Thao tác không thực hiện được do lý lịch lắp đặt của thiết bị."
+    };
+
+    /// <summary>
     /// Mở một khoảng lắp đặt MỚI (append-only) cho asset tại <paramref name="position"/>; KHÔNG tự
     /// SaveChanges. Denormalize tên vị trí + tên hệ thống để lịch sử sống sót khi vị trí/hệ thống bị
     /// đổi tên hoặc xóa (FK SystemPositionId là SET NULL).

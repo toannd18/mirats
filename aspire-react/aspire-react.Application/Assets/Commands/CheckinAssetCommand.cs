@@ -61,10 +61,18 @@ public class CheckinAssetCommandHandler : IRequestHandler<CheckinAssetCommand, C
                 ["previous_target_id"] = oldAssignment?.TargetId.ToString()
             };
 
-            asset.CurrentAssignmentId = null;
-            asset.CheckinCounter++;
             // [LL-2] Mốc thời gian checkin dùng CHUNG cho LastCheckin và EndedAt của lý lịch lắp đặt.
             var endedAt = request.CheckinAt ?? DateTime.UtcNow;
+
+            // [LL-2b] PRE-CHECK trước khi thay đổi bất cứ thứ gì: (1) bất biến lý lịch của trạng thái HIỆN
+            // TẠI phải đúng (không tự đóng dòng để che dữ liệu lệch), (2) mốc kết thúc không được trước
+            // StartedAt của dòng đang mở. Vi phạm → 400, KHÔNG ghi gì (không assignment/ActionLog/lý lịch).
+            var preError = await InstallationLedger.ValidateBeforeChangeAsync(_context, asset, endedAt, cancellationToken);
+            if (preError != null)
+                return new CheckinResult(false, InstallationLedger.DescribeError(preError), preError);
+
+            asset.CurrentAssignmentId = null;
+            asset.CheckinCounter++;
             asset.LastCheckin = endedAt;
             asset.Status = AssetStatus.Pending; // check-in returns to Pending — Archived stays false (check-in is NOT archiving)
             asset.SystemPositionId = null;
@@ -95,15 +103,26 @@ public class CheckinAssetCommandHandler : IRequestHandler<CheckinAssetCommand, C
                     }
                 }));
 
-            await _context.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException pg
+                && pg.SqlState == Npgsql.PostgresErrorCodes.CheckViolation)
+            {
+                // [LL-2b] Lưới an toàn SQLSTATE 23514 (CHECK "EndedAt" >= "StartedAt"): pre-check đã chặn
+                // trường hợp thường gặp; nếu vẫn lọt (VD race) thì trả 400, KHÔNG để lọt 500 thô.
+                await transaction.RollbackAsync(cancellationToken);
+                return new CheckinResult(false, InstallationLedger.DescribeError(InstallationLedger.EndBeforeStart),
+                    InstallationLedger.EndBeforeStart);
+            }
 
             // [LL-2] Bất biến: đã tháo khỏi vị trí → KHÔNG được còn dòng mở nào.
             // Kiểm tra sau SaveChanges, trước Commit → sai thì rollback, không ghi gì.
             if (!await InstallationLedger.IsConsistentAsync(_context, asset, cancellationToken))
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return new CheckinResult(false,
-                    "Lý lịch lắp đặt của thiết bị không nhất quán với trạng thái hiện tại — thao tác đã được hoàn tác.",
+                return new CheckinResult(false, InstallationLedger.DescribeError(InstallationLedger.Inconsistent),
                     InstallationLedger.Inconsistent);
             }
 

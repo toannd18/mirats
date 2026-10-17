@@ -44,6 +44,15 @@ public class ArchiveAssetCommandHandler : IRequestHandler<ArchiveAssetCommand, A
             var oldStatus = asset.Status;
             var oldLocationId = asset.LocationId;
 
+            var endedAt = DateTime.UtcNow;
+
+            // [LL-2b] PRE-CHECK trước khi thay đổi bất cứ thứ gì: (1) bất biến lý lịch của trạng thái HIỆN
+            // TẠI phải đúng (không tự đóng dòng để che dữ liệu lệch), (2) mốc kết thúc không được trước
+            // StartedAt của dòng đang mở (VD checkout được đặt ở tương lai). Vi phạm → 400, không ghi gì.
+            var preError = await InstallationLedger.ValidateBeforeChangeAsync(_context, asset, endedAt, cancellationToken);
+            if (preError != null)
+                return new AssetResult(false, InstallationLedger.DescribeError(preError), ErrorCode: preError);
+
             // Archive (Lưu trữ / thanh lý) is an explicit, terminal action — it is NOT triggered
             // by a check-in. LocationId is required (storage/disposal location).
             asset.Status = AssetStatus.Archived;
@@ -52,7 +61,7 @@ public class ArchiveAssetCommandHandler : IRequestHandler<ArchiveAssetCommand, A
             asset.SystemPositionId = null;
 
             // [LL-2] Thiết bị đang gắn vị trí → ĐÓNG dòng lý lịch đang mở (chỉ khi EndedAt IS NULL).
-            await InstallationLedger.CloseOpenAsync(_context, asset.Id, DateTime.UtcNow, cancellationToken);
+            await InstallationLedger.CloseOpenAsync(_context, asset.Id, endedAt, cancellationToken);
 
             _actionLogService.LogAction(
                 itemType: ItemType.Asset,
@@ -71,14 +80,25 @@ public class ArchiveAssetCommandHandler : IRequestHandler<ArchiveAssetCommand, A
                     }
                 }));
 
-            await _context.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException pg
+                && pg.SqlState == Npgsql.PostgresErrorCodes.CheckViolation)
+            {
+                // [LL-2b] Lưới an toàn SQLSTATE 23514 (CHECK "EndedAt" >= "StartedAt"): pre-check đã chặn
+                // trường hợp thường gặp; nếu vẫn lọt (VD race) thì trả 400, KHÔNG để lọt 500 thô.
+                await transaction.RollbackAsync(cancellationToken);
+                return new AssetResult(false, InstallationLedger.DescribeError(InstallationLedger.EndBeforeStart),
+                    ErrorCode: InstallationLedger.EndBeforeStart);
+            }
 
             // [LL-2] Bất biến: archived ⇒ SystemPositionId == null ⇒ không còn dòng mở.
             if (!await InstallationLedger.IsConsistentAsync(_context, asset, cancellationToken))
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return new AssetResult(false,
-                    "Lý lịch lắp đặt của thiết bị không nhất quán với trạng thái hiện tại — thao tác đã được hoàn tác.",
+                return new AssetResult(false, InstallationLedger.DescribeError(InstallationLedger.Inconsistent),
                     ErrorCode: InstallationLedger.Inconsistent);
             }
 

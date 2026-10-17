@@ -180,7 +180,9 @@ Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`Au
 | `LOCATION_REQUIRED` | 400 | POST {id}/checkout | Checkout tới SystemPosition thiếu LocationId |
 | `COMPANY_MISMATCH` (checkout) | 400 | POST {id}/checkout | Target không cùng company với asset |
 | `INSTALLATION_LEDGER_INCONSISTENT` | 400 | POST {id}/checkout, /checkin, /archive | [LL-2] Bất biến "`SystemPositionId != null` ⟺ đúng 1 dòng mở (chưa superseded)" bị phá — transaction đã rollback, không ghi gì |
+| `INSTALLATION_END_BEFORE_START` | 400 | POST {id}/checkin, /archive | [LL-2b] Mốc kết thúc trước `StartedAt` của dòng đang mở (VD checkout đặt ở tương lai). Chặn TRƯỚC SaveChanges; SQLSTATE **23514** (`CHECK "EndedAt" >= "StartedAt"`) được map cùng mã này làm lưới an toàn |
 | `INSTALLATION_PERIOD_OVERLAP` | **409** | POST {id}/checkout | [LL-2] Khoảng lắp đặt mới chồng khoảng đã có (SQLSTATE 23P01) — rollback, xem §1.5 |
+| `TARGET_NOT_FOUND` | 400 | POST {id}/checkout | Target (vị trí hệ thống/user/department) không tồn tại hoặc đã bị xóa giữa validator và handler (LL-2, nhánh SystemPosition) |
 
 ### Categories (`/api/v1/categories`)
 
@@ -503,6 +505,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `GROUP_NOT_FOUND` — Users UpdateUserGroups (400, error_code snake — quirk)
 - `INSUFFICIENT_ALLOCATION` — Components (400)
 - `INSUFFICIENT_STOCK` — Components, Consumables, Accessories (400)
+- `INSTALLATION_END_BEFORE_START` — Assets (400)
 - `INSTALLATION_LEDGER_INCONSISTENT` — Assets (400)
 - `INSTALLATION_PERIOD_OVERLAP` — Assets (**409**)
 - `INVALID_ASSIGNEE` — AssetMaintenances (400)
@@ -565,7 +568,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `SYSTEM_IN_USE_BY_CAMPAIGN` — SystemInfos (400)
 - `SYSTEM_INFO_REQUIRED` — MaintenanceTemplates, MaintenanceCampaigns (400)
 - `SYSTEM_NOT_FOUND` — MaintenanceCampaigns (404)
-- `TARGET_NOT_FOUND` — Accessories, Licenses, Consumables (400)
+- `TARGET_NOT_FOUND` — Assets, Accessories, Licenses, Consumables (400)
 - `TARGET_REQUIRED` — Licenses, Consumables (400)
 - `TEMPLATE_IN_USE` — MaintenanceTemplates (400)
 - `TEMPLATE_NAME_TAKEN` — MaintenanceTemplates (400)
