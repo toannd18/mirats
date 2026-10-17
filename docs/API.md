@@ -124,6 +124,7 @@ Content-Type: application/json
 | `PATCH` | `/api/v1/assets/{id:guid}` | `assets.edit` |
 | `DELETE` | `/api/v1/assets/{id:guid}` | `assets.delete` |
 | `GET` | `/api/v1/assets/{id}/history` | `assets.view` |
+| `GET` | `/api/v1/assets/{id}/timeline` | `assets.view` |
 
 ### Asset Lifecycle
 
@@ -141,6 +142,90 @@ Content-Type: application/json
 | `GET` | `/api/v1/assets/due-checkin` | `assets.checkin` |
 | `GET` | `/api/v1/assets/due-audit` | `assets.audit` |
 | `POST` | `/api/v1/assets/labels` | `assets.view` |
+
+### Asset Timeline (Lý lịch thiết bị) — [LL-3]
+
+`GET /api/v1/assets/{id:guid}/timeline?cursor=<opaque>&limit=50` · `assets.view`
+
+Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**), trộn 4 nguồn:
+
+| Nguồn | Sinh sự kiện | `eventType` | `refType` | Mốc `occurredAt` |
+|-------|--------------|-------------|-----------|------------------|
+| `asset_installations` | mỗi dòng (đã bỏ dòng bị đính chính `SupersededAt != null`) → 1 sự kiện LẮP; nếu dòng đã đóng (`EndedAt != null`) → thêm 1 sự kiện THÁO | `INSTALL`, `REMOVE` | `assetInstallation` | `StartedAt` / `EndedAt` |
+| `action_logs` | mọi bản ghi `ItemType = Asset` + `ItemId = asset`, chưa soft-delete | tên `ActionType` dạng SCREAMING_SNAKE (`CREATE`, `UPDATE`, `CHECKOUT`, `CHECKIN`, `AUDIT`, `ARCHIVE`, `UNARCHIVE`, `CONFIRM`, `DISPOSE`, `MARK_DAMAGED`, `STOCK_IN`, `UPDATE_REJECTED`, …) | `actionLog` | `ActionDate` |
+| `maintenance_campaign_device_snapshots` | thiết bị được đưa vào một đợt bảo dưỡng (snapshot chứa asset) | `MAINTENANCE_CAMPAIGN` | `maintenanceCampaign` (`refId` = `CampaignId`) | `MaintenanceCampaign.StartDate` |
+| `asset_maintenances` | phiếu bảo dưỡng / sửa chữa (chưa soft-delete) | `MAINTENANCE` | `assetMaintenance` | `StartDate` |
+
+**Khử trùng — điều kiện lọc phải giữ nguyên khi thêm nguồn mới**
+
+- `action_logs`: **BỎ** `Checkout`/`Checkin` có `TargetType = SystemPosition`, vì chính thao tác đó đã được biểu diễn bằng sự kiện `INSTALL`/`REMOVE` ở nguồn 1 (không bỏ sẽ lặp). Điều kiện chính xác:
+  `NOT (TargetType = SystemPosition AND ActionType IN (Checkout, Checkin))`.
+- **KHÔNG dùng bảng `assignments`** làm nguồn: nội dung của nó đã có trong `action_logs` (sẽ trùng).
+- ActionLog của phiếu bảo dưỡng (`ItemType = AssetMaintenance`) và của đợt bảo dưỡng (`ItemType = MaintenanceCampaign`) KHÔNG vào timeline thiết bị (nguồn ActionLog chỉ nhận `ItemType = Asset`).
+
+**DTO**
+
+| Trường | Kiểu | Ghi chú |
+|--------|------|---------|
+| `eventType` | string | Xem bảng nguồn ở trên. **Ổn định** — FE dùng để chọn icon/màu. |
+| `occurredAt` | ISO-8601 UTC | Thời điểm SỰ KIỆN xảy ra (KHÔNG phải thời điểm tạo bản ghi). |
+| `title` | string | Tiêu đề tiếng Việt ghép sẵn (VD `Lắp vào vị trí Kệ A1`, `Tháo khỏi vị trí Kệ A1`, `Cấp phát`, `Sửa chữa: Thay quạt`). |
+| `details` | string? | Chi tiết phụ: hệ thống / địa điểm / đối tượng / ghi chú, ngăn cách bằng `" · "`. |
+| `actorName` | string? | Người thực hiện; `null` khi không xác định (VD dòng backfill không có người ghi). Riêng nguồn `MAINTENANCE_CAMPAIGN` = **người phụ trách đợt** (`MaintenanceCampaign.ReviewerId`). |
+| `refType` | string? | Loại bản ghi nguồn để mở link: `assetInstallation` \| `actionLog` \| `assetMaintenance` \| `maintenanceCampaign`. |
+| `refId` | guid? | Id bản ghi nguồn (FE mở link theo `refType`). Bản ghi có thể đã bị xoá ⇒ FE phải chịu được 404. |
+| `isEstimated` | bool | `true` khi **mốc thời gian là ước tính**: chỉ đúng với sự kiện `INSTALL` của dòng `Source = Backfill` (backfill chỉ ước tính `StartedAt`; mốc THÁO luôn là mốc thật). |
+
+**Phân trang — CURSOR, không offset**
+
+- Thứ tự toàn phần: `(occurredAt DESC, refId DESC, nguồn DESC)` — có khoá phá thế bằng nhau nên phân trang **không mất / không lặp** kể cả khi nhiều sự kiện trùng `occurredAt`.
+- `limit`: mặc định **50**, tối đa **200** (`≤ 0` → 50; `> 200` → 200 — **chuẩn hoá**, không báo lỗi).
+- Truyền lại `pagination.nextCursor` qua `?cursor=...`; `nextCursor = null` ⇒ hết dữ liệu. Con trỏ là **ĐỤC** (base64url) — client không được tự dựng.
+
+**Response**
+
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "eventType": "REMOVE",
+      "occurredAt": "2026-10-17T09:30:00Z",
+      "title": "Tháo khỏi vị trí Kệ A1",
+      "details": "Hệ thống: Nhà ga T1 · ghi chú lý lịch",
+      "actorName": "Nguyễn Văn A",
+      "refType": "assetInstallation",
+      "refId": "0f0c9b1e-0000-0000-0000-000000000000",
+      "isEstimated": false
+    }
+  ],
+  "pagination": { "limit": 50, "count": 1, "hasMore": true, "nextCursor": "MjAyNjEwMTdUMDkzMDAwWnwwZjBjOWIxZXww" }
+}
+```
+
+**Lỗi**
+
+| HTTP | Điều kiện | `error_code` |
+|------|-----------|--------------|
+| 404 | Asset không tồn tại **hoặc** ngoài phạm vi công ty của người dùng (giống `GET /assets/{id}` — hide-existence) | — (chỉ `status` + `message`) |
+| 400 | `cursor` không giải mã được | `INVALID_CURSOR` |
+
+**Ghi chú triển khai (đã kiểm chứng trên Postgres thật — bằng chứng LL-3)**
+
+- **`occurredAt` luôn là UTC có hậu tố `Z`.** Cột `asset_maintenances.StartDate` là `timestamp without time zone`
+  (khác 3 nguồn còn lại đều `timestamp with time zone`), nên giá trị đọc ra phải được **chuẩn hoá `Kind = Utc`**
+  trước khi trả về; ngược lại JSON mất hậu tố `Z` và client hiểu sai múi giờ khi trộn 4 nguồn.
+  Chiều ngược lại, khi truyền mốc `occurredAt` của con trỏ xuống **so sánh** với cột này phải hạ về
+  `Unspecified` — nếu không Npgsql ném `Cannot write DateTime with Kind=UTC to PostgreSQL type 'timestamp without time zone'`
+  (HTTP 500 khi lật sang trang 2; EF InMemory **không** phát hiện được).
+- **`actorName` của `MAINTENANCE_CAMPAIGN` không phụ thuộc kích thước trang.** Id người phụ trách phải được đăng ký
+  vào lô tra cứu tên của chính trang đó (nếu không, `limit=1` trả `actorName = null` còn `limit=3` lại có tên —
+  bug thật đã gặp và đã sửa).
+- **Kế hoạch truy vấn** (EXPLAIN ANALYZE trên DB dev): nguồn `action_logs` (≈2.000 dòng) dùng
+  `Index Scan using IX_action_logs_ItemType_ItemId`; nguồn lý lịch khi bảng lớn (mô phỏng ≈22.000 dòng trong
+  transaction rồi ROLLBACK) dùng `Index Scan Backward using IX_asset_installations_AssetId_StartedAt` +
+  `Incremental Sort` — **không** sequential scan bảng lớn. Các bảng nhỏ (`asset_installations` 6 dòng,
+  `asset_maintenances` 11 dòng) bị planner chọn `Seq Scan` — tối ưu ở quy mô đó.
 
 ---
 

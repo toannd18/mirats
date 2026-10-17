@@ -228,6 +228,41 @@ public class AssetsController : ControllerBase
         return Ok(new { status = "success", data = result.Logs });
     }
 
+    // ==================== TIMELINE (LÝ LỊCH THIẾT BỊ) ====================
+    // [LL-3] Thin MediatR mapping over AssetTimelineQuery: trộn 4 nguồn (lý lịch lắp đặt / ActionLog /
+    // đợt bảo dưỡng / phiếu bảo dưỡng) — mới nhất trước, phân trang CURSOR (không offset),
+    // company-scope → 404 như GetAsset. Hợp đồng DTO + từ vựng eventType: docs/API.md.
+
+    [HttpGet("{id:guid}/timeline")]
+    [Authorize(Policy = "assets.view")]
+    public async Task<IActionResult> GetTimeline(
+        Guid id, [FromQuery] string? cursor, [FromQuery] int limit = AssetTimelineQueryHandler.DefaultLimit)
+    {
+        var result = await _mediator.Send(new AssetTimelineQuery(id, cursor, limit));
+
+        if (!result.Success)
+        {
+            if (result.ErrorCode == AssetTimelineQuery.InvalidCursorErrorCode)
+                return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+
+            return NotFound(new { status = "error", message = "Asset not found." });
+        }
+
+        var events = result.Events ?? Array.Empty<AssetTimelineEventDto>();
+        return Ok(new
+        {
+            status = "success",
+            data = events,
+            pagination = new
+            {
+                limit = result.Limit,
+                count = events.Count,
+                hasMore = result.NextCursor != null,
+                nextCursor = result.NextCursor
+            }
+        });
+    }
+
     // ==================== AUDIT ====================
 
     [HttpPost("{id:guid}/audit")]
