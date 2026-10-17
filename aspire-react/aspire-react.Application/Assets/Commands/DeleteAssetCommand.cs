@@ -59,6 +59,12 @@ public class DeleteAssetCommandHandler : IRequestHandler<DeleteAssetCommand, Ass
         if (await _context.ComponentAssignments.AnyAsync(ca => ca.AssetId == request.AssetId, cancellationToken))
             return new AssetResult(false, "Không thể xóa tài sản đang được linh kiện (Component) sử dụng.", ErrorCode: "ASSET_USED_BY_COMPONENT");
 
+        // [LL-1 delete-guard] Asset đã có lý lịch lắp đặt (asset_installations) → không xóa cứng.
+        // FK asset_installations.AssetId là RESTRICT ở DB (append-only history); guard trước để trả
+        // 400 mềm thay vì 500 FK thô (mirror ASSET_HAS_ASSIGNMENTS).
+        if (await _context.AssetInstallations.AnyAsync(i => i.AssetId == request.AssetId, cancellationToken))
+            return new AssetResult(false, "Không thể xóa tài sản đã có lý lịch lắp đặt (lịch sử lắp đặt phải được giữ).", ErrorCode: "ASSET_HAS_INSTALLATION_HISTORY");
+
         // Log before removal
         _actionLogService.LogAction(
             itemType: ItemType.Asset,

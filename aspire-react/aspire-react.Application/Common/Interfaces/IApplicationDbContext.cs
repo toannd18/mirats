@@ -62,6 +62,9 @@ public interface IApplicationDbContext
     DbSet<Assignment> Assignments { get; }
     DbSet<ActionLog> ActionLogs { get; }
 
+    // [LL-1] Lý lịch lắp đặt thiết bị (append-only, interval Asset ↔ SystemPosition)
+    DbSet<AssetInstallation> AssetInstallations { get; }
+
     // Consumables, Components, Accessories, Licenses
     DbSet<Consumable> Consumables { get; }
     DbSet<ConsumableCheckout> ConsumableCheckouts { get; }

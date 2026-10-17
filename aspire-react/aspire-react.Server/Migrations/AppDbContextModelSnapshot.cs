@@ -364,6 +364,74 @@ namespace aspirereact.Server.Migrations
                     b.ToTable("assets", (string)null);
                 });
 
+            modelBuilder.Entity("aspire_react.Server.Domain.Entities.AssetInstallation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CorrectsEntryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LoggedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LoggedByName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SupersededAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("SystemInfoId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SystemInfoName")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("SystemPositionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SystemPositionName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CorrectsEntryId");
+
+                    b.HasIndex("LoggedById");
+
+                    b.HasIndex("SystemPositionId");
+
+                    b.HasIndex("AssetId", "StartedAt");
+
+                    b.ToTable("asset_installations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_asset_installations_ended_after_started", "\"EndedAt\" IS NULL OR \"EndedAt\" >= \"StartedAt\"");
+                        });
+                });
+
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.AssetMaintenance", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2271,6 +2339,38 @@ namespace aspirereact.Server.Migrations
                     b.Navigation("Model");
 
                     b.Navigation("Supplier");
+
+                    b.Navigation("SystemPosition");
+                });
+
+            modelBuilder.Entity("aspire_react.Server.Domain.Entities.AssetInstallation", b =>
+                {
+                    b.HasOne("aspire_react.Server.Domain.Entities.Asset", "Asset")
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("aspire_react.Server.Domain.Entities.AssetInstallation", "CorrectsEntry")
+                        .WithMany()
+                        .HasForeignKey("CorrectsEntryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("aspire_react.Server.Domain.Entities.User", "LoggedBy")
+                        .WithMany()
+                        .HasForeignKey("LoggedById")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("aspire_react.Server.Domain.Entities.SystemPosition", "SystemPosition")
+                        .WithMany()
+                        .HasForeignKey("SystemPositionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Asset");
+
+                    b.Navigation("CorrectsEntry");
+
+                    b.Navigation("LoggedBy");
 
                     b.Navigation("SystemPosition");
                 });

@@ -45,6 +45,9 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<Assignment> Assignments => Set<Assignment>();
     public DbSet<ActionLog> ActionLogs => Set<ActionLog>();
 
+    // [LL-1] Lý lịch lắp đặt thiết bị (append-only, interval Asset ↔ SystemPosition)
+    public DbSet<AssetInstallation> AssetInstallations => Set<AssetInstallation>();
+
     // Consumables, Components, Accessories, Licenses
     public DbSet<Consumable> Consumables => Set<Consumable>();
     public DbSet<ConsumableCheckout> ConsumableCheckouts => Set<ConsumableCheckout>();
@@ -214,6 +217,40 @@ public class AppDbContext : DbContext, IApplicationDbContext
             // Assignment history: Assignment.Asset ↔ Asset.ChildAssignments (one-to-many),
             // FK on assignments.AssetId — every checkout/assignment row is kept as history.
             entity.HasMany(e => e.ChildAssignments).WithOne(a => a.Asset).HasForeignKey(a => a.AssetId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // [LL-1] Lý lịch lắp đặt thiết bị — bảng CHỈ GHI THÊM (append-only), mỗi dòng = một khoảng gắn
+        // (Asset ↔ SystemPosition). Tháo/điều chuyển = đặt EndedAt cho dòng đang mở rồi mở dòng mới.
+        //  - AssetId FK RESTRICT: xóa cứng asset đã có lý lịch bị chặn (guard 400 trước, không lộ 500 FK).
+        //  - SystemPositionId FK SET NULL: vị trí bị xóa vẫn giữ lịch sử (tên denormalize).
+        //  - LoggedById FK SET NULL + LoggedByName (denormalize): lịch sử giữ nguyên tên người ghi
+        //    kể cả khi user bị xóa/đổi tên (mirror SystemPositionName).
+        //  - CorrectsEntryId self-FK RESTRICT: bản đính chính trỏ bản sai.
+        //  - Ràng buộc chống chồng khoảng + CHECK EndedAt>=StartedAt: CHECK ở đây; exclusion constraint
+        //    partial (SupersededAt IS NULL) tạo bằng raw SQL trong migration (EF Core không hỗ trợ).
+        modelBuilder.Entity<AssetInstallation>(entity =>
+        {
+            entity.ToTable("asset_installations", t =>
+                t.HasCheckConstraint(
+                    "CK_asset_installations_ended_after_started",
+                    "\"EndedAt\" IS NULL OR \"EndedAt\" >= \"StartedAt\""));
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+
+            entity.HasOne(e => e.Asset).WithMany().HasForeignKey(e => e.AssetId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.SystemPosition).WithMany().HasForeignKey(e => e.SystemPositionId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(e => e.CorrectsEntry).WithMany().HasForeignKey(e => e.CorrectsEntryId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.LoggedBy).WithMany().HasForeignKey(e => e.LoggedById).OnDelete(DeleteBehavior.SetNull);
+
+            entity.Property(e => e.StartedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.EndedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.SupersededAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.Source).HasConversion<int>();
+
+            entity.HasIndex(e => new { e.AssetId, e.StartedAt });
+            entity.HasIndex(e => e.SystemPositionId);
         });
 
         modelBuilder.Entity<AssetModel>(entity =>

@@ -65,6 +65,15 @@ public class DeleteSystemPositionCommandHandler : IRequestHandler<DeleteSystemPo
                 "Vị trí đang được ChecklistItem của template bảo dưỡng tham chiếu — không thể xóa. Hãy điều chỉnh template (version mới) trước.",
                 "POSITION_IN_USE_BY_CHECKLIST");
 
+        // [LL-1 delete-guard] Vị trí đang có thiết bị gắn (assets.SystemPositionId) → chặn xóa.
+        // FK assets.SystemPositionId là NO ACTION ở DB → xóa vị trí đang có asset sẽ lộ 500 FK thô;
+        // guard trước để trả 400 mềm (mirror POSITION_IN_USE_BY_CHECKLIST).
+        if (await _context.Assets.AsNoTracking()
+                .AnyAsync(a => a.SystemPositionId == request.PosId, cancellationToken))
+            return new SystemInfoResult(false,
+                "Vị trí đang có thiết bị (asset) được gắn — không thể xóa. Hãy tháo/điều chuyển thiết bị trước.",
+                "POSITION_IN_USE_BY_ASSET");
+
         _context.SystemPositions.Remove(pos);
         await _context.SaveChangesAsync(cancellationToken);
 

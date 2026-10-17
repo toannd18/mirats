@@ -167,6 +167,7 @@ Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`Au
 | `ASSET_HAS_ASSIGNMENTS` | 400 | DELETE /assets/{id} | Asset có lịch sử cấp phát (delete-guard) |
 | `ASSET_HAS_MAINTENANCES` | 400 | DELETE /assets/{id} | Asset có phiếu bảo trì (delete-guard) |
 | `ASSET_USED_BY_COMPONENT` | 400 | DELETE /assets/{id} | Asset đang được linh kiện dùng (delete-guard) |
+| `ASSET_HAS_INSTALLATION_HISTORY` | 400 | DELETE /assets/{id} | Asset đã có lý lịch lắp đặt — `asset_installations` (delete-guard, LL-1; FK RESTRICT) |
 | `ALREADY_CONFIRMED` | 400 | POST {id}/confirm | Confirm asset đã confirm |
 | `ALREADY_ARCHIVED` | 400 | POST {id}/archive | Archive asset đã archive |
 | `NOT_ARCHIVED` | 400 | POST {id}/unarchive | Unarchive asset chưa archive |
@@ -435,6 +436,8 @@ Import response thành công là FLAT: `status/created/failed/rows/errors` — k
 | `COMPANY_MISMATCH` | 400 | POST (Create) | Regular user tạo cho company khác |
 | `FIELD_LOCKED` | 400 | PUT /{id} | Đổi CompanyId |
 | `POSITION_IN_USE_BY_CHECKLIST` | 400 | DELETE /system-infos/{systemInfoId}/positions/{posId}, DELETE /system-infos/{id} | Position đang được checklist tham chiếu (`DeleteSystemPositionCommand` + `DeleteSystemInfoCommand`) |
+| `POSITION_IN_USE_BY_ASSET` | 400 | DELETE /system-infos/{systemInfoId}/positions/{posId} | Position đang có thiết bị gắn (`assets.SystemPositionId`) — delete-guard LL-1 (FK `assets.SystemPositionId` là NO ACTION → nếu không guard sẽ lộ 500 FK thô) |
+| `SYSTEM_IN_USE_BY_ASSET` | 400 | DELETE /system-infos/{id} | Hệ thống có BẤT KỲ vị trí nào đang được thiết bị gắn (`assets.SystemPositionId`) — delete-guard LL-1 (cascade xuống `system_positions` sẽ đụng FK NO ACTION nếu không guard) |
 | `SYSTEM_IN_USE_BY_CAMPAIGN` | 400 | DELETE /{id} | Hệ thống đang có campaign |
 | (Dup code) | 400 | POST /system-infos, POST /system-infos/{systemInfoId}/positions | "Mã hệ thống đã tồn tại." / "Mã vị trí đã tồn tại." — không error_code |
 
@@ -459,6 +462,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `ASSET_ARCHIVED` — Assets (400)
 - `ASSET_CHECKED_OUT` — Assets (400)
 - `ASSET_HAS_ASSIGNMENTS` — Assets (400)
+- `ASSET_HAS_INSTALLATION_HISTORY` — Assets (400)
 - `ASSET_HAS_MAINTENANCES` — Assets (400)
 - `ASSET_ALREADY_CHECKED_OUT` — Assets (400)
 - `ASSET_NOT_DEPLOYABLE` — Assets (400)
@@ -536,6 +540,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `PARAM_REQUIRED` — MaintenanceTemplates (400)
 - `PASSKEY_ALREADY_REGISTERED` / `PASSKEY_MALFORMED_RESPONSE` / `PASSKEY_REGISTRATION_EXPIRED` / `PASSKEY_VERIFICATION_FAILED` — Auth passkeys/register (400). `PASSKEY_ASSERTION_EXPIRED` bị handler gộp thành `INVALID_CREDENTIALS` (401)
 - `PASSKEYS_DISABLED` — Auth passkeys login (login/options + login) (**403**)
+- `POSITION_IN_USE_BY_ASSET` — SystemInfos (400)
 - `POSITION_IN_USE_BY_CHECKLIST` — SystemInfos (400)
 - `RESOURCE_NOT_FOUND` — AssetModels (400, BUG-H), Users Create/Update (DepartmentId/LocationId, 400)
 - `RESULT_CONCURRENT_WRITE` — MaintenanceCampaigns (**409** — duy nhất)
@@ -551,6 +556,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `STANDARD_PARAM_NOT_APPLICABLE` / `STANDARD_PARAM_REQUIRED` — MaintenanceCampaigns (400)
 - `SUPPLIER_IN_USE` — Suppliers (400)
 - `SYSTEM_GROUP_LOCKED` — Groups (400)
+- `SYSTEM_IN_USE_BY_ASSET` — SystemInfos (400)
 - `SYSTEM_IN_USE_BY_CAMPAIGN` — SystemInfos (400)
 - `SYSTEM_INFO_REQUIRED` — MaintenanceTemplates, MaintenanceCampaigns (400)
 - `SYSTEM_NOT_FOUND` — MaintenanceCampaigns (404)

@@ -11,8 +11,9 @@ namespace aspire_react.Server.Application.SystemInfos.Commands;
 /// [Giai đoạn 3] DELETE /api/v1/system-infos/{id} (extracted from SystemInfoController.Delete).
 /// Verbatim: company-scope 404; [MC-7a delete-guard] POSITION_IN_USE_BY_CHECKLIST; [BUG-C
 /// delete-guard] SYSTEM_IN_USE_BY_CAMPAIGN (completed campaigns = immutable history, FK
-/// RESTRICT would leak raw 500 — soft 400 first, AR-2/MC-7a pattern). ILoggableCommand with
-/// CompanyId = s.CompanyId.
+/// RESTRICT would leak raw 500 — soft 400 first, AR-2/MC-7a pattern); [LL-1 delete-guard]
+/// SYSTEM_IN_USE_BY_ASSET (assets.SystemPositionId FK is NO ACTION — cascade would leak raw 500).
+/// ILoggableCommand with CompanyId = s.CompanyId.
 /// </summary>
 public record DeleteSystemInfoCommand(Guid Id, Guid CurrentUserId)
     : IRequest<SystemInfoResult>, ILoggableCommand<SystemInfoResult>
@@ -69,6 +70,17 @@ public class DeleteSystemInfoCommandHandler : IRequestHandler<DeleteSystemInfoCo
             return new SystemInfoResult(false,
                 "Hệ thống có vị trí đang được ChecklistItem của template bảo dưỡng tham chiếu — không thể xóa.",
                 "POSITION_IN_USE_BY_CHECKLIST");
+
+        // [LL-1 delete-guard] Hệ thống có vị trí đang được thiết bị (asset) gắn → chặn xóa.
+        // Xóa hệ thống sẽ CASCADE xuống system_positions, nhưng FK assets.SystemPositionId là NO ACTION
+        // ở DB → cascade sẽ lộ 500 FK thô. Guard mềm trước khi cascade (mirror POSITION_IN_USE_BY_ASSET
+        // của DeleteSystemPositionCommand — cùng điều kiện, khác phạm vi: một vị trí vs mọi vị trí của hệ thống).
+        if (posIds.Count > 0
+            && await _context.Assets.AsNoTracking()
+                .AnyAsync(a => a.SystemPositionId.HasValue && posIds.Contains(a.SystemPositionId.Value), cancellationToken))
+            return new SystemInfoResult(false,
+                "Hệ thống có vị trí đang được thiết bị (asset) gắn — không thể xóa. Hãy tháo/điều chuyển thiết bị trước.",
+                "SYSTEM_IN_USE_BY_ASSET");
 
         // [BUG-C delete-guard] Campaign (kể cả Completed — lịch sử bất biến) tham chiếu SystemInfo qua
         // FK RESTRICT → xóa system sẽ lộ 500 FK thô (reproduced trong audit backend 2026-08-30).
