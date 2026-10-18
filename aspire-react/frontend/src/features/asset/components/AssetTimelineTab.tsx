@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Empty, Grid, Skeleton, Tag, Timeline, Tooltip, Typography, theme, Segmented } from 'antd';
+import { Alert, App, Button, Empty, Grid, Skeleton, Tag, Timeline, Tooltip, Typography, theme, Segmented } from 'antd';
 import {
   AuditOutlined, CheckCircleOutlined, CheckOutlined, ClockCircleOutlined, CloseOutlined,
-  CloudUploadOutlined, DeleteOutlined, DisconnectOutlined, EditOutlined, ExportOutlined,
+  CloudUploadOutlined, DeleteOutlined, DiffOutlined, DisconnectOutlined, EditOutlined, ExportOutlined,
   ImportOutlined, InboxOutlined, LockOutlined, PlusCircleOutlined,
   RollbackOutlined, SafetyCertificateOutlined, ScheduleOutlined, SendOutlined, StopOutlined,
   ToolOutlined, UndoOutlined, UnlockOutlined, UserOutlined,
@@ -10,6 +10,8 @@ import {
 import { Link } from 'react-router-dom';
 import { assetService } from '../services/asset.service';
 import { formatDateTimeShort } from '../../../utils/format';
+import { usePermission } from '../../../hooks/usePermission';
+import AssetInstallationCorrectionModal from './AssetInstallationCorrectionModal';
 import { timelineRefRoute, type AssetTimelineEvent, type AssetTimelineResponse } from '../types/timeline';
 
 const { Text } = Typography;
@@ -71,6 +73,8 @@ function eventMeta(eventType: string, token: TimelineToken): { color: string; ic
     case 'INSPECT': return { color: token.colorInfo, icon: <SafetyCertificateOutlined /> };
     case 'PUBLISH': return { color: token.colorPrimary, icon: <CloudUploadOutlined /> };
     case 'COMPLETE': return { color: token.colorSuccess, icon: <CheckCircleOutlined /> };
+    // [LL-5] Sự kiện ĐÍNH CHÍNH lý lịch lắp đặt — icon/màu RIÊNG (không rơi vào nhánh mặc định).
+    case 'CORRECT': return { color: token.colorInfo, icon: <DiffOutlined /> };
     default: return { color: token.colorTextTertiary, icon: <ClockCircleOutlined /> };
   }
 }
@@ -88,9 +92,12 @@ function eventMeta(eventType: string, token: TimelineToken): { color: string; ic
  */
 export default function AssetTimelineTab({ assetId }: { assetId: string }) {
   const { token } = theme.useToken();
+  const { message } = App.useApp();
   const screens = Grid.useBreakpoint();
   // < 576px (VD 390px): nút "Thử lại" xuống dòng riêng thay vì nằm cạnh phần mô tả.
   const isNarrow = !screens.sm;
+  // [LL-5] Nút "Đính chính" chỉ hiện khi có quyền riêng (không gộp vào assets.edit).
+  const canCorrect = usePermission('assets.correct');
 
   const [filter, setFilter] = useState<TimelineFilter>('main');
   const [events, setEvents] = useState<AssetTimelineEvent[]>([]);
@@ -98,6 +105,8 @@ export default function AssetTimelineTab({ assetId }: { assetId: string }) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<TimelineError | null>(null);
+  // Id dòng lý lịch đang đính chính (null = modal đóng).
+  const [correctEntryId, setCorrectEntryId] = useState<string | null>(null);
 
   // `append = false` → tải trang đầu (thay danh sách); `append = true` → nối thêm theo `cursor`.
   const load = useCallback(async (cursor: string | null, append: boolean) => {
@@ -201,6 +210,9 @@ export default function AssetTimelineTab({ assetId }: { assetId: string }) {
         items={events.map(event => {
           const meta = eventMeta(event.eventType, token);
           const route = timelineRefRoute(event.refType, event.refId);
+          // [LL-5] Chỉ sự kiện của nguồn lý lịch lắp đặt mới đính chính được; cả INSTALL và REMOVE của
+          // CÙNG một dòng mở CÙNG một form (dùng chung `refId` = id dòng).
+          const correctableEntryId = canCorrect && event.refType === 'assetInstallation' ? event.refId : null;
           return {
             // [LL-4b] `id` do server cấp, ổn định giữa các trang ⇒ dùng thẳng làm key.
             key: event.id,
@@ -216,6 +228,22 @@ export default function AssetTimelineTab({ assetId }: { assetId: string }) {
                     <Tooltip title="Thời điểm này được suy ra khi chuyển dữ liệu cũ sang lý lịch (backfill), không phải mốc do người dùng ghi nhận.">
                       <Tag color="warning" style={{ marginInlineEnd: 0 }}>Thời điểm ước tính</Tag>
                     </Tooltip>
+                  )}
+                  {event.isCorrection && (
+                    <Tooltip title="Bản ghi trước đã bị thay thế, xem lý do ở sự kiện Đính chính.">
+                      <Tag color="processing" style={{ marginInlineEnd: 0 }}>Đã đính chính</Tag>
+                    </Tooltip>
+                  )}
+                  {correctableEntryId && (
+                    <Button
+                      type="link"
+                      size="small"
+                      icon={<DiffOutlined />}
+                      style={{ marginInlineStart: 'auto', padding: 0 }}
+                      onClick={() => setCorrectEntryId(correctableEntryId)}
+                    >
+                      Đính chính
+                    </Button>
                   )}
                 </div>
                 <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
@@ -243,6 +271,20 @@ export default function AssetTimelineTab({ assetId }: { assetId: string }) {
           <Button loading={loadingMore} onClick={() => void load(nextCursor, true)}>Tải thêm</Button>
         </div>
       )}
+
+      {/* [LL-5] Modal đính chính: mở từ nút trên sự kiện INSTALL/REMOVE của CÙNG một dòng lý lịch. */}
+      <AssetInstallationCorrectionModal
+        open={correctEntryId !== null}
+        assetId={assetId}
+        entryId={correctEntryId}
+        onClose={() => setCorrectEntryId(null)}
+        onSuccess={(msg) => {
+          setCorrectEntryId(null);
+          void message.success(msg);
+          // Tải lại TRANG 1 và GIỮ NGUYÊN bộ lọc đang chọn.
+          void load(null, false);
+        }}
+      />
     </div>
   );
 }

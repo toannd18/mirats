@@ -321,6 +321,30 @@ Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**
 
 ---
 
+### Đọc một dòng lý lịch lắp đặt — [LL-5]
+
+`GET /api/v1/assets/{id:guid}/installations/{entryId:guid}` · `assets.view`
+
+Trả về ĐỦ dữ liệu của MỘT dòng `asset_installations` — dùng cho form "Đính chính" (DTO timeline chỉ có 1 mốc
+`occurredAt` và **không** có `note`/`source`/`systemPositionId`).
+
+| Trường | Kiểu | Ghi chú |
+|--------|------|---------|
+| `id`, `assetId` | guid | |
+| `systemPositionId`, `systemPositionName`, `systemInfoId`, `systemInfoName` | guid?/string? | Snapshot tên vị trí/hệ thống tại thời điểm ghi |
+| `startedAt` | ISO-8601 UTC (có `Z`) | Mốc bắt đầu gắn |
+| `endedAt` | ISO-8601 UTC (có `Z`) \| null | `null` ⇒ dòng **ĐANG MỞ** (chỉ sửa được mốc bắt đầu + ghi chú) |
+| `note` | string? | Ghi chú lý lịch |
+| `source` | string | `Api` \| `Import` \| `Backfill` \| `Correction` |
+| `isEstimated` | bool | `true` = mốc ƯỚC TÍNH (chỉ dòng `Backfill`) |
+| `isCorrection` | bool | `true` = chính dòng này là một bản đính chính |
+| `correctsEntryId` | guid? | Bản mà dòng này thay thế |
+| `supersededAt` | ISO-8601 UTC (có `Z`) \| null | `null` = đang hiệu lực; khác null = đã bị đính chính |
+| `loggedByName` | string? | Người ghi (denormalize, sống sót khi user bị xoá/đổi tên) |
+
+**Lỗi:** **404** `{status, message}` (**KHÔNG** có `error_code`) khi asset không tồn tại / **ngoài phạm vi công ty** /
+`entryId` không thuộc asset — cùng quy ước hide-existence với `GET /assets/{id}`.
+
 ### Đính chính lý lịch lắp đặt — [LL-5]
 
 `POST /api/v1/assets/{id:guid}/installations/{entryId:guid}/correct` · `assets.correct`

@@ -217,6 +217,19 @@ public class AssetsController : ControllerBase
     // Đính chính = đánh dấu bản cũ SupersededAt + INSERT bản mới (CorrectsEntryId) trong CÙNG transaction,
     // có ActionLog. Luật + mã lỗi: docs/API.md § "Đính chính lý lịch lắp đặt" + docs/ERROR_CODES.md.
 
+    [HttpGet("{id:guid}/installations/{entryId:guid}")]
+    [Authorize(Policy = "assets.view")]
+    public async Task<IActionResult> GetInstallation(Guid id, Guid entryId)
+    {
+        var result = await _mediator.Send(new AssetInstallationQuery(id, entryId));
+
+        // 404 hide-existence: asset không tồn tại / ngoài phạm vi công ty, hoặc bản ghi không thuộc asset.
+        if (!result.Success || result.Installation == null)
+            return NotFound(new { status = "error", message = "Installation not found." });
+
+        return Ok(new { status = "success", data = result.Installation });
+    }
+
     [HttpPost("{id:guid}/installations/{entryId:guid}/correct")]
     [Authorize(Policy = "assets.correct")]
     public async Task<IActionResult> CorrectInstallation(Guid id, Guid entryId, [FromBody] CorrectInstallationRequestDto request)

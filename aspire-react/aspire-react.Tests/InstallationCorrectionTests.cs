@@ -337,6 +337,56 @@ public class InstallationCorrectionTests
             .ToListAsync());
     }
 
+    /// <summary>
+    /// [LL-5 Bước 4] Endpoint đọc MỘT dòng lý lịch (form đính chính cần đủ `startedAt`/`endedAt`/vị trí/`note`/`source`
+    /// — DTO timeline không có). Kiểm 3 dòng (đang mở / đã đóng / backfill) + các ca 404: entry không thuộc asset,
+    /// asset khác, và NGOÀI phạm vi công ty (hide-existence).
+    /// </summary>
+    [ThrowawayDbFact]
+    public async Task InstallationQuery_ReturnsRow_AndHidesForeignOrOutOfScope_OnRealPostgres()
+    {
+        await using var db = await CreateContextAsync();
+        var fx = await SeedAsync(db);
+        var handler = new AssetInstallationQueryHandler(db, new TestHelpers.SuperUserScope());
+
+        var open = await handler.Handle(new AssetInstallationQuery(fx.Asset.Id, fx.Open.Id), CancellationToken.None);
+        Assert.True(open.Success);
+        var openDto = open.Installation!;
+        Assert.Equal(fx.Open.Id, openDto.Id);
+        Assert.Equal(fx.Asset.Id, openDto.AssetId);
+        Assert.Equal(fx.PosA.Id, openDto.SystemPositionId);
+        Assert.Equal(fx.PosA.Name, openDto.SystemPositionName);
+        Assert.Equal(fx.System.Name, openDto.SystemInfoName);
+        Assert.Equal(fx.Base, openDto.StartedAt);
+        Assert.Equal(DateTimeKind.Utc, openDto.StartedAt.Kind);            // JSON có hậu tố Z
+        Assert.Null(openDto.EndedAt);                                      // dòng ĐANG MỞ
+        Assert.Equal("ghi chú đang mở", openDto.Note);
+        Assert.Equal(AssetInstallationSource.Api, openDto.Source);
+        Assert.False(openDto.IsEstimated);
+        Assert.False(openDto.IsCorrection);
+        Assert.Null(openDto.CorrectsEntryId);
+        Assert.Null(openDto.SupersededAt);
+        Assert.Equal("Kiểm Thử", openDto.LoggedByName);
+
+        var closed = await handler.Handle(new AssetInstallationQuery(fx.Asset.Id, fx.Closed.Id), CancellationToken.None);
+        Assert.True(closed.Success);
+        Assert.Equal(fx.Closed.EndedAt, closed.Installation!.EndedAt);
+        Assert.Equal(DateTimeKind.Utc, closed.Installation!.EndedAt!.Value.Kind);
+
+        var backfill = await handler.Handle(new AssetInstallationQuery(fx.Asset.Id, fx.Backfill.Id), CancellationToken.None);
+        Assert.True(backfill.Success);
+        Assert.True(backfill.Installation!.IsEstimated);
+        Assert.Equal(AssetInstallationSource.Backfill, backfill.Installation!.Source);
+
+        // entry KHÔNG thuộc asset ⇒ 404.
+        Assert.False((await handler.Handle(new AssetInstallationQuery(fx.Asset.Id, Guid.NewGuid()), CancellationToken.None)).Success);
+        // asset KHÁC ⇒ 404.
+        Assert.False((await handler.Handle(new AssetInstallationQuery(Guid.NewGuid(), fx.Open.Id), CancellationToken.None)).Success);
+        // NGOÀI company scope ⇒ 404 (hide-existence).
+        var scoped = new AssetInstallationQueryHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = Guid.NewGuid() });
+        Assert.False((await scoped.Handle(new AssetInstallationQuery(fx.Asset.Id, fx.Open.Id), CancellationToken.None)).Success);
+    }
+
     // ==================== Hạ tầng test ====================
 
     private sealed record Fixture(

@@ -34,6 +34,11 @@ export interface AssetTimelineEvent {
   refId: string | null;
   /** `true` khi MỐC THỜI GIAN là ước tính (chỉ có ở sự kiện lắp của dòng backfill). */
   isEstimated: boolean;
+  /**
+   * [LL-5] `true` khi sự kiện thuộc một BẢN ĐÍNH CHÍNH (`CorrectsEntryId != null`) — FE gắn Tag
+   * "Đã đính chính". Bản bị thay thế bị ẩn khỏi timeline (xem lý do ở sự kiện `CORRECT`).
+   */
+  isCorrection: boolean;
   /** Ngày hoàn thành phiếu bảo dưỡng (UTC có `Z`); `null` = phiếu chưa hoàn thành. */
   maintenanceCompletionDate: string | null;
 }
@@ -71,4 +76,39 @@ export function timelineRefRoute(refType: string | null, refId: string | null): 
   if (!refType || !refId) return null;
   if (refType === 'maintenanceCampaign') return `/maintenance/campaigns/${refId}`;
   return null;
+}
+
+// ==================== [LL-5] Đính chính lý lịch lắp đặt ====================
+
+/** Nguồn của một dòng lý lịch (enum backend serialize thành chuỗi). */
+export type AssetInstallationSource = 'Api' | 'Import' | 'Backfill' | 'Correction';
+
+/**
+ * Chi tiết MỘT dòng lý lịch lắp đặt — nguồn dữ liệu cho form "Đính chính"
+ * (`GET /api/v1/assets/{assetId}/installations/{entryId}`).
+ *
+ * Vì sao cần endpoint riêng: DTO timeline chỉ có 1 mốc (`occurredAt`) và KHÔNG có `note`/`source`/
+ * `systemPositionId` — không đủ để dựng form đính chính.
+ */
+export interface AssetInstallationDetail {
+  id: string;
+  assetId: string;
+  systemPositionId: string | null;
+  systemPositionName: string | null;
+  systemInfoId: string | null;
+  systemInfoName: string | null;
+  /** [UTC có `Z`] Mốc bắt đầu gắn. */
+  startedAt: string;
+  /** [UTC có `Z`] `null` = dòng ĐANG MỞ (chỉ sửa được mốc bắt đầu + ghi chú). */
+  endedAt: string | null;
+  note: string | null;
+  source: AssetInstallationSource;
+  /** `true` = mốc thời gian ƯỚC TÍNH (dòng backfill) ⇒ sau khi đính chính sẽ mất nhãn ước tính. */
+  isEstimated: boolean;
+  /** `true` = chính dòng này là một bản đính chính. */
+  isCorrection: boolean;
+  correctsEntryId: string | null;
+  /** [UTC] `null` = dòng đang hiệu lực; khác null = đã bị đính chính (không sửa được nữa). */
+  supersededAt: string | null;
+  loggedByName: string | null;
 }

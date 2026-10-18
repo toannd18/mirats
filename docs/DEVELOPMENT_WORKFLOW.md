@@ -264,6 +264,23 @@ curl -s "https://api.github.com/repos/toannd18/mirats/actions/runs/<run-id>/jobs
 - **Báo cáo** phải ghi: DB tạm nằm ở container nào, đã xoá chưa, và mọi thao tác SQL đặc biệt trên DB tạm
   (replay migration, soft-delete, hạ `IsConfirmed`, …) kèm lý do — vì API không tạo được trạng thái đó.
 
+### 3.17. Thay đổi chạm LÝ LỊCH LẮP ĐẶT: BẮT BUỘC chạy nhóm test ThrowawayDb trên Postgres THẬT trước khi push
+(quy tắc cứng, từ 2026-10-18)
+
+- **Phạm vi áp dụng:** mọi thay đổi chạm lý lịch lắp đặt — `InstallationLedger`, `checkout`/`checkin`/`archive`,
+  **đính chính** (`CorrectInstallationCommand`, endpoint `/installations/{entryId}/correct`), hoặc `AssetTimelineQuery`
+  (trừ thay đổi thuần hiển thị/文案 đã có test `[Fact]` bao phủ).
+- **Bắt buộc:** chạy nhóm test `[ThrowawayDbFact]` trên **Postgres THẬT** (DB tạm trong **container riêng**, §3.16)
+  **TRƯỚC KHI PUSH** — không được chỉ dựa vào `dotnet test` mặc định (InMemory).
+  - Bật cờ + truyền connection string: `MIRATS_TEST_THROWAWAY_DB=1`, `MIRATS_TEST_POSTGRES=<conn string DB tạm>`
+    rồi `dotnet test aspire-react.Tests --filter "FullyQualifiedName~<nhóm test>"`.
+- **Vì sao:** InMemory KHÔNG có (đã gặp thật): exclusion constraint `EX_asset_installations_no_overlap` (**23P01**),
+  CHECK `CK_asset_installations_ended_after_started` (**23514**), `FromSqlRaw … FOR UPDATE`, và `timestamp with time zone`
+  (DateTime Kind) — đúng những thứ quyết định lý lịch có hỏng hay không. BUG-Q là ví dụ: InMemory xanh nhưng API thật 500.
+- **Báo cáo PHẢI ghi:** nhóm test đã chạy, **số pass/skip**, DB tạm nằm ở container nào, và đã dọn container chưa.
+- **Nhóm test hiện có:** `InstallationCorrectionTests` (LL-5, 6 ca), `AssetDetailAssignmentTests` (BUG-Q, 1 ca).
+  Khi thêm hành vi lý lịch mới ⇒ thêm ca vào nhóm này, không chỉ viết test InMemory.
+
 ---
 
 ## 4. Checklist hoàn thành task (đính kèm CUỐI mỗi báo cáo)

@@ -141,6 +141,15 @@ export const assetService = {
   // [LL-4] Lý lịch thiết bị — phân trang bằng con trỏ ĐỤC: truyền lại `pagination.nextCursor` của trang
   // trước qua `params.cursor`; `limit ≤ 0 → 50`, `> 200 → 200` (server chuẩn hoá). Xem docs/API.md.
   getTimeline: (id: string, params?: { limit?: number; cursor?: string; types?: string }) => apiClient.get(`/assets/${id}/timeline`, { params }),
+  // [LL-5] Đính chính lý lịch lắp đặt: đọc 1 dòng (form cần dữ liệu gốc) + tạo bản đính chính.
+  getInstallation: (assetId: string, entryId: string) =>
+    apiClient.get(`/assets/${assetId}/installations/${entryId}`),
+  correctInstallation: (
+    assetId: string,
+    entryId: string,
+    // Patch-semantics: CHỈ gửi trường đã thay đổi; `reason` luôn bắt buộc (10..500 ký tự).
+    data: { startedAt?: string; endedAt?: string; systemPositionId?: string; note?: string; reason: string },
+  ) => apiClient.post(`/assets/${assetId}/installations/${entryId}/correct`, data),
   // Maintenance
   listAllMaintenances: (params?: Record<string, unknown>) => apiClient.get('/maintenances', { params }),
   getMaintenance: (id: string) => apiClient.get(`/maintenances/${id}`),
