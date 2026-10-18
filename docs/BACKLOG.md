@@ -737,6 +737,31 @@
   `SystemInfo`/`SystemPosition` (guard đầy đủ), `UpdateGroupPermissions`/`UpdateUserGroups` (full-replace
   **theo thiết kế**). Hai chỗ dùng `?? <giá trị cũ>` (`Component.Notes`, `License.Serial`/`Notes`) là pattern
   BUG-N đã duyệt (hệ quả đã biết: không thể xoá về rỗng) — **không** thuộc lớp lỗi này.
-- **Quan sát phụ (chưa sửa, chưa đăng ký):** `UpdateConsumableCommand.cs:127` ghi
+- **Quan sát phụ (đã đăng ký thành BUG-P, CHƯA sửa):** `UpdateConsumableCommand.cs:127` ghi
   `minAmt = new { old = c.MinAmt, @new = c.MinAmt }` ⇒ `LogMeta` của `minAmt` luôn `old == new` (audit sai,
-  không ảnh hưởng dữ liệu).
+  không ảnh hưởng dữ liệu) — xem § **BUG-P**.
+
+---
+
+## BUG-P — UpdateConsumableCommand: `LogMeta.changes.minAmt` luôn `old == new` (audit sai, KHÔNG mất dữ liệu)
+
+- **Trạng thái: OPEN** (đăng ký 2026-10-18 theo yêu cầu người dùng — **chưa sửa**; nằm ngoài phạm vi BUG-O).
+- **Vị trí:** `aspire-react.Application/Consumables/Commands/UpdateConsumableCommand.cs:127`
+  (`minAmt = new { old = c.MinAmt, @new = c.MinAmt }`), trong khối `LogMeta` ở `:123-128`.
+- **Nguyên nhân:** khối patch-semantics chỉ chụp giá trị cũ cho 2 field — `var oldName = c.Name;` (`:99`) và
+  `var oldQty = c.Qty;` (`:100`) — **không có `oldMinAmt`**. Trong khi đó `c.MinAmt` đã bị gán giá trị mới ở
+  `:104` (`if (request.MinAmt.HasValue) c.MinAmt = request.MinAmt.Value;`) **trước** khi serialize `LogMeta`,
+  nên `old` và `new` cùng đọc một giá trị ⇒ mọi lần đổi `minAmt` đều ghi `{"old": X, "new": X}`.
+- **Ảnh hưởng:** chỉ **nhật ký kiểm toán** sai — không mất/sai dữ liệu nghiệp vụ (`UPDATE` vẫn lưu đúng
+  `MinAmt`); không phải lỗ hổng bảo mật. Hệ quả: không thể trả lời "ai đổi ngưỡng tồn tối thiểu từ bao nhiêu
+  sang bao nhiêu" từ `action_logs`. Mức: **LOW–MEDIUM (audit)**.
+- **Ghi chú liên quan (chưa đăng ký riêng, cân nhắc khi sửa):** handler cho phép đổi **15** field (`:101-115`)
+  nhưng `LogMeta` chỉ ghi **3** field (`name`, `qty`, `minAmt`) ⇒ **12** field còn lại (`itemNo`, `categoryId`,
+  `manufacturerId`, `supplierId`, `locationId`, `companyId`, `modelNumber`, `orderNumber`, `purchaseCost`,
+  `purchaseDate`, `notes`, `image`) hiện **không được ghi nhật ký**, trong khi quy ước dự án là
+  `LogMeta.changes` cho mọi update.
+- **Hướng sửa đề xuất (chưa làm):** thêm `var oldMinAmt = c.MinAmt;` cạnh `:99-100` và dùng
+  `minAmt = new { old = oldMinAmt, @new = c.MinAmt }`; thêm test canary (PUT đổi `minAmt` → `LogMeta` phải có
+  `old` = giá trị cũ, `new` = giá trị mới). Nếu duyệt mở rộng: bổ sung các field còn lại vào `LogMeta`.
+- **Verify khi làm:** fixture trên **DB tạm** (tạo consumable + PUT `minAmt` qua API) rồi đọc `action_logs`
+  bằng SQL read-only — **không** dùng DB dev.
