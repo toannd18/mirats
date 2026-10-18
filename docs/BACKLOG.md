@@ -765,3 +765,51 @@
   `old` = giá trị cũ, `new` = giá trị mới). Nếu duyệt mở rộng: bổ sung các field còn lại vào `LogMeta`.
 - **Verify khi làm:** fixture trên **DB tạm** (tạo consumable + PUT `minAmt` qua API) rồi đọc `action_logs`
   bằng SQL read-only — **không** dùng DB dev.
+
+---
+
+## BUG-Q — `GET /api/v1/assets/{id}` trả 500 cho MỌI thiết bị đang được cấp phát (HIGH, ĐÃ SỬA)
+
+- **Trạng thái: RESOLVED** — phát hiện khi verify LL-4 (2026-10-18), sửa ngay trong cùng ngày theo yêu cầu người dùng.
+- **Triệu chứng:** `GET /api/v1/assets/{id}` → **500** với *mọi* thiết bị có `CurrentAssignment`
+  (cấp cho User / Department / SystemPosition); thiết bị không gắn ai → **200**. Hệ quả: trang chi tiết thiết bị
+  (và tab "Lý lịch" của LL-4) không mở được cho phần lớn thiết bị đang dùng.
+- **Vị trí (bản cũ):** `aspire-react.Application/Assets/Queries/AssetQueries.cs:229-231`, nhánh `assignedTo`
+  theo `AssignmentTargetType` trong `GetAssetByIdQueryHandler`.
+- **Nguyên nhân:** tra cứu `assignedTo` **chiếu DTO ngay trong `Select`** rồi lọc ở
+  `FirstOrDefaultAsync(x => x.Id == …)`:
+  `_context.Users.AsNoTracking().Select(u => new AssetAssignedToUserDto(…)).FirstOrDefaultAsync(u => u.Id == asgn.TargetId…)`.
+  EF đẩy vị từ xuống **trước** phép chiếu ⇒ sinh biểu thức `new AssetAssignedToUserDto(u.Id, "user", …).Id == @asgn_TargetId`
+  mà Npgsql **không dịch được** ⇒ `InvalidOperationException: The LINQ expression … could not be translated` → 500.
+- **Đo chính xác tác nhân (không suy đoán)** — 5/5 phép đo bằng `ToQueryString()` trên provider Npgsql (chỉ dịch, không kết nối):
+  | Hình dạng | Kết quả |
+  |---|---|
+  | named DTO (record/class) trong `Select` + `Where(x => x.Id …)` | **THROW** (kể cả khi mọi tham số là cột, không có hằng số) |
+  | named DTO + `OrderBy(x => x.Username)` | **THROW** |
+  | named DTO có member tính toán (`u.Username.ToString()`) | **THROW** |
+  | **anonymous** type (`new { … }`) + `Where(x => x.Id …)` | OK (EF tự gỡ được member access) |
+  ⇒ Tác nhân là **chiếu vào TYPE CÓ TÊN** rồi truy cập member của nó trong vị từ/sắp xếp; hằng số bên trong không
+  phải nguyên nhân. EF InMemory **không** bắt được lớp lỗi này (không có bước dịch SQL).
+- **Thời điểm phát sinh:** có từ `ba582c0` (2026-09-05), tồn tại ở `HEAD` trước bản sửa (không liên quan LL-4 — LL-4 chỉ đụng FE).
+- **Cách sửa (đúng 1 chỗ):** lọc trên **entity** trước rồi mới chiếu:
+  `.Where(u => u.Id == asgn.TargetId).Select(u => new AssetAssignedToUserDto(…))`; giữ nguyên company-scope và
+  giá trị `type` viết thường (`"user"` / `"department"` / `"systemPosition"`).
+- **Test hồi quy (mới):** `aspire-react.Tests/AssetDetailAssignmentTests.cs`
+  - `AssignmentLookups_Translate_OnNpgsql` — canary chạy trong CI, dùng `ToQueryString()` (không cần DB).
+  - `AssetDetail_AssignedTo_User_Department_SystemPosition_OnRealPostgres` — chạy **Postgres THẬT** trên DB tạm, cổng an toàn
+    `MIRATS_TEST_THROWAWAY_DB=1` + `MIRATS_TEST_POSTGRES=<connection string DB tạm>` (như test Concurrency); tự `MigrateAsync()`
+    (phải chỉ định `MigrationsAssembly("aspire-react.Server")` vì migration nằm ở project Server), seed trực tiếp rồi gọi
+    chính handler.
+  - **Chứng minh FAIL → PASS:** trước fix test đổ đúng `InvalidOperationException … 'DbSet<User>().Where(u => new
+    AssetAssignedToUserDto(…).Id == @asgn_TargetId)' could not be translated`; sau fix PASS.
+- **Bằng chứng API (DB tạm `bugq_verify`, fixture tạo HOÀN TOÀN qua API):** `GET /api/v1/assets/{id}` → **200** cho
+  asset gắn User (`"type":"user"`), Department (`"type":"department"`), SystemPosition (`"type":"systemPosition"`),
+  và 200 + `"assignedTo":null` cho asset control không gắn ai; log SQL của handler cho thấy
+  `SELECT u."Id", u."Username", u."FirstName", u."LastName" FROM users AS u WHERE u."Id" = @asgn_TargetId LIMIT 1`.
+- **Rà soát cùng mẫu (2026-10-18, quét toàn bộ 431 file `.cs` của solution; CHỈ liệt kê — không sửa):**
+  - Nhóm nguy hiểm (**chiếu type có tên** rồi `Where/OrderBy/First…` trên member): **0 điểm** còn lại sau khi sửa BUG-Q.
+  - Cùng *hình dạng* nhưng chiếu **anonymous** (đã đo là an toàn, giữ nguyên): `ListAssetMaintenancesQuery.cs:38`,
+    `GetMonthlyCheckoutTrendQuery.cs:62`, `CheckoutLicenseSeatCommand.cs:53`, `:61`, `:70`, `ConsumableAllocationService.cs:75`.
+- **Việc chưa làm (cân nhắc sau):** không có test tự động nào chặn *mới* phát sinh mẫu "chiếu type có tên rồi lọc member"
+  ngoài canary ở trên (canary chỉ chốt 3 hình dạng tra cứu `assignedTo`); muốn chặn toàn cục cần một analyzer/script rà
+  (hiện chỉ có script rà tạm, không nằm trong repo).

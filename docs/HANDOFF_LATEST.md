@@ -3295,9 +3295,57 @@ Chuỗi MC-7 (được duyệt từng bước): hạng mục checklist có thể
   SystemPosition): `AssetQueries.cs:229-231` chiếu vào DTO **bên trong `Select`** rồi lọc `.Id` ⇒ EF không dịch được
   sang SQL (`The LINQ expression ... could not be translated`). Thiết bị không gắn ai ⇒ 200 (control). Tái hiện cả
   trên **stack dev** (`GET /assets/QAA-AST-001` ⇒ 500). Code có từ **`ba582c0` (2026-09-05)**, trước LL-4; cây làm
-  việc của LL-4 chỉ đụng frontend. ⇒ **Đã báo cáo, chờ quyết định** (đăng ký backlog / sửa ở bước riêng).
+  việc của LL-4 chỉ đụng frontend. ⇒ **Đã báo cáo → đã SỬA trong cùng ngày** (đăng ký backlog + fix + test hồi quy;
+  xem mục **BUG-Q** ở cuối file).
   Tạm thời để có ảnh UI cho asset B, đã **check-in asset B qua API** trên DB tạm (nghiệp vụ thật) — sự kiện INSTALL
   `isEstimated=true` vẫn còn sau check-in.
+
+---
+
+## 2026-10-18 — BUG-Q (HIGH): `GET /api/v1/assets/{id}` trả 500 cho MỌI thiết bị đang cấp phát — ĐÃ SỬA
+
+- **Triệu chứng:** mọi thiết bị có `CurrentAssignment` (User / Department / SystemPosition)
+  ⇒ `GET /api/v1/assets/{id}` **500**; thiết bị không gắn ai ⇒ **200**. Hệ quả: trang chi tiết thiết bị (và tab
+  "Lý lịch" của LL-4) không mở được cho phần lớn thiết bị đang dùng. Lỗi có từ `ba582c0` (2026-09-05), không liên quan LL-4.
+- **Nguyên nhân:** `AssetQueries.cs:229-231` (bản cũ) chiếu DTO **ngay trong `Select`** rồi lọc `.Id` ở
+  `FirstOrDefaultAsync` ⇒ EF đẩy vị từ xuống **trước** phép chiếu, sinh
+  `new AssetAssignedToUserDto(...).Id == @asgn_TargetId` ⇒ Npgsql không dịch được ⇒
+  `InvalidOperationException: … could not be translated` ⇒ 500.
+- **Tác nhân chính xác (đo, không suy đoán) — 5/5 phép đo `ToQueryString()` trên provider Npgsql:** chiếu vào **type CÓ TÊN**
+  (record/class) rồi truy cập member của nó trong `Where`/`OrderBy` ⇒ **THROW** — kể cả khi mọi tham số là cột (không có
+  hằng số) và kể cả `OrderBy(x => x.Username)`; ngược lại **anonymous type** (`new { … }`) được EF gỡ ⇒ **OK**.
+  EF InMemory không bắt được lớp lỗi này (không có bước dịch SQL).
+- **Cách sửa:** lọc trên **entity** trước rồi mới chiếu:
+  `.Where(u => u.Id == asgn.TargetId).Select(u => new AssetAssignedToUserDto(...))`; giữ nguyên company-scope và
+  giá trị `type` viết thường (`"user"` / `"department"` / `"systemPosition"`).
+- **Test hồi quy (mới):** `aspire-react.Tests/AssetDetailAssignmentTests.cs`
+  - `AssignmentLookups_Translate_OnNpgsql` — canary chạy trong CI, dùng `ToQueryString()` (không cần DB).
+  - `AssetDetail_AssignedTo_User_Department_SystemPosition_OnRealPostgres` — chạy **Postgres THẬT** trên DB tạm, gate
+    `MIRATS_TEST_THROWAWAY_DB=1` + `MIRATS_TEST_POSTGRES=<connection string DB tạm>` (như test Concurrency); phải chỉ định
+    `MigrationsAssembly("aspire-react.Server")` cho `MigrateAsync()` vì migration nằm ở project Server, nếu không test đổ vì
+    lý do SAI (`relation "departments" does not exist`).
+  - **Chứng minh FAIL → PASS:** trước fix → `Failed: 1` với đúng
+    `InvalidOperationException … 'DbSet<User>().Where(u => new AssetAssignedToUserDto(…).Id == @asgn_TargetId)' could not be translated`;
+    sau fix → `Passed: 2/2`.
+- **Bằng chứng API (DB tạm `bugq_verify`; fixture 4 asset tạo HOÀN TOÀN qua API: User / Department / SystemPosition / control):**
+  `GET /api/v1/assets/{id}` ⇒ **200** cả 4; `assignedTo` = `{"type":"user","username":"admin",…}`,
+  `{"type":"department","name":"BUGQ-DEPT-01",…}`, `{"type":"systemPosition","name":"BUGQ Position 01",…}`, control = `null`.
+  Log SQL của handler cho thấy đúng dạng đã sửa:
+  `SELECT u."Id", u."Username", u."FirstName", u."LastName" FROM users AS u WHERE u."Id" = @asgn_TargetId LIMIT 1`.
+- **Bằng chứng UI (FE dev server + API standalone trỏ DB tạm):** trang chi tiết asset `BUGQ-AST-003` (đang gắn SystemPosition)
+  mở được; tab **Lý lịch** hiển thị 2 dòng (Cấp phát `BUGQ Position 01` + Tạo mới). Trong browser,
+  `performance.getEntriesByType('resource')` ghi `GET /api/v1/assets/{id} → HTTP 200` và
+  `GET /api/v1/assets/{id}/timeline?limit=20 → HTTP 200`; 0 lỗi console (ngoài 401 `/auth/refresh` khi chưa đăng nhập);
+  ở 390px không tràn ngang (`scrollWidth == innerWidth == 390`).
+  Ảnh: `screenshots/bugq-detail-lylich-1440.png`, `screenshots/bugq-detail-top-390.png`, `screenshots/bugq-detail-lylich-390.png`.
+- **Rà cùng mẫu (quét 431 file `.cs`, CHỈ liệt kê — KHÔNG sửa):** nhóm nguy hiểm (chiếu **type có tên**) = **0 điểm**
+  sau khi sửa; cùng *hình dạng* nhưng chiếu **anonymous** (đã đo là an toàn): `ListAssetMaintenancesQuery.cs:38`,
+  `GetMonthlyCheckoutTrendQuery.cs:62`, `CheckoutLicenseSeatCommand.cs:53/61/70`, `ConsumableAllocationService.cs:75`.
+- **Backlog:** `docs/BACKLOG.md` § **BUG-Q (RESOLVED)** — có bảng đo tác nhân + danh sách rà soát.
+- **Gates:** 6/6 PASS (`logs/bugq-gates.txt`) — `dotnet format --verify-no-changes`, build Release,
+  `dotnet test` = **591 passed / 1 skipped / 0 failed** (592 total; test bị skip là test Postgres thật có gate
+  `MIRATS_TEST_THROWAWAY_DB`), `npm run lint`, `npm run build`, `scripts/audit-sweeps.ps1`.
+- **Commit:** commit BUG-Q riêng (fix + test hồi quy + backlog + handoff), **LOCAL — chưa push** (LL-4 `b7b5560` cũng vẫn chưa push).
 
 
 

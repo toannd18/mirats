@@ -226,9 +226,24 @@ public class GetAssetByIdQueryHandler : IRequestHandler<GetAssetByIdQuery, GetAs
             assignedTo = asgn.TargetType switch
             {
                 // QUIRK verbatim: detail uses LOWERCASE type values + per-target-type shapes.
-                AssignmentTargetType.User => await _context.Users.AsNoTracking().Select(u => new AssetAssignedToUserDto(u.Id, "user", u.Username, u.FirstName, u.LastName)).FirstOrDefaultAsync(u => u.Id == asgn.TargetId, cancellationToken),
-                AssignmentTargetType.Department => await _context.Departments.AsNoTracking().Select(d => new AssetAssignedToNamedDto(d.Id, "department", d.Name)).FirstOrDefaultAsync(d => d.Id == asgn.TargetId, cancellationToken),
-                AssignmentTargetType.SystemPosition => await _context.SystemPositions.AsNoTracking().Select(sp => new AssetAssignedToNamedDto(sp.Id, "systemPosition", sp.Name)).FirstOrDefaultAsync(sp => sp.Id == asgn.TargetId, cancellationToken),
+                //
+                // [BUG-Q] Lọc trên ENTITY trước, rồi mới chiếu sang DTO. Bản cũ chiếu DTO NGAY trong
+                // `Select` rồi lọc `.Id` ở `FirstOrDefaultAsync` ⇒ EF đẩy vị từ xuống trước phép chiếu và
+                // sinh ra `new Dto(...).Id == x` — Npgsql KHÔNG dịch được ⇒ 500 trên Postgres thật với MỌI
+                // thiết bị đang có `CurrentAssignment` (User/Department/SystemPosition). InMemory không bắt
+                // được lỗi này; xem test Postgres thật `AssetDetailAssignmentTests`.
+                AssignmentTargetType.User => await _context.Users.AsNoTracking()
+                    .Where(u => u.Id == asgn.TargetId)
+                    .Select(u => new AssetAssignedToUserDto(u.Id, "user", u.Username, u.FirstName, u.LastName))
+                    .FirstOrDefaultAsync(cancellationToken),
+                AssignmentTargetType.Department => await _context.Departments.AsNoTracking()
+                    .Where(d => d.Id == asgn.TargetId)
+                    .Select(d => new AssetAssignedToNamedDto(d.Id, "department", d.Name))
+                    .FirstOrDefaultAsync(cancellationToken),
+                AssignmentTargetType.SystemPosition => await _context.SystemPositions.AsNoTracking()
+                    .Where(sp => sp.Id == asgn.TargetId)
+                    .Select(sp => new AssetAssignedToNamedDto(sp.Id, "systemPosition", sp.Name))
+                    .FirstOrDefaultAsync(cancellationToken),
                 _ => null
             };
         }
