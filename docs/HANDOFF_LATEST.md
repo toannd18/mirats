@@ -3238,6 +3238,67 @@ Chuỗi MC-7 (được duyệt từng bước): hạng mục checklist có thể
 - **Gates:** 6/6 PASS — `dotnet format`, build Release, **590/590 test** (`Category!=Concurrency`), FE lint,
   FE build, `audit-sweeps.ps1`.
 
+---
+
+## 2026-10-18 — LL-4: tab "Lý lịch" trong trang chi tiết thiết bị (FE-ONLY) + phát hiện BUG-Q
+
+- **Phạm vi:** **CHỈ frontend** — không đổi backend (không command/query/migration nào bị sửa). Dùng hợp đồng
+  `GET /api/v1/assets/{id}/timeline` (§Asset Timeline trong `docs/API.md`).
+- **Layout (phương án B, user chốt):** vùng DƯỚI của trang chi tiết giữ nguyên `Card` "Lịch sử" (ActionLog thô) và
+  bọc trong `Tabs`: tab **"Lịch sử"** (nội dung cũ, KHÔNG đổi) + tab **"Lý lịch"** (mới). Phần TRÊN của trang không đổi.
+- **File:** mới `features/asset/components/AssetTimelineTab.tsx`,
+  `features/asset/types/timeline.ts`; sửa `features/asset/services/asset.service.ts` (`getTimeline`),
+  `features/asset/pages/AssetDetailPage.tsx` (Tabs), `utils/format.ts` (`formatDateTimeShort`).
+- **Đáp ứng yêu cầu:** dòng thời gian dọc mới-nhất-trước; icon + màu theo `eventType` lấy từ theme token
+  (`theme.useToken()` — KHÔNG hard-code hex); `eventType` lạ ⇒ icon đồng hồ + màu chữ phụ (mặc định, không lỗi);
+  mốc thời gian `dd/MM/yyyy HH:mm` theo giờ máy; `actorName`; `details`; `isEstimated=true` ⇒ Tag "Thời điểm ước tính"
+  + Tooltip giải thích backfill; `MAINTENANCE` ⇒ "Hoàn thành: …" hoặc Tag "Chưa hoàn thành"; link theo `refType` khi
+  route tồn tại; "Tải thêm" theo `nextCursor` (page size 20) + khử trùng; trạng thái loading (Skeleton) / rỗng
+  ("Chưa có sự kiện lý lịch") / lỗi (Alert + "Thử lại").
+- **Bảng ánh xạ `refType` → route (yêu cầu 5):**
+
+  | `refType` | Route FE | Link? |
+  |---|---|---|
+  | `maintenanceCampaign` | `/maintenance/campaigns/:id` (`App.tsx:517`) | **CÓ** |
+  | `assetMaintenance` | không có trang chi tiết phiếu (chỉ danh sách `/maintenances`) | KHÔNG |
+  | `assetInstallation` | không có trang | KHÔNG |
+  | `actionLog` | không có trang | KHÔNG |
+
+- **Khử trùng khi "Tải thêm" (điểm lệch đã báo):** DTO **KHÔNG có trường `id`** (thêm `id` = đổi backend ⇒ ngoài
+  phạm vi LL-4) nên dùng khoá ghép `eventType|refType|refId|occurredAt` (`timelineEventKey`). Nếu sau này server thêm
+  `id`, chỉ cần đổi khoá ở 1 chỗ.
+- **`docs/API.md` §"Quy ước ngày giờ":** cập nhật câu về FE — màn Lý lịch dùng helper `formatDateTimeShort`
+  ⇒ `dd/MM/yyyy HH:mm` (helper cũ `formatDateTime` = `toLocaleString('vi-VN')` ra "giờ trước ngày, có giây" nên không
+  đúng khuôn); các màn khác vẫn `toLocaleString('vi-VN')`.
+- **Bằng chứng (DB TẠM `ll4_verify`; API standalone Release cổng 5431 + Vite phụ 5174 proxy `http://127.0.0.1:5431`):**
+  - Fixture tạo qua API: asset A `LL4-AST-001` = **30 sự kiện** (1 CREATE + 24 UPDATE + 2 phiếu bảo dưỡng +
+    INSTALL/REMOVE + 1 đợt bảo dưỡng) ⇒ page1=20, page2=10; asset B `LL4-AST-002` (mốc ước tính);
+    asset C `LL4-AST-003` (lý lịch rỗng).
+  - **2 trạng thái API không tạo được** (đã ghi nhận rõ, chỉ trên DB tạm): dòng lý lịch `Source=Backfill`
+    (replay SQL của migration `20261017141224_AssetInstallationBackfill`) và asset lý lịch rỗng
+    (`UPDATE action_logs SET "DeletedAt"=now()` cho log duy nhất).
+  - Đối chiếu JSON ↔ UI: `occurredAt = 2026-10-16T09:30:00Z` ⇒ UI **16/10/2026 16:30** (+7) ✔; phiếu có
+    `maintenanceCompletionDate = 2026-10-16T15:05:00Z` ⇒ "Hoàn thành: 16/10/2026 22:05".
+  - **17 ảnh** trong `screenshots/` (`ll4-*.png`): 1440px + 390px cho A (trước/sau "Tải thêm"), B (tag ước tính +
+    tooltip), C (rỗng), lỗi (chặn route 500) + phục hồi sau "Thử lại", Skeleton (dang tải), `eventType` lạ, khử trùng.
+    Không tràn ngang ở 390px (`scrollWidth == innerWidth == 390`).
+  - 2 tiêu chí cuối được chứng minh bằng **mock tổng hợp** (`route.fulfill`, không `route.fetch` vì Node không tin dev
+    cert): `eventType` lạ ⇒ icon `clock-circle` + màu `rgb(100,116,139)`, 0 alert; trang 2 trả lại 1 sự kiện trùng ⇒
+    UI chỉ còn **3** sự kiện (không phải 4) và nút "Tải thêm" tự ẩn.
+- **Gates:** **6/6 PASS** (`dotnet format`, build Release, **590/590 test**, FE lint, FE build, `audit-sweeps.ps1`) —
+  log `logs/ll4-gates.txt`. Lint FE: 0 error / 11 warning có sẵn ở file KHÔNG đụng tới.
+  - Lưu ý: lần chạy gate đầu FAIL sweep S2 vì FE so sánh mã HTTP `status === 404` (sweep S2 quét mẫu
+    `status === <số>` để bắt lỗi enum-so-với-số). Sweep có ngoại lệ chính thức cho mã HTTP (`response?.status`) —
+    code đã viết lại theo đúng dạng ngoại lệ đó (không sửa script sweep), chạy lại: 0 vi phạm.
+- **⚠ BUG-Q — phát hiện trong lúc verify, KHÔNG sửa (ngoài phạm vi LL-4), CHƯA đăng ký backlog:**
+  `GET /api/v1/assets/{id}` trả **500 cho MỌI thiết bị đang có `CurrentAssignment`** (User / Department /
+  SystemPosition): `AssetQueries.cs:229-231` chiếu vào DTO **bên trong `Select`** rồi lọc `.Id` ⇒ EF không dịch được
+  sang SQL (`The LINQ expression ... could not be translated`). Thiết bị không gắn ai ⇒ 200 (control). Tái hiện cả
+  trên **stack dev** (`GET /assets/QAA-AST-001` ⇒ 500). Code có từ **`ba582c0` (2026-09-05)**, trước LL-4; cây làm
+  việc của LL-4 chỉ đụng frontend. ⇒ **Đã báo cáo, chờ quyết định** (đăng ký backlog / sửa ở bước riêng).
+  Tạm thời để có ảnh UI cho asset B, đã **check-in asset B qua API** trên DB tạm (nghiệp vụ thật) — sự kiện INSTALL
+  `isEstimated=true` vẫn còn sau check-in.
+
 
 
 

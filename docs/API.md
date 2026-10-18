@@ -207,7 +207,9 @@ Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**
 
 - **Mọi mốc thời gian trong DTO là UTC và có hậu tố `Z`.** Server **không** format ngày/giờ thành chuỗi ở bất kỳ
   trường nào (`details` chỉ chứa văn bản/nhãn, không chứa ngày).
-- FE hiển thị bằng `new Date(x).toLocaleString('vi-VN')` (chuỗi có `Z` ⇒ JS quy đổi đúng về giờ máy người dùng).
+- FE quy đổi về **giờ máy người dùng** rồi hiển thị: màn **Lý lịch** (LL-4) dùng helper `formatDateTimeShort`
+  (`frontend/src/utils/format.ts`) ⇒ `dd/MM/yyyy HH:mm` (đúng yêu cầu hiển thị của LL-4); các màn khác giữ
+  `new Date(x).toLocaleString('vi-VN')` (chuỗi có `Z` ⇒ JS quy đổi đúng về giờ máy người dùng).
   **Không** tự ghép chuỗi ngày từ `details`, không tự cộng/trừ múi giờ.
 - Lý do: server format ngày sẽ khoá cứng múi giờ + định dạng và lệch với các màn hình khác (xem backlog **MT-TZ**).
 

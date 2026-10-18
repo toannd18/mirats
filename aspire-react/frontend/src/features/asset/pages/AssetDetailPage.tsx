@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Descriptions, Tag, Spin, Button, Space, Card, App, Steps, Alert, Empty, Typography } from 'antd';
+import { Descriptions, Tag, Spin, Button, Space, Card, App, Steps, Alert, Empty, Tabs, Typography } from 'antd';
 import {
   ArrowLeftOutlined, EditOutlined, AuditOutlined, InboxOutlined,
   RollbackOutlined, SendOutlined, UserOutlined, TeamOutlined, ClusterOutlined,
@@ -9,6 +9,7 @@ import type { ActionType } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import ActionLogTable, { type ActionLogRow } from '../../../shared/components/ActionLogTable';
 import AssetMaintenanceSection from '../components/AssetMaintenanceSection';
+import AssetTimelineTab from '../components/AssetTimelineTab';
 import AssetAllocationModal from '../components/AssetAllocationModal';
 import { usePermission } from '../../../hooks/usePermission';
 import LicenseUsageTable from '../../../shared/components/LicenseUsageTable';
@@ -181,20 +182,40 @@ const AssetDetailPage: React.FC = () => {
         <AssetMaintenanceSection assetId={id!} />
       </Card>
 
-      <Card title="Lịch sử" style={{ marginBottom: 16 }}>
-        <ActionLogTable
-          actionRef={actionLogRef}
-          params={actionLogParams}
-          request={async () => {
-            try {
-              const res = await apiClient.get('/action-logs', { params: { itemType: 1, itemId: id } });
-              const data = (res.data?.data ?? []) as ActionLogRow[];
-              return { data, success: true, total: data.length };
-            } catch (err) {
-              console.error('Failed to load action logs:', err);
-              return { data: [], success: false, total: 0 };
-            }
-          }}
+      {/* Lịch sử (ActionLog thô) + Lý lịch thiết bị [LL-4] — 2 tab; nội dung Lịch sử GIỮ NGUYÊN
+          (cùng ActionLogTable, cùng request/params), Lý lịch là dòng thời gian mới. */}
+      <Card style={{ marginBottom: 16 }}>
+        <Tabs
+          defaultActiveKey="history"
+          items={[
+            {
+              key: 'history',
+              label: 'Lịch sử',
+              children: (
+                <ActionLogTable
+                  actionRef={actionLogRef}
+                  params={actionLogParams}
+                  request={async () => {
+                    try {
+                      const res = await apiClient.get('/action-logs', { params: { itemType: 1, itemId: id } });
+                      const data = (res.data?.data ?? []) as ActionLogRow[];
+                      return { data, success: true, total: data.length };
+                    } catch (err) {
+                      console.error('Failed to load action logs:', err);
+                      return { data: [], success: false, total: 0 };
+                    }
+                  }}
+                />
+              ),
+            },
+            {
+              key: 'timeline',
+              label: 'Lý lịch',
+              // Chỉ mount khi người dùng mở tab (antd Tabs render lười) → không gọi API timeline
+              // khi chưa cần.
+              children: <AssetTimelineTab assetId={id!} />,
+            },
+          ]}
         />
       </Card>
 
