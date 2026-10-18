@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Security.Claims;
+using System.Text.Json;
 using aspire_react.Server.Application.Assets;
 using aspire_react.Server.Application.Assets.Commands;
 using aspire_react.Server.Application.Assets.DTOs;
@@ -8,6 +9,8 @@ using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Infrastructure.Authorization;
 using aspire_react.Server.Infrastructure.Persistence;
 using aspire_react.Server.Web.Controllers;
+using aspire_react.Server.Web.ExceptionHandlers;
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -181,6 +184,65 @@ public class InstallationCorrectionEndpointTests
 
         var ok = Assert.IsType<OkObjectResult>(action);
         Assert.Equal(200, ok.StatusCode);
+    }
+
+    /// <summary>
+    /// [Rà soát mã lỗi 2026-10-18] Hai mã trong bảng docs sinh ra ở TẦNG VALIDATOR (không qua controller):
+    /// <c>CORRECTION_REASON_REQUIRED</c> (lý do thiếu/quá ngắn) và <c>TIMESTAMP_IN_FUTURE</c> (mốc tương lai).
+    /// Khóa lại đúng mã + đúng field + HTTP 400 khi đi qua <see cref="ValidationExceptionHandler"/> —
+    /// để bảng "mã lỗi | HTTP" trong docs/API.md + docs/ERROR_CODES.md không lệch code về sau.
+    /// </summary>
+    [Fact]
+    public async Task ValidatorCodes_MatchDocs_ForReasonAndFutureTimestamp()
+    {
+        var validator = new CorrectInstallationCommandValidator();
+        const string validReason = "Lý do đính chính đủ dài để qua validator";
+
+        // CORRECTION_REASON_REQUIRED — thiếu lý do (null) và lý do quá ngắn (< 10 ký tự).
+        foreach (var reason in new[] { (string?)null, "ngắn" })
+        {
+            var result = validator.Validate(CommandWith(reason: reason));
+            Assert.False(result.IsValid);
+            Assert.All(result.Errors, e => Assert.Equal("CORRECTION_REASON_REQUIRED", e.ErrorCode));
+        }
+
+        // TIMESTAMP_IN_FUTURE — startedAt ở tương lai (mốc quá khứ vẫn hợp lệ).
+        var future = DateTime.UtcNow.AddHours(1);
+        var futureStarted = validator.Validate(CommandWith(startedAt: future, reason: validReason));
+        var startedFailure = Assert.Single(futureStarted.Errors, e => e.ErrorCode == AssetTimestampRules.Code);
+        Assert.Equal("StartedAt", startedFailure.PropertyName);
+
+        // TIMESTAMP_IN_FUTURE — endedAt ở tương lai.
+        var futureEnded = validator.Validate(CommandWith(endedAt: future, reason: validReason));
+        Assert.Contains(futureEnded.Errors, e => e.ErrorCode == AssetTimestampRules.Code);
+
+        // Hợp lệ (mốc quá khứ + lý do đủ dài) ⇒ không lỗi.
+        Assert.True(validator.Validate(CommandWith(startedAt: DateTime.UtcNow.AddDays(-1), reason: validReason)).IsValid);
+
+        // Phơi ra HTTP: ValidationExceptionHandler → 400 + error_code (đúng hợp đồng docs).
+        var (status, errorCode) = await HandleValidationAsync(futureStarted.Errors);
+        Assert.Equal(400, status);
+        Assert.Equal(AssetTimestampRules.Code, errorCode);
+    }
+
+    private static CorrectInstallationCommand CommandWith(
+        DateTime? startedAt = null, DateTime? endedAt = null, string? reason = null)
+        => new(Guid.NewGuid(), Guid.NewGuid(), startedAt, endedAt, null, null, reason, Guid.NewGuid());
+
+    private static async Task<(int Status, string? ErrorCode)> HandleValidationAsync(
+        IEnumerable<FluentValidation.Results.ValidationFailure> failures)
+    {
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        var handled = await new ValidationExceptionHandler().TryHandleAsync(
+            context, new ValidationException(failures), CancellationToken.None);
+        Assert.True(handled);
+
+        context.Response.Body.Position = 0;
+        using var doc = await JsonDocument.ParseAsync(context.Response.Body);
+        var errorCode = doc.RootElement.TryGetProperty("error_code", out var code) ? code.GetString() : null;
+        return (context.Response.StatusCode, errorCode);
     }
 
     // ==================== Hạ tầng test ====================

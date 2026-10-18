@@ -3511,6 +3511,82 @@ nhóm đang xét KHÔNG thuộc 2 lớp này.)
 - **Commit:** commit LOCAL — **CHƯA push** (LL-4 `b7b5560` / BUG-Q `1c5656c` / LL-4b `84f51b3` / LL-5 Bước 4 `781fb40`
   cũng vẫn chưa push).
 
+---
+
+## 2026-10-18 — LL-5 (Bước 6): rà soát MÃ LỖI endpoint đính chính (gọi thật 13 ca trên DB tạm)
+
+> **Phạm vi:** CHỈ rà soát mã lỗi của `POST /api/v1/assets/{id}/installations/{entryId}/correct`.
+> Gọi THẬT từng ca trên DB tạm (container Postgres riêng) → lập bảng đối chiếu code ↔ `docs/API.md` ↔
+> `docs/ERROR_CODES.md` → sửa chỗ lệch. Vào lượt: HEAD `2c87a89` (LL-5 Bước 5, local).
+
+### Bảng đối chiếu (HTTP quan sát được bằng API THẬT)
+
+DB tạm `ll5d_api` (container riêng `ll5d-pg-tmp`), API standalone `http://127.0.0.1:5499`, admin (superuser)
++ 1 user thường `qa-ll5d-viewer` (chỉ `assets.view`). Fixture SQL: 2 asset (1 consistent, 1 cố ý phá bất biến),
+3 dòng lý lịch (open / closed / superseded) + 2 vị trí.
+
+| # | Ca | `error_code` | HTTP THỰC TẾ | API.md | ERROR_CODES.md | Khớp? |
+|---|---|---|---|---|---|---|
+| 1 | entry không tồn tại | `INSTALLATION_ENTRY_NOT_FOUND` | 404 | 404 | 404 | ✓ |
+| 2 | đã superseded | `INSTALLATION_ALREADY_SUPERSEDED` | 409 | 409 | 409 | ✓ |
+| 3 | không có thay đổi | `CORRECTION_NO_CHANGES` | 400 | 400 | 400 | ✓ |
+| 4 | dòng mở + gửi vị trí | `INSTALLATION_OPEN_POSITION_LOCKED` | 400 | 400 | 400 | ✓ |
+| 5 | dòng mở + gửi `endedAt` | `INSTALLATION_CLOSE_USE_CHECKIN` | 400 | 400 | 400 | ✓ |
+| 6 | end < start | `INSTALLATION_END_BEFORE_START` | 400 | 400 | 400 | ✓ |
+| 7 | chồng khoảng | `INSTALLATION_PERIOD_OVERLAP` | 409 | 409 | 409 | ✓ |
+| 8 | vị trí không tồn tại | `POSITION_NOT_FOUND` | 400 | 400 | 400 | ✓ |
+| 9 | thiếu lý do | `CORRECTION_REASON_REQUIRED` | 400 | 400 | 400 | ✓ |
+| 10 | mốc tương lai | `TIMESTAMP_IN_FUTURE` | 400 | 400 | 400 | ✓ |
+| 11 | thiếu quyền (viewer) | *(không có `error_code`)* | 403 | 403 — thể hiện qua cột policy `assets.correct` (API.md không có bảng 403 cho endpoint nào) | 403 — §1.6 "403 `Forbid()` mọi controller: body rỗng" | ✓ |
+| 12 | asset không tồn tại *(bonus)* | `NOT_FOUND` | 404 | 404 | 404 | ✓ (nhưng danh sách endpoint thiếu — xem dưới) |
+| 13 | lý lịch bất nhất *(bonus)* | `INSTALLATION_LEDGER_INCONSISTENT` | 400 | 400 | 400 | ✓ |
+
+**Kết luận: KHÔNG có lệch giữa CODE và HTTP docs** — cả 13 ca code trả ĐÚNG mã + đúng status như
+`docs/API.md`/`docs/ERROR_CODES.md`. Chi tiết đáng chú ý:
+- Ca 10 xác nhận **validator chạy TRƯỚC handler**: gửi `startedAt` tương lai cho dòng đã đóng (lẽ ra handler
+  sẽ trả `INSTALLATION_END_BEFORE_START`) nhưng kết quả là **400 `TIMESTAMP_IN_FUTURE`** — đúng thứ tự thiết kế;
+  `error_code` được phơi qua `ValidationExceptionHandler` (mã dự án) kèm `errors`.
+- Ca 9 (`CORRECTION_REASON_REQUIRED`) body: `{"status":"error","message":"Validation failed.","error_code":"CORRECTION_REASON_REQUIRED","errors":{"Reason":[…]}}`.
+- Ca 11 (thiếu quyền): `HTTP/1.1 403 Forbidden` + `Content-Length: 0` (body RỖNG, đúng §1.6).
+- Ca 2/7/12 chụp raw đầy đủ; ca 3/4/5/6/8/13 đều `{status,message,error_code}`.
+
+### Lệch TÌM THẤY = docs-vs-docs (KHÔNG phải code) → đã sửa `docs/ERROR_CODES.md`
+
+Code là nguồn sự thật và code ĐÚNG; các chỗ lệch là **tài liệu tự mâu thuẫn / stale**:
+
+1. **§1.5 ghi "409 Conflict — 2 trường hợp" + "Đây là 2 case 409 của API"** — nhưng sau LL-5 có **3** case 409.
+   → sửa thành "3 trường hợp", thêm dòng `INSTALLATION_ALREADY_SUPERSEDED` (409) và chú thích rà soát 2026-10-18.
+2. **§1.5 dòng `INSTALLATION_PERIOD_OVERLAP`** chỉ liệt kê `POST /assets/{id}/checkout` — thiếu endpoint correct
+   (bảng chính đã có). → bổ sung `POST /assets/{id}/installations/{entryId}/correct`.
+3. **Bảng Assets dòng `NOT_FOUND` (404)** thiếu endpoint correct — nhưng ca 12 chứng minh correct cũng trả
+   `NOT_FOUND` (404) khi asset không tồn tại/ngoài scope. → bổ sung endpoint.
+4. **Dòng `TIMESTAMP_IN_FUTURE` (400)** chỉ ghi `POST {id}/checkout, /checkin` — thiếu correct (ca 10).
+   → bổ sung `{id}/installations/{entryId}/correct` + mô tả `startedAt`/`endedAt`.
+5. **§1.6 "404 mọi controller: không có error_code"** — SAI với chính bảng Assets + LL-5: 404 của assets
+   (`NOT_FOUND`) và 404 của correct (`INSTALLATION_ENTRY_NOT_FOUND`) **CÓ** `error_code`. → nêu rõ ngoại lệ.
+6. **Header "Lần quét gần nhất"** → cập nhật `2026-10-18` (rà soát mã lỗi LL-5).
+
+### Test cho chỗ sửa
+
+- **Tài liệu:** `node .claude/skills/mirats-docs/scripts/docs-verify.js docs/ERROR_CODES.md docs/API.md`
+  → **PASS** (151 error_code trích ra, 0 không khớp; 58 endpoint, 0 không khớp; exit 0).
+- **Code (khóa hợp đồng):** thêm test `InstallationCorrectionEndpointTests.ValidatorCodes_MatchDocs_ForReasonAndFutureTimestamp`
+  — khẳng định đúng 2 mã tầng validator trong bảng (`CORRECTION_REASON_REQUIRED` cho lý do thiếu/quá ngắn;
+  `TIMESTAMP_IN_FUTURE` cho `startedAt`/`endedAt` tương lai, đúng field) + `ValidationExceptionHandler` phơi
+  HTTP 400 + `error_code`. (Các mã tầng handler/404/409 đã có `…_MapsErrorCodeToStatus` +
+  `…_NotFound_MapsTo404` từ Bước 5.)
+
+### Gates & dọn dẹp
+
+- **6 gate PASS:** `dotnet format --verify-no-changes` (exit 0) · build Release 0 lỗi ·
+  `dotnet test --filter "Category!=Concurrency"` = **634 passed / 8 skipped** · `npm run lint` **0 error**
+  (11 warning pre-existing) · `npm run build` 0 lỗi TS · `audit-sweeps.ps1` **0 vi phạm**.
+- **Nhóm test ThrowawayDb trên Postgres THẬT** (DB tạm `ll5d_verify`): `InstallationCorrectionTests` **13/13** +
+  `AssetDetailAssignmentTests` **2/2**.
+- **Dọn dẹp:** API standalone đã kill (5499 trống); container tạm `ll5d-pg-tmp` đã `docker rm -f`; DB dev chỉ
+  còn `aspire-react-db`.
+- **Commit:** commit LOCAL — **CHƯA push**.
+
 
 
 

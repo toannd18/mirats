@@ -4,8 +4,10 @@
 > `aspire-react.Application/` (handlers) + `aspire-react.Server/Web/Controllers/` (controller-level
 > guards) + `aspire-react.Infrastructure/Authentication/` (auth sống hiện tại: `TokenService`,
 > `PasswordChangeGateMiddleware`, `WebAuthn/Fido2Service`, `AuthAttemptService`) +
-> `aspire-react.Infrastructure/Services/` (allocation services). Lần quét gần nhất: **2026-10-02**,
-> sau AUTH Phase 5 (Keycloak đã bị xóa hoàn toàn — auth local JWT tự ký + passkey tùy chọn).
+> `aspire-react.Infrastructure/Services/` (allocation services). Lần quét gần nhất: **2026-10-18** — rà soát
+> mã lỗi endpoint đính chính lý lịch lắp đặt (`POST /assets/{id}/installations/{entryId}/correct`, LL-5) bằng
+> cách gọi THẬT 13 ca trên DB tạm; trước đó **2026-10-02** sau AUTH Phase 5 (Keycloak đã bị xóa hoàn toàn —
+> auth local JWT tự ký + passkey tùy chọn).
 >
 > Cập nhật tài liệu này khi: thêm endpoint mới có error_code, thêm/thay error_code trong handler,
 > hoặc đổi shape lỗi của một controller. Code vẫn là nguồn chuẩn nếu tài liệu lệch.
@@ -87,14 +89,15 @@ ComponentAllocation (`COMPONENT_COMPANY_REQUIRED`, `COMPANY_MISMATCH`), Consumab
 Dup-check **không hồi tố**: chỉ áp dụng cho request mới; dữ liệu trùng tạo trước fix vẫn tồn tại
 (audit dữ liệu thật đã làm cho BUG-F/K/I trước khi fix).
 
-### 1.5 409 Conflict — 2 trường hợp
+### 1.5 409 Conflict — 3 trường hợp
 
 | Code | Endpoint | Ý nghĩa |
 |---|---|---|
 | `RESULT_CONCURRENT_WRITE` | `POST /maintenance/campaigns/{id}/results` | BUG-D retry-merge cạn 3 lần retry do race INSERT-vs-INSERT trên unique key (DeviceSnapshot × Item × Param). Không phải 500 — client được yêu cầu thử lại. |
-| `INSTALLATION_PERIOD_OVERLAP` | `POST /assets/{id}/checkout` | [LL-2] Khoảng lắp đặt mới CHỒNG khoảng đã có của cùng thiết bị (VD checkout lùi ngày về trước mốc tháo lần trước) — exclusion constraint `EX_asset_installations_no_overlap`, SQLSTATE **23P01**. Transaction đã rollback, không ghi gì (không lọt 500). |
+| `INSTALLATION_PERIOD_OVERLAP` | `POST /assets/{id}/checkout`, `POST /assets/{id}/installations/{entryId}/correct` | [LL-2] Khoảng lắp đặt mới CHỒNG khoảng đã có của cùng thiết bị (VD checkout lùi ngày về trước mốc tháo lần trước) — exclusion constraint `EX_asset_installations_no_overlap`, SQLSTATE **23P01**. Transaction đã rollback, không ghi gì (không lọt 500). |
+| `INSTALLATION_ALREADY_SUPERSEDED` | `POST /assets/{id}/installations/{entryId}/correct` | [LL-5] Đính chính một bản ghi ĐÃ BỊ THAY THẾ (`SupersededAt != null`) — bảng append-only: chỉ đính chính được bản đang hiệu lực (không chạm DB, không ghi gì). |
 
-Đây là **2 case 409** của API.
+Đây là **3 case 409** của API. (Rà soát 2026-10-18: LL-5 thêm case thứ ba — trước đó tài liệu ghi "2 case".)
 
 ### 1.6 Response lỗi KHÔNG có error_code (chỉ `status` + `message`)
 
@@ -106,8 +109,11 @@ Dup-check **không hồi tố**: chỉ áp dụng cho request mới; dữ liệu
   CustomFields empty/dup ("Field name is required." / "Field slug is required." / "A field with
   this slug already exists." — style tiếng Anh của section), Groups (BUG-K), License Create
   (NAME_REQUIRED/CATEGORY_* — có error_code, xem bảng).
-- **404** mọi controller: không có error_code (chỉ message) — trừ VERSION_NOT_FOUND/ITEM_NOT_FOUND/
-  PARAM_NOT_FOUND của MaintenanceTemplates vẫn 404 + message riêng (không error_code).
+- **404**: **thường** không có error_code (chỉ `status`+`message`, VD `GET /assets/{id}`). **Ngoại lệ CÓ error_code**:
+  `NOT_FOUND` (assets `PUT`/`DELETE`/`confirm`/`archive`/`unarchive` và `POST {id}/installations/{entryId}/correct`
+  khi asset không tồn tại/ngoài scope) + `INSTALLATION_ENTRY_NOT_FOUND` (LL-5 — `entryId` không thuộc asset).
+  VERSION_NOT_FOUND/ITEM_NOT_FOUND/PARAM_NOT_FOUND của MaintenanceTemplates vẫn 404 + message riêng
+  (**không** error_code).
 - **403** Forbid() mọi controller: body rỗng.
 - **401**: từ authentication layer (không phải controller), body rỗng/ProblemDetails.
 - **401 auth controller (`/auth/*`)**: `{status,message}` **KHÔNG có error_code** — xem section Auth
@@ -159,7 +165,7 @@ Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`Au
 | Code | HTTP | Endpoint | Điều kiện |
 |---|---|---|---|
 | `COMPANY_MISMATCH` | 400 | POST /assets (Create) | Regular user tạo asset cho company khác |
-| `NOT_FOUND` | 404 | PUT /assets/{id}, DELETE, POST {id}/confirm, POST {id}/archive, POST {id}/unarchive | Asset không tồn tại **hoặc** ngoài scope (hide-existence) |
+| `NOT_FOUND` | 404 | PUT /assets/{id}, DELETE, POST {id}/confirm, POST {id}/archive, POST {id}/unarchive, POST {id}/installations/{entryId}/correct | Asset không tồn tại **hoặc** ngoài scope (hide-existence) |
 | `ASSET_ARCHIVED` | 400 | PUT /assets/{id}, POST {id}/checkout | Asset đã lưu trữ |
 | `DUPLICATE_ASSET_TAG` | 400 | PUT /assets/{id} | AssetTag trùng (Create: tag trùng bị FluentValidation chặn — message "Mã tài sản đã tồn tại trong hệ thống.", không error_code) |
 | `CONFIRMED_ASSET_LOCKED` | 400 | PUT /assets/{id} | Sửa field bị khóa sau khi confirm (chỉ Name/Notes sửa được) |
@@ -183,7 +189,7 @@ Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`Au
 | `INSTALLATION_END_BEFORE_START` | 400 | POST {id}/checkin, /archive, {id}/installations/{entryId}/correct | [LL-2b] Mốc kết thúc trước `StartedAt` của dòng đang mở (VD checkout đặt ở tương lai). Chặn TRƯỚC SaveChanges; SQLSTATE **23514** (`CHECK "EndedAt" >= "StartedAt"`) được map cùng mã này làm lưới an toàn |
 | `INSTALLATION_PERIOD_OVERLAP` | **409** | POST {id}/checkout, {id}/installations/{entryId}/correct | [LL-2] Khoảng lắp đặt mới chồng khoảng đã có (SQLSTATE 23P01) — rollback, xem §1.5 |
 | `TARGET_NOT_FOUND` | 400 | POST {id}/checkout | Target (vị trí hệ thống/user/department) không tồn tại hoặc đã bị xóa giữa validator và handler (LL-2, nhánh SystemPosition) |
-| `TIMESTAMP_IN_FUTURE` | 400 | POST {id}/checkout, /checkin | [Bước 0.2 / LL-3] Mốc `checkoutAt`/`checkinAt` do client gửi vượt hiện tại quá **5 phút** (mốc quá khứ vẫn hợp lệ). Chặn ở **validator** (`AssetTimestampRules`) → trả qua `ValidationExceptionHandler`; response giữ `errors` theo từng field |
+| `TIMESTAMP_IN_FUTURE` | 400 | POST {id}/checkout, /checkin, {id}/installations/{entryId}/correct | [Bước 0.2 / LL-3] Mốc `checkoutAt`/`checkinAt` (và `startedAt`/`endedAt` của đính chính LL-5) do client gửi vượt hiện tại quá **5 phút** (mốc quá khứ vẫn hợp lệ). Chặn ở **validator** (`AssetTimestampRules`) → trả qua `ValidationExceptionHandler`; response giữ `errors` theo từng field |
 | `INVALID_CURSOR` | 400 | GET {id}/timeline | [LL-3] `cursor` phân trang của lý lịch thiết bị không giải mã được (base64url hỏng/sai định dạng). Asset không tồn tại **hoặc** ngoài scope → 404 `{status,message}` KHÔNG có mã (hide-existence) |
 | `INVALID_TYPES` | 400 | GET {id}/timeline | [LL-4b] Tham số lọc `types` chứa giá trị không nhận diện được (message nêu đúng các giá trị sai) |
 | `INSTALLATION_ENTRY_NOT_FOUND` | 404 | POST {id}/installations/{entryId}/correct | [LL-5] `entryId` không thuộc asset (hoặc không tồn tại) — cùng quy ước hide-existence với `GET /assets/{id}` |
