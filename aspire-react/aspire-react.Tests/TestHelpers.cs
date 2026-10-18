@@ -106,6 +106,46 @@ public static class TestHelpers
     }
 
     /// <summary>
+    /// IMediator stub that returns a CANNED response for <c>Send&lt;TResponse&gt;</c> (no pipeline, no DB).
+    /// For controller-level HTTP-status-mapping tests (e.g. the LL-5 correct endpoint returning
+    /// 409 when the handler reports <c>INSTALLATION_ALREADY_SUPERSEDED</c>): the fake response is
+    /// cast to <typeparamref name="TResponse"/>, so the test owns exactly what the handler "returns".
+    /// </summary>
+    public sealed class StubMediator : IMediator
+    {
+        private readonly Func<object, object?> _respond;
+
+        public StubMediator(Func<object, object?> respond) => _respond = respond;
+
+        /// <summary>Convenience factory for a fixed response regardless of the request.</summary>
+        public static StubMediator Returning(object? response) => new(_ => response);
+
+        public Task<TResponse> Send<TResponse>(IRequest<TResponse> request, CancellationToken cancellationToken = default)
+            => Task.FromResult((TResponse)_respond(request)!);
+
+        public Task Send<TRequest>(TRequest request, CancellationToken cancellationToken = default)
+            where TRequest : IRequest
+            => Task.CompletedTask;
+
+        public Task<object?> Send(object request, CancellationToken cancellationToken = default)
+            => Task.FromResult(_respond(request));
+
+        public IAsyncEnumerable<TResponse> CreateStream<TResponse>(
+            IStreamRequest<TResponse> request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public IAsyncEnumerable<object?> CreateStream(object request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task Publish(object notification, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task Publish<TNotification>(TNotification notification, CancellationToken cancellationToken = default)
+            where TNotification : INotification
+            => Task.CompletedTask;
+    }
+
+    /// <summary>
     /// InMemory AppDbContext. The InMemory provider has no real transactions, so the
     /// TransactionIgnoredWarning (thrown as an error by default) is suppressed → BeginTransaction
     /// becomes a no-op. This lets the Accessory Checkout/Checkin handlers (which use an ambient

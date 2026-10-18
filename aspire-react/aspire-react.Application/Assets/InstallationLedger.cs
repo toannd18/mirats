@@ -31,6 +31,12 @@ public static class InstallationLedger
     public const string EndBeforeStart = "INSTALLATION_END_BEFORE_START";
 
     /// <summary>
+    /// [LL-5] Đính chính một bản ghi ĐÃ BỊ THAY THẾ (<c>SupersededAt != null</c>) → 409 Conflict.
+    /// Bảng append-only: chỉ đính chính được bản đang hiệu lực, không sửa tiếp bản đã bị thay thế.
+    /// </summary>
+    public const string AlreadySuperseded = "INSTALLATION_ALREADY_SUPERSEDED";
+
+    /// <summary>
     /// Kiểm tra TRƯỚC khi thay đổi (pre-check) — KHÔNG sửa dữ liệu để che lệch:
     /// <list type="number">
     ///   <item>Bất biến của trạng thái HIỆN TẠI: <c>SystemPositionId != null</c> ⟺ đúng 1 dòng mở

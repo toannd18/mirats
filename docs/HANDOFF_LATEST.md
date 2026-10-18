@@ -3418,6 +3418,99 @@ Chuỗi MC-7 (được duyệt từng bước): hạng mục checklist có thể
 - **Commit:** commit LL-4b riêng (backend + FE + test + docs), **LOCAL — chưa push**
   (LL-4 `b7b5560` và BUG-Q `1c5656c` cũng vẫn chưa push).
 
+---
+
+## 2026-10-18 — LL-5 (Bước 5): cơ chế bypass `assets.correct` · kiểm 403 trên DB tạm · fix `INSTALLATION_ALREADY_SUPERSEDED` → 409
+
+> **Phạm vi lượt này (đúng 3 việc):** (1) xác định vì sao user nhóm Admin gọi được endpoint `assets.correct`;
+> (2) kiểm 403 trên DB tạm cho user thường chỉ có `assets.view`; (3) fix `MapLedgerFailure` để
+> `INSTALLATION_ALREADY_SUPERSEDED` trả **409** (khớp docs) thay vì 400.
+> **Mốc:** `origin/main = 1edc3f7` (LL-5 backend) · local HEAD `781fb40` (LL-5 Bước 4, chưa push).
+
+### 1) Kết luận: bypass dựa trên QUYỀN `admin` (wildcard), KHÔNG phải thành viên nhóm "Admin"
+
+**Cơ chế (file:dòng):** `aspire-react/aspire-react.Infrastructure/Authorization/PermissionHandler.cs:116-139`
+(bước 6) — với MỌI permission key KHÁC `admin`, nếu user (hoặc BẤT KỲ nhóm mà user thuộc) có
+`PermissionKey == "admin"` và `Value == Grant` thì `context.Succeed(requirement)` ⇒ **wildcard cho mọi quyền
+khác**. Nhóm chỉ là nơi CẤP quyền: nhóm tên "Admin" cho qua **vì nó cấp `admin`**, không phải vì tên nó là
+"Admin". (Hai lớp bypass khác trong cùng handler: bước 1 = claim `superuser`; bước 3 = `user.IsSuperUser` —
+nhóm đang xét KHÔNG thuộc 2 lớp này.)
+
+**SQL CHỈ-ĐỌC trên DB dev** (`aspire-react-db`, container dev `postgres-vxczaqxs`):
+- Nhóm đang cấp quyền `admin` (Grant = 1): **`Admin`** và **`Superuser`** (đều `IsSystem = true`).
+- `user_permissions` với key `admin` (cấp TRỰC TIẾP cho user): **0 dòng**.
+- KHÔNG nhóm nào cấp `assets.correct` (**0 dòng**) — nhóm cấp 84 key nhưng KHÔNG có `assets.correct` (danh
+  sách `assets.*` của nhóm: view/create/edit/delete/checkout/checkin/audit). ⇒ đúng giả thuyết: endpoint cho
+  qua nhờ `admin`, KHÔNG nhờ `assets.correct`.
+- Thành viên: `Superuser` → `admin`; **`Admin` → 0 thành viên** (đo tại thời điểm này).
+
+**Quyết định:** GIỮ nguyên cơ chế bypass của `admin` (thiết kế đã chốt) — **KHÔNG sửa** gì cho việc này.
+
+### 2) Kiểm 403 trên DB TẠM — user thường chỉ có `assets.view`
+
+- **DB tạm:** container Postgres RIÊNG `ll5c-pg-tmp` (image `postgres:18.3`, cổng `55432`, DB `ll5c_api`) —
+  **đã `docker rm -f` sau khi xong**; DB dev xác nhận vẫn chỉ có `aspire-react-db`.
+- **API:** chạy **standalone** (`aspire-react.Server.dll`) tại `http://127.0.0.1:5499`, trỏ vào DB tạm
+  (`ConnectionStrings__aspire-react-db`) + Redis dev; `StartupDataSeeder` tự migrate + seed nhóm hệ thống.
+- **Thao tác SQL trên DB TẠM (có lý do — API không làm được):** `UPDATE users SET "MustChangePassword" = false`
+  cho `admin` và `qa-ll5-viewer-live`; API luôn tạo/seed user với `MustChangePassword = true`, nếu không hạ thì
+  request bị chặn **403 `MUST_CHANGE_PASSWORD`** (che mất 403-quyền đang muốn kiểm).
+- **Fixture tạo QUA API (admin):** nhóm thường **"LL5 Viewer (throwaway)"** cấp DUY NHẤT `assets.view`
+  (DB verify: 1 dòng `assets.view` Grant) + user KHÔNG-superuser **`qa-ll5-viewer-live`** thuộc nhóm đó.
+- **`GET /permissions/check` (viewer):** `{"status":"success","data":{"permissions":{"assets.view":1},"isSuperUser":false,"isAdmin":false}}`.
+- **RAW `POST /api/v1/assets/{id}/installations/{entryId}/correct` (viewer):**
+  ```
+  HTTP/1.1 403 Forbidden
+  Content-Length: 0
+  ```
+  (403 của authorization middleware — body RỖNG, đúng hành vi framework khi policy fail.)
+- **Chứng minh 403 đến từ ĐÚNG quyền thiếu (không phải viewer hỏng/401):** `GET /assets` → **200**;
+  `GET /assets/{id}/installations/{entryId}` → **200** (có `assets.view`); `POST /assets/{id}/confirm`
+  (`assets.edit`) → **403**; `POST …/correct` (`assets.correct`) → **403**.
+- **Test tự động cho ca này:** `aspire-react.Tests/InstallationCorrectionEndpointTests.cs` (mới, 16 test):
+  `ViewerGroup_WithOnlyAssetsView_IsDeniedAssetsCorrect` (nhóm thường chỉ `assets.view` ⇒ `assets.correct` bị từ chối);
+  `CorrectAction_DeclaresAssetsCorrectPolicy` (reflection: action mang `[Authorize(Policy="assets.correct")]`);
+  `GroupWithAdminWildcard_IsGrantedAssetsCorrect_ByDesign` +
+  `GroupWithoutAdminWildcard_IsStillDenied_EvenWithAssetsView` (khóa hành vi wildcard là THIẾT KẾ và chứng minh nó
+  đến từ quyền `admin`, không phải "nhóm nào cũng qua"); `UserLevelAssetsCorrectGrant_IsAllowed`.
+
+### 3) Fix `MapLedgerFailure`: `INSTALLATION_ALREADY_SUPERSEDED` → 409
+
+- **Trước:** `AssetsController.MapLedgerFailure` chỉ map `InstallationLedger.Overlap` → 409; mọi mã còn lại (gồm
+  `INSTALLATION_ALREADY_SUPERSEDED`) → **400** ⇒ **lệch docs** (`docs/API.md` và `docs/ERROR_CODES.md` đều ghi **409**).
+- **Sau:**
+  - `InstallationLedger.cs`: thêm hằng `public const string AlreadySuperseded = "INSTALLATION_ALREADY_SUPERSEDED";`.
+  - `CorrectInstallationCommand.cs`: dùng `InstallationLedger.AlreadySuperseded` thay chuỗi literal.
+  - `AssetsController.MapLedgerFailure`:
+    `errorCode is InstallationLedger.Overlap or InstallationLedger.AlreadySuperseded` ⇒ `Conflict(...)` (409);
+    còn lại `BadRequest(...)` (400). KHÔNG đổi 404 (hide-existence).
+- **RAW (admin, DB tạm) trên bản ĐÃ bị superseded:**
+  ```
+  HTTP/1.1 409 Conflict
+  Content-Type: application/json; charset=utf-8
+
+  {"status":"error","message":"Bản ghi này đã bị đính chính trước đó — hãy đính chính bản đang hiệu lực.","error_code":"INSTALLATION_ALREADY_SUPERSEDED"}
+  ```
+- **RAW control (admin, `entryId` không tồn tại) → 404** `{"…","error_code":"INSTALLATION_ENTRY_NOT_FOUND"}` (giữ nguyên).
+- **Fixture trên DB TẠM (SQL — API không tạo được trạng thái này):** 1 asset + 1 dòng `asset_installations` có
+  `SupersededAt` đã set; API chỉ supersede được bằng một lần đính chính (phải dựng cả asset/checkout).
+- **Test tự động:** `CorrectInstallation_MapsErrorCodeToStatus` (theory: `AlreadySuperseded`→409, `Overlap`→409,
+  `EndBeforeStart`/`Inconsistent`/`CORRECTION_NO_CHANGES`/`POSITION_NOT_FOUND`/…→400);
+  `CorrectInstallation_NotFound_MapsTo404`; `CorrectInstallation_Success_Returns200`. Kèm fake mới
+  `TestHelpers.StubMediator` (trả response cố định để test map HTTP status ở tầng controller, không cần DB).
+
+### Gates & dọn dẹp
+
+- **6 gate PASS:** `dotnet format --verify-no-changes` (exit 0) · build Release **0 lỗi** ·
+  `dotnet test --filter "Category!=Concurrency"` = **633 passed / 8 skipped** · `npm run lint` **0 error**
+  (11 warning pre-existing) · `npm run build` **0 lỗi TS** · `audit-sweeps.ps1` **0 vi phạm**.
+- **Nhóm test ThrowawayDb trên Postgres THẬT** (DB tạm `ll5c_verify`, container riêng `ll5c-pg-tmp`):
+  `InstallationCorrectionTests` **13/13 PASS** + `AssetDetailAssignmentTests` **2/2 PASS** (15 passed, 0 skipped).
+- **Dọn dẹp:** API standalone đã kill (cổng 5499 free); container tạm `ll5c-pg-tmp` đã `docker rm -f`; DB dev chỉ
+  còn `aspire-react-db` (không ghi gì lên DB dev).
+- **Commit:** commit LOCAL — **CHƯA push** (LL-4 `b7b5560` / BUG-Q `1c5656c` / LL-4b `84f51b3` / LL-5 Bước 4 `781fb40`
+  cũng vẫn chưa push).
+
 
 
 

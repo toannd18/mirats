@@ -38,13 +38,17 @@ public class AssetsController : ControllerBase
     private Task<Guid?> GetUserCompanyIdAsync() => _companyScope.GetCurrentUserCompanyIdAsync();
 
     /// <summary>
-    /// [LL-2] Error-code → HTTP status cho các thao tác có ghi lý lịch lắp đặt (checkout/checkin/archive).
-    /// Mặc định 400 — giữ NGUYÊN body/hành vi cũ; riêng xung đột khoảng lắp đặt
-    /// (<see cref="InstallationLedger.Overlap"/> — SQLSTATE 23P01) trả 409, theo precedent
-    /// RESULT_CONCURRENT_WRITE (409) của MaintenanceCampaigns.
+    /// [LL-2][LL-5] Error-code → HTTP status cho các thao tác có ghi lý lịch lắp đặt (checkout/checkin/archive/correct).
+    /// Mặc định 400 — giữ NGUYÊN body/hành vi cũ; riêng 2 xung đột APPEND-ONLY trả 409:
+    /// <list type="bullet">
+    ///   <item><see cref="InstallationLedger.Overlap"/> — khoảng lắp đặt chồng nhau (SQLSTATE 23P01).</item>
+    ///   <item><see cref="InstallationLedger.AlreadySuperseded"/> — đính chính một bản đã bị thay thế.</item>
+    /// </list>
+    /// Theo precedent RESULT_CONCURRENT_WRITE (409) của MaintenanceCampaigns. Docs: docs/API.md
+    /// § "Đính chính lý lịch lắp đặt" + docs/ERROR_CODES.md.
     /// </summary>
     private IActionResult MapLedgerFailure(string message, string? errorCode)
-        => errorCode == InstallationLedger.Overlap
+        => errorCode is InstallationLedger.Overlap or InstallationLedger.AlreadySuperseded
             ? Conflict(new { status = "error", message, error_code = errorCode })
             : BadRequest(new { status = "error", message, error_code = errorCode });
 
@@ -241,7 +245,7 @@ public class AssetsController : ControllerBase
         if (!result.Success)
         {
             // Không tìm thấy asset/bản ghi ⇒ 404 (hide-existence, mirror GET /assets/{id}); còn lại 400,
-            // riêng chồng khoảng (INSTALLATION_PERIOD_OVERLAP) là 409 — xử lý trong MapLedgerFailure.
+            // riêng INSTALLATION_PERIOD_OVERLAP + INSTALLATION_ALREADY_SUPERSEDED là 409 — xử lý trong MapLedgerFailure.
             if (result.ErrorCode is "NOT_FOUND" or "INSTALLATION_ENTRY_NOT_FOUND")
                 return NotFound(new { status = "error", message = result.Message, error_code = result.ErrorCode });
 

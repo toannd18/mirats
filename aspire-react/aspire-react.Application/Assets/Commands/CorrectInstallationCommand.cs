@@ -120,7 +120,7 @@ public class CorrectInstallationCommandHandler : IRequestHandler<CorrectInstalla
 
             if (entry.SupersededAt != null)
                 return new CorrectionResult(false, "Bản ghi này đã bị đính chính trước đó — hãy đính chính bản đang hiệu lực.",
-                    ErrorCode: "INSTALLATION_ALREADY_SUPERSEDED");
+                    ErrorCode: InstallationLedger.AlreadySuperseded);
 
             var isOpen = entry.EndedAt == null;
 
