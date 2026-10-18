@@ -179,12 +179,20 @@ Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`Au
 | `ASSET_NOT_DEPLOYED` | 400 | POST {id}/checkin | Status ≠ Deployed |
 | `LOCATION_REQUIRED` | 400 | POST {id}/checkout | Checkout tới SystemPosition thiếu LocationId |
 | `COMPANY_MISMATCH` (checkout) | 400 | POST {id}/checkout | Target không cùng company với asset |
-| `INSTALLATION_LEDGER_INCONSISTENT` | 400 | POST {id}/checkout, /checkin, /archive | [LL-2] Bất biến "`SystemPositionId != null` ⟺ đúng 1 dòng mở (chưa superseded)" bị phá — transaction đã rollback, không ghi gì |
-| `INSTALLATION_END_BEFORE_START` | 400 | POST {id}/checkin, /archive | [LL-2b] Mốc kết thúc trước `StartedAt` của dòng đang mở (VD checkout đặt ở tương lai). Chặn TRƯỚC SaveChanges; SQLSTATE **23514** (`CHECK "EndedAt" >= "StartedAt"`) được map cùng mã này làm lưới an toàn |
-| `INSTALLATION_PERIOD_OVERLAP` | **409** | POST {id}/checkout | [LL-2] Khoảng lắp đặt mới chồng khoảng đã có (SQLSTATE 23P01) — rollback, xem §1.5 |
+| `INSTALLATION_LEDGER_INCONSISTENT` | 400 | POST {id}/checkout, /checkin, /archive, {id}/installations/{entryId}/correct | [LL-2] Bất biến "`SystemPositionId != null` ⟺ đúng 1 dòng mở (chưa superseded)" bị phá — transaction đã rollback, không ghi gì |
+| `INSTALLATION_END_BEFORE_START` | 400 | POST {id}/checkin, /archive, {id}/installations/{entryId}/correct | [LL-2b] Mốc kết thúc trước `StartedAt` của dòng đang mở (VD checkout đặt ở tương lai). Chặn TRƯỚC SaveChanges; SQLSTATE **23514** (`CHECK "EndedAt" >= "StartedAt"`) được map cùng mã này làm lưới an toàn |
+| `INSTALLATION_PERIOD_OVERLAP` | **409** | POST {id}/checkout, {id}/installations/{entryId}/correct | [LL-2] Khoảng lắp đặt mới chồng khoảng đã có (SQLSTATE 23P01) — rollback, xem §1.5 |
 | `TARGET_NOT_FOUND` | 400 | POST {id}/checkout | Target (vị trí hệ thống/user/department) không tồn tại hoặc đã bị xóa giữa validator và handler (LL-2, nhánh SystemPosition) |
 | `TIMESTAMP_IN_FUTURE` | 400 | POST {id}/checkout, /checkin | [Bước 0.2 / LL-3] Mốc `checkoutAt`/`checkinAt` do client gửi vượt hiện tại quá **5 phút** (mốc quá khứ vẫn hợp lệ). Chặn ở **validator** (`AssetTimestampRules`) → trả qua `ValidationExceptionHandler`; response giữ `errors` theo từng field |
 | `INVALID_CURSOR` | 400 | GET {id}/timeline | [LL-3] `cursor` phân trang của lý lịch thiết bị không giải mã được (base64url hỏng/sai định dạng). Asset không tồn tại **hoặc** ngoài scope → 404 `{status,message}` KHÔNG có mã (hide-existence) |
+| `INVALID_TYPES` | 400 | GET {id}/timeline | [LL-4b] Tham số lọc `types` chứa giá trị không nhận diện được (message nêu đúng các giá trị sai) |
+| `INSTALLATION_ENTRY_NOT_FOUND` | 404 | POST {id}/installations/{entryId}/correct | [LL-5] `entryId` không thuộc asset (hoặc không tồn tại) — cùng quy ước hide-existence với `GET /assets/{id}` |
+| `INSTALLATION_ALREADY_SUPERSEDED` | **409** | POST {id}/installations/{entryId}/correct | [LL-5] Bản ghi đã bị đính chính trước đó (`SupersededAt != null`) — chỉ đính chính được bản đang hiệu lực |
+| `CORRECTION_NO_CHANGES` | 400 | POST {id}/installations/{entryId}/correct | [LL-5] Payload không thay đổi gì so với bản ghi hiện tại (không tạo bản rác) |
+| `CORRECTION_REASON_REQUIRED` | 400 | POST {id}/installations/{entryId}/correct | [LL-5] Thiếu lý do đính chính hoặc ngắn hơn **10** ký tự (validator) |
+| `INSTALLATION_OPEN_POSITION_LOCKED` | 400 | POST {id}/installations/{entryId}/correct | [LL-5] Dòng ĐANG MỞ kèm `systemPositionId` — đổi vị trí hiện tại phải qua Thu hồi + Cấp phát lại |
+| `INSTALLATION_CLOSE_USE_CHECKIN` | 400 | POST {id}/installations/{entryId}/correct | [LL-5] Dòng ĐANG MỞ kèm `endedAt` — đóng khoảng phải dùng Thu hồi/Lưu trữ |
+| `POSITION_NOT_FOUND` | 400 | POST {id}/installations/{entryId}/correct | [LL-5] `systemPositionId` không tồn tại hoặc đã bị xoá |
 
 ### Categories (`/api/v1/categories`)
 
@@ -494,6 +502,8 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `CONSUMABLE_COMPANY_MISMATCH` — Consumables checkout (400)
 - `CONSUMABLE_HAS_CHECKOUTS` — Consumables (400)
 - `CONSUMABLE_NOT_CONFIRMED` — Consumables checkout (400)
+- `CORRECTION_NO_CHANGES` — Assets đính chính lý lịch lắp đặt (400)
+- `CORRECTION_REASON_REQUIRED` — Assets đính chính lý lịch lắp đặt (400, validator)
 - `CUSTOM_FIELD_IN_USE` — CustomFields (400)
 - `DEPARTMENT_IN_USE` — Departments (400)
 - `DUPLICATE_ASSET_TAG` — Assets (400)
@@ -507,8 +517,12 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `GROUP_NOT_FOUND` — Users UpdateUserGroups (400, error_code snake — quirk)
 - `INSUFFICIENT_ALLOCATION` — Components (400)
 - `INSUFFICIENT_STOCK` — Components, Consumables, Accessories (400)
+- `INSTALLATION_ALREADY_SUPERSEDED` — Assets đính chính lý lịch lắp đặt (**409**)
+- `INSTALLATION_CLOSE_USE_CHECKIN` — Assets đính chính lý lịch lắp đặt (400)
 - `INSTALLATION_END_BEFORE_START` — Assets (400)
+- `INSTALLATION_ENTRY_NOT_FOUND` — Assets đính chính lý lịch lắp đặt (404)
 - `INSTALLATION_LEDGER_INCONSISTENT` — Assets (400)
+- `INSTALLATION_OPEN_POSITION_LOCKED` — Assets đính chính lý lịch lắp đặt (400)
 - `INSTALLATION_PERIOD_OVERLAP` — Assets (**409**)
 - `INVALID_ASSIGNEE` — AssetMaintenances (400)
 - `INVALID_CATEGORY` — Components, Licenses (400)
@@ -550,6 +564,7 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `PARAM_NOT_FOUND` — MaintenanceTemplates (404)
 - `PARAM_REQUIRED` — MaintenanceTemplates (400)
 - `PASSKEY_ALREADY_REGISTERED` / `PASSKEY_MALFORMED_RESPONSE` / `PASSKEY_REGISTRATION_EXPIRED` / `PASSKEY_VERIFICATION_FAILED` — Auth passkeys/register (400). `PASSKEY_ASSERTION_EXPIRED` bị handler gộp thành `INVALID_CREDENTIALS` (401)
+- `POSITION_NOT_FOUND` — Assets đính chính lý lịch lắp đặt (400)
 - `PASSKEYS_DISABLED` — Auth passkeys login (login/options + login) (**403**)
 - `POSITION_IN_USE_BY_ASSET` — SystemInfos (400)
 - `POSITION_IN_USE_BY_CHECKLIST` — SystemInfos (400)

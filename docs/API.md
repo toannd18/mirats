@@ -321,6 +321,71 @@ Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**
 
 ---
 
+### Đính chính lý lịch lắp đặt — [LL-5]
+
+`POST /api/v1/assets/{id:guid}/installations/{entryId:guid}/correct` · `assets.correct`
+
+Đính chính = ĐÁNH DẤU bản cũ đã bị thay thế + TẠO bản mới trong **CÙNG một transaction**. Bảng
+`asset_installations` vẫn **append-only**: bản cũ KHÔNG bị sửa/xoá dữ liệu nghiệp vụ (ngoại lệ duy nhất — đúng
+thiết kế — là thêm `SupersededAt`). Trình tự: khoá `assets` `FOR UPDATE` → pre-check bất biến → `SupersededAt`
+cho bản cũ → `INSERT` bản mới (`CorrectsEntryId` = bản cũ, `Source = Correction`) → ActionLog `Correct` →
+`SaveChanges` → post-check bất biến → `COMMIT`.
+
+**Body** — patch-semantics: MỌI trường optional **trừ `reason`** (không gửi = giữ nguyên; `note` = `""` để xoá)
+
+| Trường | Kiểu | Ghi chú |
+|--------|------|---------|
+| `startedAt` | ISO-8601 UTC? | Mốc bắt đầu gắn. Không được ở tương lai quá 5 phút (`TIMESTAMP_IN_FUTURE`). |
+| `endedAt` | ISO-8601 UTC? | Mốc tháo/điều chuyển. **CHỈ nhận khi bản cũ ĐÃ ĐÓNG**; bản đang mở ⇒ `INSTALLATION_CLOSE_USE_CHECKIN`. |
+| `systemPositionId` | guid? | Vị trí (khi ghi nhầm vị trí). **CHỈ nhận khi bản cũ ĐÃ ĐÓNG**; bản đang mở ⇒ `INSTALLATION_OPEN_POSITION_LOCKED`. |
+| `note` | string? | Ghi chú lý lịch của **bản mới**. |
+| `reason` | string | **BẮT BUỘC** 10–500 ký tự — lưu ở `ActionLog.Note` + `LogMeta.reason`; timeline hiện ở `details` của sự kiện `CORRECT` (`"Lý do: …"`). |
+
+**Luật (chốt 2026-10-18)**
+
+- Dòng **ĐANG MỞ** (`EndedAt IS NULL AND SupersededAt IS NULL`) chỉ sửa được `startedAt` + `note`.
+- Dòng **ĐÃ ĐÓNG** sửa được `startedAt` + `endedAt` + vị trí + `note`.
+- **KHÔNG đính chính nào đổi `asset.SystemPositionId`** — muốn đổi vị trí hiện tại thì dùng Thu hồi + Cấp phát lại.
+- Không đính chính bản đã bị thay thế (`SupersededAt != null`) ⇒ **409**.
+- Không có thay đổi thực sự ⇒ **400 `CORRECTION_NO_CHANGES`** (không tạo bản rác).
+- Đính chính bản `Source = Backfill` ⇒ bản mới `Source = Correction` ⇒ **mất nhãn "Thời điểm ước tính"**
+  (mốc đã do người dùng xác nhận).
+- Bản bị thay thế **biến mất khỏi tab Lý lịch**; bản mới mang `isCorrection = true` (FE gắn Tag "Đã đính chính").
+  Dấu vết đầy đủ nằm ở tab **Lịch sử**: ActionLog `Correct` + `LogMeta.changes` (`old`/`new`) + lý do.
+- ⚠️ **Đính chính `startedAt` của dòng đang mở có thể lệch với `Assignment.AssignedAt`** (Assignment thuộc luồng
+  checkout, không bị sửa). **Lý lịch lắp đặt là NGUỒN CHUẨN** cho mốc lắp/tháo; Assignment/ActionLog giữ nguyên
+  giá trị gốc để đối chiếu audit.
+
+**Response 200**
+
+```json
+{
+  "status": "success",
+  "message": "Đã đính chính lý lịch lắp đặt.",
+  "data": {
+    "new_entry_id": "8f1c…",
+    "superseded_entry_id": "0f0c…"
+  }
+}
+```
+
+**DTO timeline bổ sung:** `isCorrection` (bool) — `true` khi sự kiện thuộc một BẢN ĐÍNH CHÍNH.
+
+**Lỗi** (bảng đầy đủ: `docs/ERROR_CODES.md`)
+
+| HTTP | Mã | Khi nào |
+|------|----|---------|
+| 404 | `NOT_FOUND` / `INSTALLATION_ENTRY_NOT_FOUND` | asset không tồn tại/ngoài phạm vi công ty, hoặc `entryId` không thuộc asset (hide-existence) |
+| 400 | `CORRECTION_NO_CHANGES` | payload không thay đổi gì so với bản hiện tại |
+| 400 | `INSTALLATION_OPEN_POSITION_LOCKED` | dòng đang mở + có `systemPositionId` |
+| 400 | `INSTALLATION_CLOSE_USE_CHECKIN` | dòng đang mở + có `endedAt` |
+| 400 | `CORRECTION_REASON_REQUIRED` | thiếu lý do / ngắn hơn 10 ký tự |
+| 400 | `POSITION_NOT_FOUND`, `INSTALLATION_END_BEFORE_START`, `TIMESTAMP_IN_FUTURE`, `INSTALLATION_LEDGER_INCONSISTENT` | xem `ERROR_CODES.md` |
+| 409 | `INSTALLATION_ALREADY_SUPERSEDED` | bản ghi đã bị đính chính trước đó |
+| 409 | `INSTALLATION_PERIOD_OVERLAP` | khoảng mới chồng khoảng đang hiệu lực khác (SQLSTATE 23P01) |
+
+---
+
 ## Consumables
 
 | Method | Route | Auth |

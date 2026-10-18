@@ -23,6 +23,9 @@ public static class PermissionCatalog
         new("assets.checkout", "assets", "checkout", "Cấp phát tài sản"),
         new("assets.checkin", "assets", "checkin", "Thu hồi tài sản"),
         new("assets.audit", "assets", "audit", "Kiểm kê tài sản"),
+        // [LL-5] Quyền RIÊNG cho đính chính lý lịch lắp đặt (sửa LỊCH SỬ) — KHÔNG gộp vào assets.edit.
+        // Mặc định chỉ Superuser/Admin có (seeder gán theo PermissionCatalog.All cho 2 nhóm hệ thống).
+        new("assets.correct", "assets", "correct", "Đính chính lý lịch lắp đặt"),
 
         // === Vật tư tiêu hao (Consumables) ===
         new("consumables.view", "consumables", "view", "Xem vật tư tiêu hao"),

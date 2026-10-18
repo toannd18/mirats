@@ -213,6 +213,36 @@ public class AssetsController : ControllerBase
         return Ok(new { status = "success", message = result.Message });
     }
 
+    // ==================== ĐÍNH CHÍNH LÝ LỊCH LẮP ĐẶT (LL-5) ====================
+    // Đính chính = đánh dấu bản cũ SupersededAt + INSERT bản mới (CorrectsEntryId) trong CÙNG transaction,
+    // có ActionLog. Luật + mã lỗi: docs/API.md § "Đính chính lý lịch lắp đặt" + docs/ERROR_CODES.md.
+
+    [HttpPost("{id:guid}/installations/{entryId:guid}/correct")]
+    [Authorize(Policy = "assets.correct")]
+    public async Task<IActionResult> CorrectInstallation(Guid id, Guid entryId, [FromBody] CorrectInstallationRequestDto request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _mediator.Send(new CorrectInstallationCommand(
+            id, entryId, request.StartedAt, request.EndedAt, request.SystemPositionId, request.Note, request.Reason, userId));
+
+        if (!result.Success)
+        {
+            // Không tìm thấy asset/bản ghi ⇒ 404 (hide-existence, mirror GET /assets/{id}); còn lại 400,
+            // riêng chồng khoảng (INSTALLATION_PERIOD_OVERLAP) là 409 — xử lý trong MapLedgerFailure.
+            if (result.ErrorCode is "NOT_FOUND" or "INSTALLATION_ENTRY_NOT_FOUND")
+                return NotFound(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+
+            return MapLedgerFailure(result.Message, result.ErrorCode);
+        }
+
+        return Ok(new
+        {
+            status = "success",
+            message = result.Message,
+            data = new { new_entry_id = result.NewEntryId, superseded_entry_id = result.SupersededEntryId }
+        });
+    }
+
     // ==================== HISTORY ====================
     // [Giai đoạn 3 — Assets] Thin MediatR mapping over GetAssetHistoryQuery (Task K scope-404 +
     // Take(50) + Creator JOIN verbatim trong handler).

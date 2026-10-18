@@ -83,6 +83,10 @@ public static class AssetTimelineRefTypes
 /// <c>remove</c> | <c>actionLog</c> | <c>campaign</c> | <c>maintenance</c>. Phải có tiền tố nguồn vì MỘT dòng
 /// lý lịch lắp đặt sinh HAI sự kiện (INSTALL + REMOVE) dùng chung id dòng.
 /// </param>
+/// <param name="IsCorrection">
+/// [LL-5] <c>true</c> khi sự kiện thuộc một BẢN ĐÍNH CHÍNH (<c>CorrectsEntryId != null</c> / <c>Source = Correction</c>) —
+/// FE dùng để gắn Tag "Đã đính chính" ở bản mới (bản bị thay thế bị ẩn khỏi timeline).
+/// </param>
 /// <param name="EventType">Loại sự kiện (xem <see cref="AssetTimelineEventTypes"/> + tên ActionType SCREAMING_SNAKE).</param>
 /// <param name="OccurredAt">Thời điểm sự kiện xảy ra (UTC) — KHÔNG phải thời điểm tạo bản ghi (trừ đợt bảo dưỡng, xem docs).</param>
 /// <param name="Title">Tiêu đề hiển thị (tiếng Việt).</param>
@@ -116,7 +120,8 @@ public sealed record AssetTimelineEventDto(
     string? RefType,
     Guid? RefId,
     bool IsEstimated,
-    DateTime? MaintenanceCompletionDate = null);
+    DateTime? MaintenanceCompletionDate = null,
+    bool IsCorrection = false);
 
 /// <summary>
 /// Truy vấn lý lịch thiết bị. <paramref name="Cursor"/> là con trỏ đục (opaque) lấy từ
@@ -476,7 +481,9 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                 i.Note,
                 i.LoggedByName,
                 i.LoggedById,
-                i.Source
+                i.Source,
+                // [LL-5] Bản đính chính (CorrectsEntryId != null) ⇒ FE gắn Tag "Đã đính chính" ở bản mới.
+                i.CorrectsEntryId
             })
             .ToListAsync(cancellationToken);
 
@@ -494,7 +501,8 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
             // [LL-4b] Dòng backfill mang Note KỸ THUẬT của lần chuyển dữ liệu cũ — nhãn "Thời điểm ước tính"
             // (+ tooltip) đã truyền đạt đủ, nên KHÔNG lặp lại văn bản đó trong details. Chỉ là quyết định
             // HIỂN THỊ: dữ liệu Note trong DB giữ nguyên (không sửa).
-            Note: r.Source == AssetInstallationSource.Backfill ? null : r.Note)).ToList();
+            Note: r.Source == AssetInstallationSource.Backfill ? null : r.Note,
+            IsCorrection: r.CorrectsEntryId != null)).ToList();
     }
 
     private async Task<List<TimelineCandidate>> FetchLedgerRemoveAsync(
@@ -529,7 +537,9 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                 i.LoggedByName,
                 i.LoggedById,
                 // [LL-4b] Cần biết dòng gốc có phải backfill để BỎ Note kỹ thuật ở cả sự kiện THÁO.
-                i.Source
+                i.Source,
+                // [LL-5] Bản đính chính ⇒ FE gắn Tag "Đã đính chính" ở bản mới.
+                i.CorrectsEntryId
             })
             .ToListAsync(cancellationToken);
 
@@ -545,7 +555,8 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
             SystemInfoName: r.SystemInfoName,
             IsEstimated: false, // mốc tháo luôn đến từ thao tác thật (backfill chỉ ước tính StartedAt)
                                 // [LL-4b] Sự kiện tháo của dòng backfill KHÔNG mang Note kỹ thuật của lần backfill (xem nguồn INSTALL).
-            Note: r.Source == AssetInstallationSource.Backfill ? null : r.Note)).ToList();
+            Note: r.Source == AssetInstallationSource.Backfill ? null : r.Note,
+            IsCorrection: r.CorrectsEntryId != null)).ToList();
     }
 
     // ==================== NGUỒN 3: ActionLog ====================
@@ -908,7 +919,8 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                     ResolveActorName(c.ActorUserId, c.ActorName, lookups),
                     c.RefType,
                     c.RefId,
-                    c.IsEstimated);
+                    c.IsEstimated,
+                    IsCorrection: c.IsCorrection);
 
             case TimelineSourceKind.LedgerRemove:
                 return new AssetTimelineEventDto(
@@ -922,7 +934,8 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                     ResolveActorName(c.ActorUserId, c.ActorName, lookups),
                     c.RefType,
                     c.RefId,
-                    c.IsEstimated);
+                    c.IsEstimated,
+                    IsCorrection: c.IsCorrection);
 
             case TimelineSourceKind.ActionLog:
                 {
@@ -946,6 +959,9 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                     {
                         ActionType.Create => DescribeCreate(c.LogMeta),
                         ActionType.Update => DescribeChanges(c.LogMeta, lookups) ?? DefaultUpdateDetails,
+                        // [LL-5] Sự kiện đính chính: details = LÝ DO đính chính (audit). Sự kiện này KHÔNG thuộc nhóm
+                        // "Sự kiện chính" của tab Lý lịch (chỉ hiện ở chế độ "Tất cả").
+                        ActionType.Correct => string.IsNullOrWhiteSpace(c.Note) ? null : $"Lý do: {c.Note}",
                         _ => c.Note
                     };
 
@@ -1242,6 +1258,8 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
         ActionType.Inspect => ("INSPECT", "Kiểm tra"),
         ActionType.Publish => ("PUBLISH", "Phát hành"),
         ActionType.Complete => ("COMPLETE", "Hoàn thành"),
+        // [LL-5] Đính chính lý lịch lắp đặt (sự kiện riêng, details = lý do).
+        ActionType.Correct => ("CORRECT", "Đính chính lý lịch lắp đặt"),
         _ => (AssetTimelineEventTypes.Token(actionType), actionType.ToString())
     };
 
@@ -1305,7 +1323,8 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
         AssetMaintenanceType? MaintenanceType = null,
         string? MaintenanceTitle = null,
         DateTime? CompletionDate = null,
-        string? LogMeta = null);
+        string? LogMeta = null,
+        bool IsCorrection = false);
 
     /// <summary>
     /// Thông tin đợt bảo dưỡng tra cứu theo lô cho TRANG hiện tại. KHÔNG chứa <c>StartDate</c>/<c>ReviewerId</c>:

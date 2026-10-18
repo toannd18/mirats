@@ -25,5 +25,11 @@ public enum ActionType
     /// <summary>[MC-2] Publish một MaintenanceChecklistTemplateVersion (draft → hiện hành).</summary>
     Publish = 21,
     /// <summary>[MC-3] Hoàn thành một MaintenanceCampaign (status → Completed, tính NextMaintenanceDueDate).</summary>
-    Complete = 22
+    Complete = 22,
+    /// <summary>
+    /// [LL-5] Đính chính một dòng lý lịch lắp đặt (<c>asset_installations</c>): bản cũ bị đánh dấu
+    /// <c>SupersededAt</c> và một bản mới được INSERT trỏ về bản cũ (<c>CorrectsEntryId</c>).
+    /// Chỉ THÊM giá trị (append-only enum) — không đổi giá trị đã phát hành.
+    /// </summary>
+    Correct = 23
 }

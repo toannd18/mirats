@@ -13,5 +13,11 @@ public enum AssetInstallationSource
     Import = 2,
 
     /// <summary>Backfill hệ thống khi áp dụng tính năng (không có người ghi).</summary>
-    Backfill = 3
+    Backfill = 3,
+    /// <summary>
+    /// [LL-5] Bản ghi do thao tác ĐÍNH CHÍNH tạo ra (người dùng xác nhận lại mốc thời gian/vị trí).
+    /// Khác <see cref="Api"/> ở chỗ bản này là bản thay thế của một bản trước (<c>CorrectsEntryId != null</c>);
+    /// mốc thời gian của bản đính chính LUÔN là mốc do người dùng xác nhận ⇒ không còn mang nhãn ước tính.
+    /// </summary>
+    Correction = 4
 }

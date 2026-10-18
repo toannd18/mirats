@@ -830,3 +830,32 @@
   (hoặc hỗ trợ `--port=n`), rồi ghi chú trong chính script.
 - **Verify khi làm:** `npm run dev -- --port 5174` ⇒ log Vite hiện `https://localhost:5174/` và
   `Get-NetTCPConnection -LocalPort 5174 -State Listen` có listener; đồng thời 5173 không bị chiếm.
+
+---
+
+## LL-6 — Xuất PDF (lý lịch/báo cáo) bằng chức năng IN của trình duyệt (HOÃN — làm SAU LL-5)
+
+- **Trạng thái: HOÃN (backlog)** — chốt 2026-10-18 theo yêu cầu người dùng: **làm sau LL-5** (đính chính lý lịch lắp đặt).
+- **Mục tiêu:** xuất PDF bằng `window.print()` + CSS `@media print` (KHÔNG thêm thư viện render PDF phía server),
+  tối thiểu cho **trang chi tiết thiết bị (kèm tab Lý lịch)**; báo cáo khác (nếu cần) tính sau.
+- **Vì sao hoãn:** ưu tiên LL-5 trước; phần in cần CSS in riêng cho từng màn (ẩn sidebar/bộ lọc/nút, ngắt trang,
+  header/footer, xử lý màu antd token khi in) nên chỉ nên làm khi luồng lý lịch đã ổn định (tránh thiết kế CSS in 2 lần).
+- **Ghi chú kỹ thuật dự kiến (chưa chốt):** nút "In / Xuất PDF" ở đầu trang chi tiết; chặn in khi đang tải (Skeleton);
+  cân nhắc chỉ in phần đang xem (tab hiện hành) hay in cả 2 tab; kiểm tra cỡ A4 dọc.
+- **Tiêu chí nghiệm thu (dự kiến):** 1 lần bấm in ra PDF có đủ thông tin thiết bị + lý lịch; không có menu/bộ lọc/nút;
+  không tràn ngang; kiểm chứng bằng PDF thật (không chỉ ảnh chụp màn hình).
+
+---
+
+## LL-5b — Hiện BẢN ĐÃ BỊ THAY THẾ trong tab Lý lịch (`includeSuperseded`) — HOÃN
+
+- **Trạng thái: HOÃN (backlog)** — chốt 2026-10-18 khi làm LL-5 Bước 2: bước này chỉ làm **backend đính chính** + dữ liệu
+  cho Tag "Đã đính chính" ở BẢN MỚI (`isCorrection` trong DTO timeline); **chưa** trả bản bị thay thế ra UI.
+- **Vì sao hoãn:** bản bị thay thế hiện bị ẩn HOÀN TOÀN khỏi timeline (`SupersededAt == null`, LL-3). Muốn hiện lại phải
+  thêm tham số `includeSuperseded` (trên `GET /assets/{id}/timeline` hoặc `GET /assets/{id}/installations`) **và** thiết kế
+  UI (render mờ + nhãn "Đã bị đính chính" + ai/khi nào), đồng thời kiểm tra phân trang cursor không vỡ ⇒ tách bước riêng
+  để không trộn rủi ro vào Bước 2.
+- **Đã có sẵn để làm tiếp:** cột `SupersededAt` + `CorrectsEntryId` (LL-1/LL-5), DTO timeline `isCorrection`, ActionLog
+  `Correct` có `LogMeta.changes` (old/new) + lý do — tab **Lịch sử** đã thấy dấu vết bản cũ ngay bây giờ.
+- **Tiêu chí nghiệm thu (dự kiến):** bật `includeSuperseded` thì bản cũ hiện mờ kèm nhãn, KHÔNG mất/lặp sự kiện khi đi qua
+  các trang; mặc định (không tham số) giữ nguyên hành vi ẩn; có test + ảnh UI 1440/390.
