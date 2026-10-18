@@ -248,6 +248,22 @@ curl -s "https://api.github.com/repos/toannd18/mirats/actions/runs/<run-id>/jobs
 - Khi thêm/sửa endpoint GHI các nhóm này (Category/Manufacturer/Supplier/Company/permission catalog) phải **invalidate cache tương ứng** (tag hoặc chờ TTL).
 - An toàn nhờ `UseOutputCache()` đặt SAU `UseAuthorization()` (unauthorized → 403 trước khi tới cache) + custom policy bật cache cho authenticated request (default policy KHÔNG cache authenticated).
 
+### 3.16. DB tạm cho verify/fixture: PHẢI nằm trong container Postgres RIÊNG (quy tắc cứng, từ 2026-10-18)
+- Mọi DB tạm/throwaway (verify LIVE, fixture evidence, test `[ThrowawayDbFact]`, replay migration trên DB tạm)
+  **KHÔNG được tạo trong container Postgres của stack dev** — kể cả khi chỉ `CREATE DATABASE` rồi `DROP` sau khi xong.
+  Container của stack dev = container do AppHost quản lý (hiện là `postgres-zdkfcfkx`, chứa DB dev `aspire-react-db`).
+- **Lý do:** một `DROP DATABASE ... WITH (FORCE)` gõ nhầm đích, một `docker volume prune`/`docker stop` nhầm, hoặc chỉ
+  cần tạo DB trùng tên cũng đủ phá DB dev — thứ **không tái tạo nhanh được** (dữ liệu dev + các fixture giữ lại có chủ đích).
+  Container riêng biến mọi rủi ro đó thành "xoá container là xong".
+- **Đúng:** dựng container Postgres riêng cho DB tạm, ví dụ
+  `docker run -d --rm --name <task>-pg-tmp -e POSTGRES_PASSWORD=<pw> -p 55432:5432 postgres:16`, tạo DB trong đó, và
+  connection string của API/test trỏ vào cổng riêng (VD `Port=55432`) — KHÔNG trỏ vào cổng của container dev.
+- **Đặt tên** container + DB có tiền tố task (VD `ll4b-pg-tmp`, DB `ll4b_verify`) để không lẫn với DB dev.
+- **Dọn dẹp:** sau khi verify phải `DROP DATABASE` + **xoá container tạm NGAY** (không để tồn tại sang task sau), rồi
+  xác nhận trên container của stack dev chỉ còn đúng `aspire-react-db`.
+- **Báo cáo** phải ghi: DB tạm nằm ở container nào, đã xoá chưa, và mọi thao tác SQL đặc biệt trên DB tạm
+  (replay migration, soft-delete, hạ `IsConfirmed`, …) kèm lý do — vì API không tạo được trạng thái đó.
+
 ---
 
 ## 4. Checklist hoàn thành task (đính kèm CUỐI mỗi báo cáo)

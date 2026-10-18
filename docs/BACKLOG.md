@@ -813,3 +813,20 @@
 - **Việc chưa làm (cân nhắc sau):** không có test tự động nào chặn *mới* phát sinh mẫu "chiếu type có tên rồi lọc member"
   ngoài canary ở trên (canary chỉ chốt 3 hình dạng tra cứu `assignedTo`); muốn chặn toàn cục cần một analyzer/script rà
   (hiện chỉ có script rà tạm, không nằm trong repo).
+
+---
+
+## BUG-R — `frontend/scripts/dev-server.mjs` bỏ qua `--port` (LOW, OPEN)
+
+- **Trạng thái: OPEN** (phát hiện khi verify LL-4 và LL-4b, 2026-10-18; **chưa sửa** — mức thấp, ngoài phạm vi).
+- **Vị trí:** `aspire-react/frontend/scripts/dev-server.mjs` — wrapper dev của Vite (package.json: `node scripts/dev-server.mjs ...`).
+- **Hành vi (đã quan sát 2 lần, không suy đoán):** chạy `npm run dev -- --port 5174 --strictPort` nhưng log Vite vẫn báo
+  `ready` + `Local: https://localhost:5173/`; `Get-NetTCPConnection -LocalPort 5174` **không** có listener. Tức tham số
+  cổng không được chuyển xuống Vite qua wrapper.
+- **Ảnh hưởng:** chỉ môi trường dev/verify (không ảnh hưởng production). Hệ quả: không thể dựng dev server PHỤ ở cổng khác
+  bằng CLI ⇒ các phiên verify song song (VD FE phụ trỏ API tạm) buộc phải dùng 5173, dễ tranh chấp; mọi hướng dẫn ghi
+  `--port <khác>` sẽ sai và gây mất thời gian dò lỗi.
+- **Gợi ý xử lý (chưa làm):** forward `process.argv`/`process.env.PORT` xuống tiến trình Vite trong `dev-server.mjs`
+  (hoặc hỗ trợ `--port=n`), rồi ghi chú trong chính script.
+- **Verify khi làm:** `npm run dev -- --port 5174` ⇒ log Vite hiện `https://localhost:5174/` và
+  `Get-NetTCPConnection -LocalPort 5174 -State Listen` có listener; đồng thời 5173 không bị chiếm.
