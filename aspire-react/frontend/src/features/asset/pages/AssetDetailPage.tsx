@@ -183,10 +183,11 @@ const AssetDetailPage: React.FC = () => {
       </Card>
 
       {/* Lịch sử (ActionLog thô) + Lý lịch thiết bị [LL-4] — 2 tab; nội dung Lịch sử GIỮ NGUYÊN
-          (cùng ActionLogTable, cùng request/params), Lý lịch là dòng thời gian mới. */}
+          (cùng ActionLogTable, cùng request/params), Lý lịch là dòng thời gian mới.
+          [LL-4b] Tab MẶC ĐỊNH là "Lý lịch" (defaultActiveKey="timeline"). */}
       <Card style={{ marginBottom: 16 }}>
         <Tabs
-          defaultActiveKey="history"
+          defaultActiveKey="timeline"
           items={[
             {
               key: 'history',

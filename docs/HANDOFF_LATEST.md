@@ -3347,6 +3347,77 @@ Chuỗi MC-7 (được duyệt từng bước): hạng mục checklist có thể
   `MIRATS_TEST_THROWAWAY_DB`), `npm run lint`, `npm run build`, `scripts/audit-sweeps.ps1`.
 - **Commit:** commit BUG-Q riêng (fix + test hồi quy + backlog + handoff), **LOCAL — chưa push** (LL-4 `b7b5560` cũng vẫn chưa push).
 
+---
+
+## 2026-10-18 — LL-4b: hoàn thiện tab "Lý lịch" (tiêu đề · lọc `types` · `id` · trạng thái lỗi) + tab mặc định
+
+- **Backend — `aspire-react.Application/Assets/Queries/AssetTimelineQuery.cs`**
+  - Tiêu đề lắp/tháo dạng NGẮN: `Lắp đặt tại: <vị trí>` / `Tháo khỏi: <vị trí>` (hết lặp chữ "vị trí").
+  - Dòng `Source = Backfill`: **KHÔNG** đưa Note kỹ thuật vào `details` — áp dụng cho CẢ sự kiện lắp **và** sự kiện
+    tháo (nguồn REMOVE nay đọc thêm `Source`); dữ liệu `Note` trong DB **giữ nguyên** (chỉ là quyết định hiển thị).
+  - `CREATE`: details tiếng Việt (`Serial: …`), KHÔNG dùng Note tiếng Anh `Created asset: <tag> - <name>` (Note đó
+    lặp lại mã/tên thiết bị vốn đã hiện ở đầu trang chi tiết).
+  - `UPDATE`: details = danh sách field thay đổi từ `LogMeta.changes`, dạng `"Nhãn: cũ → mới"` nối bằng `" · "`;
+    giá trị rỗng → `(trống)`, boolean → `Có`/`Không`, field tham chiếu (`location_id` / `supplier_id` / `company_id`
+    / `model_id`) được **tra tên** (không hiện GUID thô, không tra được → `(không xác định)`), field ngày chỉ ghi
+    `(đã đổi)` để giữ quy ước LL-3 "details không chứa ngày/giờ"; không có `changes` hoặc `LogMeta` hỏng ⇒
+    `Cập nhật thông tin thiết bị`.
+  - Tham số **`types`** (lọc theo `eventType`): nhận 4 loại riêng của lý lịch + **mọi tên `ActionType`**
+    SCREAMING_SNAKE; dạng `?types=A,B` **hoặc** `?types=A&types=B`; không phân biệt hoa thường; rỗng ⇒ không lọc;
+    giá trị lạ ⇒ **400 `INVALID_TYPES`**. Bộ lọc được đẩy xuống **WHERE của TỪNG nguồn** (không lọc sau khi phân
+    trang — nếu lọc muộn, trang sẽ thiếu sự kiện vì mỗi nguồn chỉ lấy `limit + 1` dòng).
+  - **`id` ổn định** cho mọi sự kiện: `"<nguồn>:<id bản ghi gốc>"` với nguồn ∈ `install` / `remove` / `actionLog` /
+    `campaign` / `maintenance` — phải có tiền tố nguồn vì MỘT dòng lý lịch lắp đặt sinh 2 sự kiện dùng chung id dòng.
+- **Frontend**
+  - Bộ chọn `Sự kiện chính` (MẶC ĐỊNH) / `Tất cả` (antd `Segmented`): gửi
+    `types=INSTALL,REMOVE,MAINTENANCE,MAINTENANCE_CAMPAIGN` hoặc bỏ hẳn `types`; đổi nhóm ⇒ tải lại từ trang đầu.
+  - Dùng `event.id` làm React key **và** khoá khử trùng khi nối trang; đã **xoá** hàm ghép khoá `timelineEventKey`
+    (khoá ghép vỡ khi 1 dòng lý lịch sinh 2 sự kiện trùng mốc).
+  - Trạng thái lỗi: tiêu đề + mô tả **không lặp tiêu đề**, thêm dòng `Mã lỗi: <error_code>` (hoặc `HTTP <status>`
+    nếu server không trả `error_code`); ở màn hẹp (<576px, VD 390px) nút "Thử lại" nằm **dòng riêng** (bỏ `action`
+    của Alert) — đo được: không có `ant-alert-action`, nút nằm dưới phần mô tả, `scrollWidth == innerWidth`.
+  - Tab **MẶC ĐỊNH** của trang chi tiết thiết bị = "Lý lịch" (`defaultActiveKey="timeline"`).
+- **Test** — `AssetTimelineQueryTests` +11 test: lọc theo `types` (chỉ trả đúng loại yêu cầu, tập "sự kiện chính"
+  không có AUDIT/CREATE/UPDATE); **lọc + phân trang con trỏ không mất/không lặp** (đi từng trang `limit=1`, so với
+  một trang lớn); lọc giá trị lạ ⇒ `INVALID_TYPES`; tên `ActionType` + dấu phẩy + hoa thường; chuẩn hoá `TryCreate`
+  (theory); tiêu đề lắp/tháo; backfill không lộ Note (**và** đọc lại DB xác nhận Note không bị sửa); CREATE details
+  (có/không serial); UPDATE details (tra tên vị trí, không lộ GUID, không có ngày, không dùng lại Note); UPDATE
+  không changes + `LogMeta` hỏng ⇒ câu mặc định; `id` duy nhất/ổn định và phân biệt INSTALL vs REMOVE cùng dòng.
+  Toàn bộ suite (`Category!=Concurrency`): **611 passed / 1 skipped**.
+- **Bằng chứng (DB tạm `ll4b_verify`)**: fixture dựng **hoàn toàn qua API**, riêng 2 thao tác SQL trên DB tạm (có
+  ghi rõ lý do trong script): (a) hạ `IsConfirmed=false` để `PUT` đổi được nhiều field (API luôn tạo asset đã xác
+  nhận, chỉ cho sửa Name/Notes) rồi xác nhận lại bằng `POST /assets/{id}/confirm`; (b) xoá dòng lý lịch do API tạo
+  + replay SQL migration LL-2 để có dòng `Source = Backfill` (API không tạo được trạng thái này).
+  - `GET /assets/{A}/timeline` → **9** sự kiện: INSTALL=2, REMOVE=1, MAINTENANCE=2, MAINTENANCE_CAMPAIGN=1,
+    CREATE=1, UPDATE=1, CONFIRM=1.
+  - `?types=INSTALL,REMOVE,MAINTENANCE,MAINTENANCE_CAMPAIGN` → **6** (không còn CREATE/UPDATE/CONFIRM);
+    `?types=CREATE,UPDATE,CONFIRM` → đúng 3 loại đó; `?types=install,UPDATE_REJECTED` → 200 (dấu phẩy + hoa thường).
+  - RAW sự kiện UPDATE: `"details": "Tên: Thiết bị A - đủ nguồn → Thiết bị A - đã cập nhật · Serial: LL4B-A-SN-001 →
+    LL4B-A-SN-999 · Vị trí: (trống) → Kho LL4B-B (fixture) · Bảo hành (tháng): (trống) → 24 · Số đơn hàng:
+    PO-LL4B-001 → PO-LL4B-002 · Ghi chú: … → …"` — id tham chiếu đã **tra tên**, không có GUID, không có ngày.
+  - RAW sự kiện INSTALL của dòng backfill: `title = "Lắp đặt tại: Kệ LL4B-A1"`, `details = "Hệ thống: Hệ thống LL4B
+    kiểm thử lý lịch"` (KHÔNG có Note kỹ thuật), `isEstimated = true`, `actorName = null`.
+  - `?types=KHONG-CO-LOAI-NAY` → **400** `{"error_code":"INVALID_TYPES"}`; `?cursor=khong-phai-cursor` → **400**
+    `{"error_code":"INVALID_CURSOR"}` (chụp raw cả hai).
+  - UI: tab mặc định "Lý lịch" (`aria-selected=true`), chế độ mặc định `Sự kiện chính`, số sự kiện trên UI
+    **6 / 9** khớp bảng chứng API; trạng thái lỗi hiện `Mã lỗi: INVALID_CURSOR` + nút Thử lại ở dòng riêng tại 390px.
+  - Ảnh (9): `screenshots/ll4b-1440-main.png`, `ll4b-1440-all.png`, `ll4b-1440-backfill.png`, `ll4b-1440-error.png`,
+    `ll4b-390-top.png` (asset đang gắn vị trí), `ll4b-390-main.png`, `ll4b-390-all.png`, `ll4b-390-backfill.png`,
+    `ll4b-390-error.png`. Trạng thái lỗi được **mock 400** ở tầng browser (FE không thể tự sinh `cursor` sai);
+    mã lỗi thật đã được chứng minh bằng HTTP thô ở trên.
+- **Docs:** `docs/API.md` § Asset Timeline — thêm bảng **Tham số** (`types`), thêm `id` vào bảng DTO, quy tắc
+  `details` cho CREATE/UPDATE/backfill, mã lỗi `INVALID_TYPES`, và mục "Ghi chú [LL-4b]".
+- **Gates:** 6/6 PASS (`logs/ll4b-gates.txt`) — `dotnet format`, build Release, `dotnet test` = **611 passed / 1 skipped**
+  (test bị skip là test Postgres thật có gate `MIRATS_TEST_THROWAWAY_DB`), FE lint, FE build, `audit-sweeps` (0 vi phạm).
+  Hai gate ban đầu ĐỎ và đã xử lý: (a) `dotnet format` — vài dòng quá dài trong `AssetTimelineQuery.cs` ⇒ chạy
+  `dotnet format` rồi grep lại encoding (không mojibake); (b) `audit-sweeps` S2 — tôi đã tách `const status = …` khỏi
+  phép so sánh `response?.status === 404`, mà ngoại lệ của sweep yêu cầu chuỗi `response?.status` nằm **cùng dòng** ⇒
+  viết lại phép so sánh INLINE (KHÔNG sửa script sweep — giữ đúng tiền lệ BUG-Q).
+- **Canary bổ sung:** `CursorTechnique_Translates_OnNpgsql` nay khẳng định thêm vị từ lọc `types`
+  (`HashSet<ActionType>` → `IN`/`ANY` phía SQL) dịch được — chặn tái phát đúng lớp lỗi **BUG-Q** (InMemory không bắt được).
+- **Commit:** commit LL-4b riêng (backend + FE + test + docs), **LOCAL — chưa push**
+  (LL-4 `b7b5560` và BUG-Q `1c5656c` cũng vẫn chưa push).
+
 
 
 

@@ -12,6 +12,12 @@
 
 /** Một sự kiện trong dòng thời gian của thiết bị. */
 export interface AssetTimelineEvent {
+  /**
+   * [LL-4b] Id ỔN ĐỊNH do SERVER sinh (`"<nguồn>:<id bản ghi gốc>"`, VD `install:…`, `actionLog:…`) — dùng
+   * làm React key và khoá khử trùng khi nối trang. Client KHÔNG tự dựng lại id; id phải giữ nguyên giữa
+   * các trang nên so sánh chuỗi là đủ.
+   */
+  id: string;
   /** Loại sự kiện — dùng để chọn icon/màu. */
   eventType: string;
   /** Thời điểm sự kiện xảy ra (UTC có `Z`) — KHÔNG phải thời điểm tạo bản ghi. */
@@ -46,19 +52,6 @@ export interface AssetTimelineResponse {
   status: string;
   data: AssetTimelineEvent[];
   pagination: AssetTimelinePagination;
-}
-
-/**
- * Khoá khử trùng của một sự kiện khi nối trang.
- *
- * DTO timeline KHÔNG có trường `id` (mỗi sự kiện là dữ liệu DẪN XUẤT từ 4 nguồn, không có khoá riêng —
- * thêm `id` sẽ là thay đổi backend, ngoài phạm vi LL-4). Bộ tứ `(eventType, refType, refId, occurredAt)`
- * định danh duy nhất một sự kiện: một dòng lý lịch lắp đặt sinh 2 sự kiện khác `eventType`; sự kiện
- * ActionLog/phiếu/đợt có `refId` riêng; mốc thời gian giữ nguyên tick nên so sánh chuỗi là chính xác.
- * Mục đích của khử trùng là chống gọi lặp (double-click "Tải thêm"), không phải che lỗi phân trang.
- */
-export function timelineEventKey(event: AssetTimelineEvent): string {
-  return `${event.eventType}|${event.refType ?? ''}|${event.refId ?? ''}|${event.occurredAt}`;
 }
 
 /**

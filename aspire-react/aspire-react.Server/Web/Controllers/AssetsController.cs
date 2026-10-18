@@ -232,17 +232,22 @@ public class AssetsController : ControllerBase
     // [LL-3] Thin MediatR mapping over AssetTimelineQuery: trộn 4 nguồn (lý lịch lắp đặt / ActionLog /
     // đợt bảo dưỡng / phiếu bảo dưỡng) — mới nhất trước, phân trang CURSOR (không offset),
     // company-scope → 404 như GetAsset. Hợp đồng DTO + từ vựng eventType: docs/API.md.
+    // [LL-4b] `types` (VD `?types=INSTALL,REMOVE` hoặc `?types=INSTALL&types=REMOVE`) lọc theo eventType.
 
     [HttpGet("{id:guid}/timeline")]
     [Authorize(Policy = "assets.view")]
     public async Task<IActionResult> GetTimeline(
-        Guid id, [FromQuery] string? cursor, [FromQuery] int limit = AssetTimelineQueryHandler.DefaultLimit)
+        Guid id,
+        [FromQuery] string? cursor,
+        [FromQuery] int limit = AssetTimelineQueryHandler.DefaultLimit,
+        [FromQuery(Name = "types")] string[]? types = null)
     {
-        var result = await _mediator.Send(new AssetTimelineQuery(id, cursor, limit));
+        var result = await _mediator.Send(new AssetTimelineQuery(id, cursor, limit, types));
 
         if (!result.Success)
         {
-            if (result.ErrorCode == AssetTimelineQuery.InvalidCursorErrorCode)
+            // Lỗi ĐẦU VÀO (cursor / types) ⇒ 400 kèm error_code; mọi trường hợp khác là 404 hide-existence.
+            if (result.ErrorCode is AssetTimelineQuery.InvalidCursorErrorCode or AssetTimelineQuery.InvalidTypesErrorCode)
                 return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
 
             return NotFound(new { status = "error", message = "Asset not found." });

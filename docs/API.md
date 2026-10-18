@@ -168,7 +168,15 @@ Lưu ý: hạ quyền **superuser cuối cùng** của hệ thống bị guard `
 
 ### Asset Timeline (Lý lịch thiết bị) — [LL-3]
 
-`GET /api/v1/assets/{id:guid}/timeline?cursor=<opaque>&limit=50` · `assets.view`
+`GET /api/v1/assets/{id:guid}/timeline?cursor=<opaque>&limit=50&types=INSTALL,REMOVE` · `assets.view`
+
+**Tham số**
+
+| Tham số | Kiểu | Ghi chú |
+|---------|------|---------|
+| `cursor` | string? | Con trỏ **ĐỤC** lấy từ `pagination.nextCursor` của trang trước. |
+| `limit` | int = 50 | Số sự kiện mỗi trang (tối đa 200; giá trị ngoài khoảng được **CHUẨN HOÁ**, không báo lỗi). |
+| `types` | string? | **[LL-4b]** Danh sách `eventType` cần lấy — ngăn bằng dấu phẩy (`?types=INSTALL,REMOVE`) **hoặc** lặp tham số (`?types=INSTALL&types=REMOVE`), không phân biệt hoa thường. Nhận cả 4 loại riêng của lý lịch (`INSTALL`, `REMOVE`, `MAINTENANCE`, `MAINTENANCE_CAMPAIGN`) **và mọi tên `ActionType`** dạng SCREAMING_SNAKE (`CREATE`, `UPDATE`, `CHECKOUT`, `UPDATE_REJECTED`, …). Không truyền/rỗng ⇒ **không lọc**. Giá trị không nhận diện được ⇒ **400 `INVALID_TYPES`** (không im lặng bỏ qua). Bộ lọc được đẩy xuống từng nguồn nên `nextCursor` vẫn đúng, nhưng **client phải giữ nguyên `types` khi đi qua các trang** — đổi bộ lọc mà vẫn truyền cursor cũ thì kết quả không được bảo đảm. |
 
 Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**), trộn 4 nguồn:
 
@@ -193,10 +201,11 @@ Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**
 
 | Trường | Kiểu | Ghi chú |
 |--------|------|---------|
+| `id` | string | **[LL-4b]** Id **ỔN ĐỊNH** của sự kiện (duy nhất trong lý lịch của một thiết bị): `"<nguồn>:<id bản ghi gốc>"` với nguồn ∈ `install` \| `remove` \| `actionLog` \| `campaign` \| `maintenance`. FE dùng thẳng làm key/khử trùng khi nối trang — **không** tự dựng lại. Phải có tiền tố nguồn vì một dòng lý lịch lắp đặt sinh 2 sự kiện (INSTALL + REMOVE) dùng chung id dòng. |
 | `eventType` | string | Xem bảng nguồn ở trên. **Ổn định** — FE dùng để chọn icon/màu. |
 | `occurredAt` | ISO-8601 UTC (có `Z`) | Thời điểm SỰ KIỆN xảy ra (KHÔNG phải thời điểm tạo bản ghi). Với `MAINTENANCE`/`MAINTENANCE_CAMPAIGN` đây là ngày **bắt đầu** của phiếu/đợt. |
-| `title` | string | Tiêu đề tiếng Việt ghép sẵn (VD `Lắp vào vị trí Kệ A1`, `Tháo khỏi vị trí Kệ A1`, `Cấp phát`, `Sửa chữa: Thay quạt`). |
-| `details` | string? | Chi tiết phụ dạng **VĂN BẢN**: hệ thống / địa điểm / đối tượng / ghi chú, ngăn cách bằng `" · "`. **KHÔNG bao giờ chứa ngày/giờ đã format** — mọi mốc thời gian nằm ở trường có cấu trúc (`occurredAt`, `maintenanceCompletionDate`) để FE tự format theo múi giờ người dùng. |
+| `title` | string | Tiêu đề tiếng Việt ghép sẵn. **[LL-4b]** sự kiện lắp/tháo dùng dạng ngắn không lặp chữ "vị trí": `Lắp đặt tại: Kệ A1`, `Tháo khỏi: Kệ A1`; các sự kiện khác giữ nhãn `ActionType` (`Cấp phát`, `Thu hồi`, `Tạo mới`, `Cập nhật`, …) và phiếu bảo dưỡng là `Sửa chữa: Thay quạt`. |
+| `details` | string? | Chi tiết phụ dạng **VĂN BẢN**, ngăn cách bằng `" · "`: đối tượng nhận / địa điểm / hệ thống / ghi chú. **[LL-4b]** riêng sự kiện đến từ ActionLog: `CREATE` ⇒ tiếng Việt + `serial` (KHÔNG lặp lại mã/tên thiết bị, KHÔNG dùng Note tiếng Anh của log); `UPDATE` ⇒ danh sách field thay đổi `"Nhãn: cũ → mới"` (giá trị rỗng = `(trống)`, boolean = `Có`/`Không`, field tham chiếu — `location_id`/`supplier_id`/`company_id`/`model_id` — được **tra tên** thay vì hiện GUID; không tra được ⇒ `(không xác định)`); `UPDATE` không có `changes` ⇒ `Cập nhật thông tin thiết bị`. Dòng lý lịch `Source = Backfill` **không** hiển thị Note kỹ thuật của lần backfill (cả sự kiện lắp **và** tháo — dữ liệu Note trong DB giữ nguyên). **KHÔNG bao giờ chứa ngày/giờ đã format** — mọi mốc thời gian nằm ở trường có cấu trúc (`occurredAt`, `maintenanceCompletionDate`) để FE tự format theo múi giờ người dùng; với field ngày trong `changes` (VD `purchase_date`) chỉ ghi nhãn + `(đã đổi)`. |
 | `actorName` | string? | Người thực hiện; `null` khi không xác định (VD dòng backfill không có người ghi). Riêng nguồn `MAINTENANCE_CAMPAIGN` = **người phụ trách đợt** (`MaintenanceCampaign.ReviewerId`). |
 | `refType` | string? | Loại bản ghi nguồn để mở link: `assetInstallation` \| `actionLog` \| `assetMaintenance` \| `maintenanceCampaign`. |
 | `refId` | guid? | Id bản ghi nguồn (FE mở link theo `refType`). Bản ghi có thể đã bị xoá ⇒ FE phải chịu được 404. |
@@ -226,9 +235,10 @@ Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**
   "status": "success",
   "data": [
     {
+      "id": "remove:0f0c9b1e-0000-0000-0000-000000000000",
       "eventType": "REMOVE",
       "occurredAt": "2026-10-17T09:30:00Z",
-      "title": "Tháo khỏi vị trí Kệ A1",
+      "title": "Tháo khỏi: Kệ A1",
       "details": "Hệ thống: Nhà ga T1 · ghi chú lý lịch",
       "actorName": "Nguyễn Văn A",
       "refType": "assetInstallation",
@@ -237,6 +247,7 @@ Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**
       "maintenanceCompletionDate": null
     },
     {
+      "id": "maintenance:3b7e5a90-1111-2222-3333-444455556666",
       "eventType": "MAINTENANCE",
       "occurredAt": "2026-10-15T00:00:00Z",
       "title": "Sửa chữa: Thay quạt",
@@ -262,6 +273,25 @@ Trả về DÒNG THỜI GIAN của MỘT thiết bị (**mới nhất trước**
 |------|-----------|--------------|
 | 404 | Asset không tồn tại **hoặc** ngoài phạm vi công ty của người dùng (giống `GET /assets/{id}` — hide-existence) | — (chỉ `status` + `message`) |
 | 400 | `cursor` không giải mã được | `INVALID_CURSOR` |
+| 400 | `types` chứa giá trị không nhận diện được (**LL-4b**; `message` nêu đúng các giá trị sai) | `INVALID_TYPES` |
+
+**Ghi chú [LL-4b] (thay đổi so với LL-4)**
+
+- **Tiêu đề lắp/tháo ngắn gọn:** `Lắp đặt tại: <vị trí>` / `Tháo khỏi: <vị trí>` (trước đây `Lắp vào vị trí …`
+  lặp chữ "vị trí" khi tên vị trí đã có chữ đó).
+- **`id` ổn định cho mọi sự kiện** (xem bảng DTO) — thay cho việc FE ghép khoá
+  `(eventType, refType, refId, occurredAt)`; cách ghép cũ vỡ khi một dòng lý lịch sinh 2 sự kiện trùng mốc.
+- **Dòng backfill không lộ Note kỹ thuật** trong `details` (nhãn "Thời điểm ước tính" + tooltip ở FE là đủ) —
+  áp dụng cho **cả** sự kiện lắp và tháo của dòng đó; dữ liệu `asset_installations.Note` trong DB **không** bị sửa.
+- **`CREATE`/`UPDATE` từ ActionLog dùng văn bản tiếng Việt** thay cho Note gốc (`Created asset: …` tiếng Anh lặp
+  lại mã/tên thiết bị, đã có ở đầu trang chi tiết): `CREATE` ⇒ `Serial: …` (nếu có); `UPDATE` ⇒ danh sách field
+  thay đổi từ `LogMeta.changes` với nhãn tiếng Việt, giá trị `cũ → mới`, id tham chiếu được tra tên.
+- **Lọc `types` phải nằm ở WHERE của từng nguồn** (không lọc sau khi phân trang): mỗi nguồn chỉ lấy `limit + 1`
+  dòng rồi mới trộn, nên lọc muộn sẽ làm trang THIẾU sự kiện. Test chặn tái phát:
+  `Timeline_TypesFilter_WithCursorPagination_NoLossNoDuplication`, `Timeline_TypesFilter_ReturnsOnlyRequestedTypes`,
+  `Timeline_TypesFilter_UnknownValue_ReturnsInvalidTypesError`, `Timeline_TypesFilter_AcceptsActionTypeNames_CaseInsensitiveAndCommaSeparated`.
+- **FE dùng tab "Lý lịch" làm tab mặc định** của trang chi tiết thiết bị và có bộ chọn
+  `Sự kiện chính` (gửi `types=INSTALL,REMOVE,MAINTENANCE,MAINTENANCE_CAMPAIGN`) / `Tất cả` (không gửi `types`).
 
 **Ghi chú triển khai (đã kiểm chứng trên Postgres thật — bằng chứng LL-3)**
 

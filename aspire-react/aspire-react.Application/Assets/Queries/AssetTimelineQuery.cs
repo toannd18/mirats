@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -30,6 +31,28 @@ public static class AssetTimelineEventTypes
 
     /// <summary>Thiết bị được đưa vào một đợt bảo dưỡng (MaintenanceCampaign qua DeviceSnapshot).</summary>
     public const string MaintenanceCampaign = "MAINTENANCE_CAMPAIGN";
+
+    /// <summary>
+    /// Tên <c>eventType</c> của một <see cref="ActionType"/> (PascalCase → SCREAMING_SNAKE, VD
+    /// <c>UpdateRejected</c> → <c>UPDATE_REJECTED</c>). Dùng CHUNG cho việc ghép DTO và cho việc tra ngược
+    /// tham số lọc <c>types</c> (xem <see cref="AssetTimelineTypeFilter"/>) ⇒ hai chiều không thể lệch nhau.
+    /// </summary>
+    public static string Token(ActionType actionType) => ToScreamingSnake(actionType.ToString());
+
+    /// <summary>PascalCase → SCREAMING_SNAKE (chèn <c>_</c> trước mỗi chữ in hoa, trừ ký tự đầu).</summary>
+    public static string ToScreamingSnake(string value)
+    {
+        var builder = new StringBuilder(value.Length + 4);
+        for (var i = 0; i < value.Length; i++)
+        {
+            var ch = value[i];
+            if (char.IsUpper(ch) && i > 0)
+                builder.Append('_');
+            builder.Append(char.ToUpperInvariant(ch));
+        }
+
+        return builder.ToString();
+    }
 }
 
 /// <summary>
@@ -54,6 +77,12 @@ public static class AssetTimelineRefTypes
 /// <summary>
 /// Một sự kiện trong lý lịch thiết bị. Trả về theo thứ tự MỚI NHẤT TRƯỚC.
 /// </summary>
+/// <param name="Id">
+/// Id ỔN ĐỊNH của sự kiện (duy nhất trong lý lịch của MỘT thiết bị) — FE dùng làm key và khoá khử trùng khi
+/// nối trang. Định dạng <c>"&lt;nguồn&gt;:&lt;id bản ghi gốc&gt;"</c> với nguồn ∈ <c>install</c> |
+/// <c>remove</c> | <c>actionLog</c> | <c>campaign</c> | <c>maintenance</c>. Phải có tiền tố nguồn vì MỘT dòng
+/// lý lịch lắp đặt sinh HAI sự kiện (INSTALL + REMOVE) dùng chung id dòng.
+/// </param>
 /// <param name="EventType">Loại sự kiện (xem <see cref="AssetTimelineEventTypes"/> + tên ActionType SCREAMING_SNAKE).</param>
 /// <param name="OccurredAt">Thời điểm sự kiện xảy ra (UTC) — KHÔNG phải thời điểm tạo bản ghi (trừ đợt bảo dưỡng, xem docs).</param>
 /// <param name="Title">Tiêu đề hiển thị (tiếng Việt).</param>
@@ -78,6 +107,7 @@ public static class AssetTimelineRefTypes
 /// </para>
 /// </param>
 public sealed record AssetTimelineEventDto(
+    string Id,
     string EventType,
     DateTime OccurredAt,
     string Title,
@@ -92,11 +122,24 @@ public sealed record AssetTimelineEventDto(
 /// Truy vấn lý lịch thiết bị. <paramref name="Cursor"/> là con trỏ đục (opaque) lấy từ
 /// <c>pagination.nextCursor</c> của trang trước; <paramref name="Limit"/> mặc định 50, tối đa 200
 /// (giá trị ngoài khoảng được CHUẨN HOÁ, không báo lỗi).
+/// <para>
+/// <paramref name="Types"/> = danh sách <c>eventType</c> cần lấy (VD <c>["INSTALL","REMOVE"]</c>);
+/// <c>null</c>/rỗng ⇒ KHÔNG lọc (lấy mọi loại). Giá trị lạ ⇒ 400
+/// <see cref="InvalidTypesErrorCode"/>. Bộ lọc được đẩy xuống từng nguồn (không lọc sau khi phân trang)
+/// nên <c>nextCursor</c> vẫn đúng; client PHẢI giữ nguyên bộ lọc khi đi qua các trang.
+/// </para>
 /// </summary>
-public record AssetTimelineQuery(Guid AssetId, string? Cursor, int Limit = 50) : IRequest<AssetTimelineResult>
+public record AssetTimelineQuery(
+    Guid AssetId,
+    string? Cursor,
+    int Limit = 50,
+    IReadOnlyList<string>? Types = null) : IRequest<AssetTimelineResult>
 {
     /// <summary>Error code khi con trỏ phân trang không giải mã được → HTTP 400.</summary>
     public const string InvalidCursorErrorCode = "INVALID_CURSOR";
+
+    /// <summary>Error code khi tham số lọc <c>types</c> chứa giá trị không nhận diện được → HTTP 400.</summary>
+    public const string InvalidTypesErrorCode = "INVALID_TYPES";
 }
 
 /// <summary>
@@ -182,6 +225,107 @@ public readonly record struct AssetTimelineCursor(DateTime OccurredAt, Guid Id, 
 }
 
 /// <summary>
+/// Bộ lọc <c>eventType</c> đã CHUẨN HOÁ từ tham số <c>types</c>; <c>null</c> = không lọc.
+/// <para>
+/// Vì sao phải lọc TRƯỚC khi phân trang: mỗi nguồn chỉ lấy <c>limit + 1</c> dòng rồi mới trộn — nếu lấy
+/// hết rồi bỏ sự kiện không thuộc bộ lọc thì trang sẽ THIẾU sự kiện (mất dữ liệu). Bộ lọc vì vậy được đẩy
+/// xuống mệnh đề WHERE của từng nguồn, giữ nguyên tính đúng của con trỏ.
+/// </para>
+/// </summary>
+public sealed record AssetTimelineTypeFilter(
+    bool Install,
+    bool Remove,
+    bool Maintenance,
+    bool MaintenanceCampaign,
+    IReadOnlySet<ActionType> ActionTypes)
+{
+    private static readonly IReadOnlyDictionary<string, ActionType> ActionTypesByToken = BuildActionTypesByToken();
+
+    private static IReadOnlyDictionary<string, ActionType> BuildActionTypesByToken()
+    {
+        var map = new Dictionary<string, ActionType>(StringComparer.OrdinalIgnoreCase);
+        foreach (var value in Enum.GetValues<ActionType>())
+            map[AssetTimelineEventTypes.Token(value)] = value;
+        return map;
+    }
+
+    /// <summary>Mọi giá trị <c>types</c> hợp lệ (4 loại riêng + mọi <see cref="ActionType"/>).</summary>
+    public static IReadOnlyList<string> KnownValues { get; } = new[]
+    {
+        AssetTimelineEventTypes.Install,
+        AssetTimelineEventTypes.Remove,
+        AssetTimelineEventTypes.Maintenance,
+        AssetTimelineEventTypes.MaintenanceCampaign
+    }
+        .Concat(ActionTypesByToken.Keys)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(v => v, StringComparer.Ordinal)
+        .ToList();
+
+    /// <summary>
+    /// Phân tích tham số thô — chấp nhận cả <c>?types=A,B</c> và <c>?types=A&amp;types=B</c>, không phân biệt
+    /// hoa thường; trả <c>false</c> + <paramref name="unknown"/> khi có giá trị không nhận diện được
+    /// (im lặng bỏ qua sẽ khiến client tưởng đã lọc mà thực ra không).
+    /// </summary>
+    public static bool TryCreate(
+        IReadOnlyList<string>? raw,
+        out AssetTimelineTypeFilter? filter,
+        out IReadOnlyList<string> unknown)
+    {
+        filter = null;
+        unknown = Array.Empty<string>();
+        if (raw == null || raw.Count == 0)
+            return true;
+
+        var values = raw
+            .SelectMany(v => (v ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Select(v => v.Trim().ToUpperInvariant())
+            .Where(v => v.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        // `?types=` (rỗng) ⇒ không lọc — không phải lỗi.
+        if (values.Count == 0)
+            return true;
+
+        var unknownValues = new List<string>();
+        var install = false;
+        var remove = false;
+        var maintenance = false;
+        var campaign = false;
+        var actionTypes = new HashSet<ActionType>();
+
+        foreach (var value in values)
+        {
+            switch (value)
+            {
+                case AssetTimelineEventTypes.Install: install = true; continue;
+                case AssetTimelineEventTypes.Remove: remove = true; continue;
+                case AssetTimelineEventTypes.Maintenance: maintenance = true; continue;
+                case AssetTimelineEventTypes.MaintenanceCampaign: campaign = true; continue;
+            }
+
+            if (ActionTypesByToken.TryGetValue(value, out var actionType))
+            {
+                actionTypes.Add(actionType);
+                continue;
+            }
+
+            unknownValues.Add(value);
+        }
+
+        if (unknownValues.Count > 0)
+        {
+            unknown = unknownValues;
+            return false;
+        }
+
+        filter = new AssetTimelineTypeFilter(install, remove, maintenance, campaign, actionTypes);
+        return true;
+    }
+}
+
+/// <summary>
 /// Nguồn của một sự kiện + thứ tự phá thế bằng nhau (Kind) trong con trỏ. Giá trị số là HỢP ĐỒNG
 /// nội bộ: chỉ được THÊM, không đổi giá trị đã phát hành (con trỏ cũ vẫn phải giải mã đúng).
 /// </summary>
@@ -251,6 +395,15 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
             cursor = parsed;
         }
 
+        // [LL-4b] Lọc theo `types` — chuẩn hoá TRƯỚC khi truy vấn (xem AssetTimelineTypeFilter).
+        if (!AssetTimelineTypeFilter.TryCreate(request.Types, out var typeFilter, out var unknownTypes))
+        {
+            return new AssetTimelineResult(
+                false, Limit: limit,
+                Message: $"Loại sự kiện không hợp lệ: {string.Join(", ", unknownTypes)}.",
+                ErrorCode: AssetTimelineQuery.InvalidTypesErrorCode);
+        }
+
         // Company scoping — MIRROR GetAssetByIdQueryHandler: asset ngoài phạm vi công ty coi như không tồn tại.
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
         var asset = await _context.Assets.AsNoTracking()
@@ -266,11 +419,11 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
 
         var assetId = asset.Id;
         var candidates = new List<TimelineCandidate>(take * 5);
-        candidates.AddRange(await FetchLedgerInstallAsync(assetId, cursor, take, cancellationToken));
-        candidates.AddRange(await FetchLedgerRemoveAsync(assetId, cursor, take, cancellationToken));
-        candidates.AddRange(await FetchActionLogsAsync(assetId, cursor, take, cancellationToken));
-        candidates.AddRange(await FetchCampaignSnapshotsAsync(assetId, cursor, take, cancellationToken));
-        candidates.AddRange(await FetchMaintenancesAsync(assetId, cursor, take, cancellationToken));
+        candidates.AddRange(await FetchLedgerInstallAsync(assetId, cursor, take, typeFilter, cancellationToken));
+        candidates.AddRange(await FetchLedgerRemoveAsync(assetId, cursor, take, typeFilter, cancellationToken));
+        candidates.AddRange(await FetchActionLogsAsync(assetId, cursor, take, typeFilter, cancellationToken));
+        candidates.AddRange(await FetchCampaignSnapshotsAsync(assetId, cursor, take, typeFilter, cancellationToken));
+        candidates.AddRange(await FetchMaintenancesAsync(assetId, cursor, take, typeFilter, cancellationToken));
 
         var ordered = candidates
             .OrderByDescending(c => c.OccurredAt)
@@ -293,9 +446,11 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
     // ==================== NGUỒN 1+2: lý lịch lắp đặt ====================
 
     private async Task<List<TimelineCandidate>> FetchLedgerInstallAsync(
-        Guid assetId, AssetTimelineCursor? cursor, int take, CancellationToken cancellationToken)
+        Guid assetId, AssetTimelineCursor? cursor, int take, AssetTimelineTypeFilter? filter, CancellationToken cancellationToken)
     {
         const TimelineSourceKind kind = TimelineSourceKind.LedgerInstall;
+        if (filter != null && !filter.Install)
+            return new List<TimelineCandidate>();
 
         var query = _context.AssetInstallations.AsNoTracking()
             .Where(i => i.AssetId == assetId && i.SupersededAt == null);
@@ -336,13 +491,18 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
             PositionName: r.SystemPositionName,
             SystemInfoName: r.SystemInfoName,
             IsEstimated: r.Source == AssetInstallationSource.Backfill,
-            Note: r.Note)).ToList();
+            // [LL-4b] Dòng backfill mang Note KỸ THUẬT của lần chuyển dữ liệu cũ — nhãn "Thời điểm ước tính"
+            // (+ tooltip) đã truyền đạt đủ, nên KHÔNG lặp lại văn bản đó trong details. Chỉ là quyết định
+            // HIỂN THỊ: dữ liệu Note trong DB giữ nguyên (không sửa).
+            Note: r.Source == AssetInstallationSource.Backfill ? null : r.Note)).ToList();
     }
 
     private async Task<List<TimelineCandidate>> FetchLedgerRemoveAsync(
-        Guid assetId, AssetTimelineCursor? cursor, int take, CancellationToken cancellationToken)
+        Guid assetId, AssetTimelineCursor? cursor, int take, AssetTimelineTypeFilter? filter, CancellationToken cancellationToken)
     {
         const TimelineSourceKind kind = TimelineSourceKind.LedgerRemove;
+        if (filter != null && !filter.Remove)
+            return new List<TimelineCandidate>();
 
         var query = _context.AssetInstallations.AsNoTracking()
             .Where(i => i.AssetId == assetId && i.SupersededAt == null && i.EndedAt != null);
@@ -367,7 +527,9 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                 i.SystemInfoName,
                 i.Note,
                 i.LoggedByName,
-                i.LoggedById
+                i.LoggedById,
+                // [LL-4b] Cần biết dòng gốc có phải backfill để BỎ Note kỹ thuật ở cả sự kiện THÁO.
+                i.Source
             })
             .ToListAsync(cancellationToken);
 
@@ -382,15 +544,21 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
             PositionName: r.SystemPositionName,
             SystemInfoName: r.SystemInfoName,
             IsEstimated: false, // mốc tháo luôn đến từ thao tác thật (backfill chỉ ước tính StartedAt)
-            Note: r.Note)).ToList();
+                                // [LL-4b] Sự kiện tháo của dòng backfill KHÔNG mang Note kỹ thuật của lần backfill (xem nguồn INSTALL).
+            Note: r.Source == AssetInstallationSource.Backfill ? null : r.Note)).ToList();
     }
 
     // ==================== NGUỒN 3: ActionLog ====================
 
     private async Task<List<TimelineCandidate>> FetchActionLogsAsync(
-        Guid assetId, AssetTimelineCursor? cursor, int take, CancellationToken cancellationToken)
+        Guid assetId, AssetTimelineCursor? cursor, int take, AssetTimelineTypeFilter? filter, CancellationToken cancellationToken)
     {
         const TimelineSourceKind kind = TimelineSourceKind.ActionLog;
+
+        // `types` không chứa loại ActionType nào ⇒ nguồn này không đóng góp sự kiện nào (bỏ hẳn truy vấn).
+        var allowedActionTypes = filter?.ActionTypes;
+        if (allowedActionTypes != null && allowedActionTypes.Count == 0)
+            return new List<TimelineCandidate>();
 
         var query = _context.ActionLogs.AsNoTracking()
             .Where(l => l.ItemType == ItemType.Asset
@@ -398,7 +566,8 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                         && l.DeletedAt == null
                         // KHỬ TRÙNG: checkout/checkin tới SystemPosition đã có sự kiện lắp/tháo (nguồn 1).
                         && !(l.TargetType == AssignmentTargetType.SystemPosition
-                             && (l.ActionType == ActionType.Checkout || l.ActionType == ActionType.Checkin)));
+                             && (l.ActionType == ActionType.Checkout || l.ActionType == ActionType.Checkin))
+                        && (allowedActionTypes == null || allowedActionTypes.Contains(l.ActionType)));
 
         if (cursor is { } c)
         {
@@ -421,7 +590,9 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                 l.TargetId,
                 l.Note,
                 l.LocationName,
-                l.CreatedBy
+                l.CreatedBy,
+                // [LL-4b] Cần LogMeta để dựng danh sách field thay đổi cho sự kiện UPDATE.
+                l.LogMeta
             })
             .ToListAsync(cancellationToken);
 
@@ -437,15 +608,18 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
             TargetType: r.TargetType,
             TargetId: r.TargetId,
             LocationName: r.LocationName,
-            Note: r.Note)).ToList();
+            Note: r.Note,
+            LogMeta: r.LogMeta)).ToList();
     }
 
     // ==================== NGUỒN 4: đợt bảo dưỡng (qua DeviceSnapshot) ====================
 
     private async Task<List<TimelineCandidate>> FetchCampaignSnapshotsAsync(
-        Guid assetId, AssetTimelineCursor? cursor, int take, CancellationToken cancellationToken)
+        Guid assetId, AssetTimelineCursor? cursor, int take, AssetTimelineTypeFilter? filter, CancellationToken cancellationToken)
     {
         const TimelineSourceKind kind = TimelineSourceKind.CampaignSnapshot;
+        if (filter != null && !filter.MaintenanceCampaign)
+            return new List<TimelineCandidate>();
 
         // Mốc thời gian = NGÀY BẮT ĐẦU ĐỢT (MaintenanceCampaign.StartDate — mốc nghiệp vụ do người dùng đặt),
         // KHÔNG dùng snapshot.CreatedAt vì cột đó do tầng audit đóng dấu lúc ghi bản ghi.
@@ -492,9 +666,11 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
     // ==================== NGUỒN 5: phiếu bảo dưỡng ====================
 
     private async Task<List<TimelineCandidate>> FetchMaintenancesAsync(
-        Guid assetId, AssetTimelineCursor? cursor, int take, CancellationToken cancellationToken)
+        Guid assetId, AssetTimelineCursor? cursor, int take, AssetTimelineTypeFilter? filter, CancellationToken cancellationToken)
     {
         const TimelineSourceKind kind = TimelineSourceKind.Maintenance;
+        if (filter != null && !filter.Maintenance)
+            return new List<TimelineCandidate>();
 
         var query = _context.AssetMaintenances.AsNoTracking()
             .Where(m => m.AssetId == assetId && m.DeletedAt == null);
@@ -624,7 +800,94 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                 campaigns[c.Id] = new TimelineCampaignInfo(c.BatchNumber, c.Status, c.SystemName);
         }
 
-        return new TimelineLookups(userNames, departmentNames, positionNames, campaigns);
+        // [LL-4b] Sự kiện UPDATE: LogMeta.changes có thể chứa id THAM CHIẾU (vị trí / nhà cung cấp / công ty /
+        // model) — tra tên theo lô cho ĐÚNG trang hiện tại để details hiện tên thay vì GUID thô.
+        var changeRefIds = CollectChangeRefIds(page);
+
+        IReadOnlyCollection<Guid> IdsOf(ChangeRefKind kind) =>
+            changeRefIds.TryGetValue(kind, out var set) ? set : Array.Empty<Guid>();
+
+        var locationNamesForChanges = new Dictionary<Guid, string>();
+        var changeLocationIds = IdsOf(ChangeRefKind.Location);
+        if (changeLocationIds.Count > 0)
+            foreach (var row in await _context.Locations.AsNoTracking()
+                         .Where(l => changeLocationIds.Contains(l.Id))
+                         .Select(l => new { l.Id, l.Name })
+                         .ToListAsync(cancellationToken))
+                locationNamesForChanges[row.Id] = row.Name;
+
+        var supplierNamesForChanges = new Dictionary<Guid, string>();
+        var changeSupplierIds = IdsOf(ChangeRefKind.Supplier);
+        if (changeSupplierIds.Count > 0)
+            foreach (var row in await _context.Suppliers.AsNoTracking()
+                         .Where(s => changeSupplierIds.Contains(s.Id))
+                         .Select(s => new { s.Id, s.Name })
+                         .ToListAsync(cancellationToken))
+                supplierNamesForChanges[row.Id] = row.Name;
+
+        var companyNamesForChanges = new Dictionary<Guid, string>();
+        var changeCompanyIds = IdsOf(ChangeRefKind.Company);
+        if (changeCompanyIds.Count > 0)
+            foreach (var row in await _context.Companies.AsNoTracking()
+                         .Where(c => changeCompanyIds.Contains(c.Id))
+                         .Select(c => new { c.Id, c.Name })
+                         .ToListAsync(cancellationToken))
+                companyNamesForChanges[row.Id] = row.Name;
+
+        var modelNamesForChanges = new Dictionary<Guid, string>();
+        var changeModelIds = IdsOf(ChangeRefKind.Model);
+        if (changeModelIds.Count > 0)
+            foreach (var row in await _context.Models.AsNoTracking()
+                         .Where(m => changeModelIds.Contains(m.Id))
+                         .Select(m => new { m.Id, m.Name })
+                         .ToListAsync(cancellationToken))
+                modelNamesForChanges[row.Id] = row.Name;
+
+        return new TimelineLookups(userNames, departmentNames, positionNames, campaigns)
+        {
+            LocationNames = locationNamesForChanges,
+            SupplierNames = supplierNamesForChanges,
+            CompanyNames = companyNamesForChanges,
+            ModelNames = modelNamesForChanges
+        };
+    }
+
+    /// <summary>
+    /// Gom id tham chiếu xuất hiện trong <c>LogMeta.changes</c> của các sự kiện UPDATE thuộc TRANG này,
+    /// phân theo từng loại đối tượng (xem <see cref="ChangeRefKind"/>).
+    /// </summary>
+    private static Dictionary<ChangeRefKind, HashSet<Guid>> CollectChangeRefIds(IReadOnlyList<TimelineCandidate> page)
+    {
+        var result = new Dictionary<ChangeRefKind, HashSet<Guid>>();
+        var metas = page
+            .Where(c => c.Source == TimelineSourceKind.ActionLog && c.ActionType == ActionType.Update)
+            .Select(c => c.LogMeta)
+            .Where(meta => !string.IsNullOrWhiteSpace(meta));
+
+        foreach (var meta in metas)
+        {
+            foreach (var change in ParseChanges(meta))
+            {
+                if (!ChangeFields.TryGetValue(change.Field, out var field) || field.Ref == ChangeRefKind.None)
+                    continue;
+
+                foreach (var raw in new[] { change.OldValue, change.NewValue })
+                {
+                    if (!Guid.TryParse(raw, out var id))
+                        continue;
+
+                    if (!result.TryGetValue(field.Ref, out var set))
+                    {
+                        set = new HashSet<Guid>();
+                        result[field.Ref] = set;
+                    }
+
+                    set.Add(id);
+                }
+            }
+        }
+
+        return result;
     }
 
     // ==================== Ghép DTO ====================
@@ -635,9 +898,10 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
         {
             case TimelineSourceKind.LedgerInstall:
                 return new AssetTimelineEventDto(
+                    EventId(c.Source, c.Id),
                     AssetTimelineEventTypes.Install,
                     c.OccurredAt,
-                    $"Lắp vào vị trí {DisplayPosition(c.PositionName)}",
+                    $"Lắp đặt tại: {DisplayPosition(c.PositionName)}",
                     JoinDetails(
                         c.SystemInfoName == null ? null : $"Hệ thống: {c.SystemInfoName}",
                         c.Note),
@@ -648,9 +912,10 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
 
             case TimelineSourceKind.LedgerRemove:
                 return new AssetTimelineEventDto(
+                    EventId(c.Source, c.Id),
                     AssetTimelineEventTypes.Remove,
                     c.OccurredAt,
-                    $"Tháo khỏi vị trí {DisplayPosition(c.PositionName)}",
+                    $"Tháo khỏi: {DisplayPosition(c.PositionName)}",
                     JoinDetails(
                         c.SystemInfoName == null ? null : $"Hệ thống: {c.SystemInfoName}",
                         c.Note),
@@ -675,14 +940,24 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                              && lookups.PositionNames.TryGetValue(c.TargetId.Value, out var positionName))
                         target = $"tại vị trí {positionName}";
 
+                    // [LL-4b] CREATE/UPDATE: details TIẾNG VIỆT và KHÔNG lặp lại mã/tên thiết bị (đã hiện ở đầu
+                    // trang chi tiết). Các loại khác giữ nguyên Note do người dùng nhập.
+                    var content = actionType switch
+                    {
+                        ActionType.Create => DescribeCreate(c.LogMeta),
+                        ActionType.Update => DescribeChanges(c.LogMeta, lookups) ?? DefaultUpdateDetails,
+                        _ => c.Note
+                    };
+
                     return new AssetTimelineEventDto(
+                        EventId(c.Source, c.Id),
                         eventType,
                         c.OccurredAt,
                         title,
                         JoinDetails(
                             target,
                             c.LocationName == null ? null : $"Địa điểm: {c.LocationName}",
-                            c.Note),
+                            content),
                         ResolveActorName(c.ActorUserId, c.ActorName, lookups),
                         c.RefType,
                         c.RefId,
@@ -697,6 +972,7 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                     // KHÔNG ghi "Bắt đầu đợt: <ngày>" vào Details: mốc đó chính là OccurredAt (nguồn đợt bảo dưỡng
                     // lấy Campaign.StartDate làm mốc sự kiện) ⇒ đã có sẵn ở trường có cấu trúc UTC cho FE format.
                     return new AssetTimelineEventDto(
+                        EventId(c.Source, c.Id),
                         AssetTimelineEventTypes.MaintenanceCampaign,
                         c.OccurredAt,
                         $"Đưa vào đợt bảo dưỡng {batch}",
@@ -720,6 +996,7 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
                     // Details = null: ngày bắt đầu là OccurredAt, ngày hoàn thành là trường có cấu trúc bên dưới;
                     // server KHÔNG format ngày thành chuỗi (nhãn "Chưa hoàn thành" do FE suy ra từ null).
                     return new AssetTimelineEventDto(
+                        EventId(c.Source, c.Id),
                         AssetTimelineEventTypes.Maintenance,
                         c.OccurredAt,
                         title,
@@ -734,6 +1011,7 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
 
             default:
                 return new AssetTimelineEventDto(
+                    EventId(c.Source, c.Id),
                     AssetTimelineEventTypes.Maintenance, c.OccurredAt, "Sự kiện", null,
                     ResolveActorName(c.ActorUserId, c.ActorName, lookups), c.RefType, c.RefId, c.IsEstimated);
         }
@@ -766,6 +1044,176 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
         return kept.Length == 0 ? null : string.Join(" · ", kept);
     }
 
+    /// <summary>Id ổn định của sự kiện (hợp đồng: <see cref="AssetTimelineEventDto.Id"/>).</summary>
+    private static string EventId(TimelineSourceKind source, Guid rowId) => source switch
+    {
+        TimelineSourceKind.LedgerInstall => $"install:{rowId:N}",
+        TimelineSourceKind.LedgerRemove => $"remove:{rowId:N}",
+        TimelineSourceKind.ActionLog => $"actionLog:{rowId:N}",
+        TimelineSourceKind.CampaignSnapshot => $"campaign:{rowId:N}",
+        _ => $"maintenance:{rowId:N}"
+    };
+
+    /// <summary>Details mặc định cho sự kiện UPDATE không có <c>LogMeta.changes</c>.</summary>
+    private const string DefaultUpdateDetails = "Cập nhật thông tin thiết bị";
+
+    /// <summary>Nhãn tiếng Việt + loại tham chiếu của từng field trong <c>LogMeta.changes</c> của thiết bị.</summary>
+    private static readonly IReadOnlyDictionary<string, (string Label, ChangeRefKind Ref)> ChangeFields =
+        new Dictionary<string, (string, ChangeRefKind)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["asset_tag"] = ("Mã tài sản", ChangeRefKind.None),
+            ["name"] = ("Tên", ChangeRefKind.None),
+            ["serial"] = ("Serial", ChangeRefKind.None),
+            ["image"] = ("Ảnh", ChangeRefKind.None),
+            ["model_id"] = ("Model", ChangeRefKind.Model),
+            ["location_id"] = ("Vị trí", ChangeRefKind.Location),
+            ["locationId"] = ("Vị trí", ChangeRefKind.Location),
+            ["supplier_id"] = ("Nhà cung cấp", ChangeRefKind.Supplier),
+            ["company_id"] = ("Công ty", ChangeRefKind.Company),
+            ["companyId"] = ("Công ty", ChangeRefKind.Company),
+            ["purchase_cost"] = ("Giá mua", ChangeRefKind.None),
+            ["purchase_date"] = ("Ngày mua", ChangeRefKind.None),
+            ["warranty_months"] = ("Bảo hành (tháng)", ChangeRefKind.None),
+            ["order_number"] = ("Số đơn hàng", ChangeRefKind.None),
+            ["physical"] = ("Thiết bị vật lý", ChangeRefKind.None),
+            ["requestable"] = ("Cho phép yêu cầu", ChangeRefKind.None),
+            ["notes"] = ("Ghi chú", ChangeRefKind.None),
+            ["status"] = ("Trạng thái", ChangeRefKind.None)
+        };
+
+    /// <summary>
+    /// Details cho sự kiện CREATE: tiếng Việt và KHÔNG lặp lại mã/tên thiết bị (đã hiển thị ở đầu trang chi
+    /// tiết). Dùng <c>serial</c> trong <c>LogMeta</c> — thông tin bổ sung hữu ích; không có ⇒ <c>null</c>
+    /// (Note gốc là văn bản tiếng Anh kèm mã + tên thiết bị nên KHÔNG dùng lại).
+    /// </summary>
+    private static string? DescribeCreate(string? logMeta)
+    {
+        var serial = ReadTopLevelString(logMeta, "serial");
+        return string.IsNullOrWhiteSpace(serial) ? null : $"Serial: {serial}";
+    }
+
+    /// <summary>
+    /// Details cho sự kiện UPDATE từ <c>LogMeta.changes</c>: "<c>Nhãn: cũ → mới</c>" nối bằng <c>" · "</c>.
+    /// Trả <c>null</c> khi không có changes (handler dùng <see cref="DefaultUpdateDetails"/>).
+    /// </summary>
+    private static string? DescribeChanges(string? logMeta, TimelineLookups lookups)
+    {
+        var changes = ParseChanges(logMeta);
+        if (changes.Count == 0)
+            return null;
+
+        return string.Join(" · ", changes.Select(change => DescribeChange(change, lookups)));
+    }
+
+    private static string DescribeChange(TimelineChange change, TimelineLookups lookups)
+    {
+        var known = ChangeFields.TryGetValue(change.Field, out var meta);
+        var label = known ? meta.Label : change.Field;
+
+        // Field ngày: giá trị KHÔNG được đưa vào details (quy ước LL-3: details không chứa ngày/giờ, mọi mốc
+        // thời gian phải nằm ở trường có cấu trúc để FE tự format theo múi giờ người dùng).
+        if (change.Field.Contains("date", StringComparison.OrdinalIgnoreCase)
+            || change.Field.Contains("_at", StringComparison.OrdinalIgnoreCase))
+            return $"{label}: (đã đổi)";
+
+        var refKind = known ? meta.Ref : ChangeRefKind.None;
+        return $"{label}: {FormatChangeValue(change.OldValue, refKind, lookups)} → {FormatChangeValue(change.NewValue, refKind, lookups)}";
+    }
+
+    private static string FormatChangeValue(string? raw, ChangeRefKind refKind, TimelineLookups lookups)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return "(trống)";
+
+        if (raw is "true" or "false")
+            return raw == "true" ? "Có" : "Không";
+
+        if (refKind != ChangeRefKind.None && Guid.TryParse(raw, out var id))
+        {
+            var names = refKind switch
+            {
+                ChangeRefKind.Location => lookups.LocationNames,
+                ChangeRefKind.Supplier => lookups.SupplierNames,
+                ChangeRefKind.Company => lookups.CompanyNames,
+                _ => lookups.ModelNames
+            };
+            return names.TryGetValue(id, out var name) && !string.IsNullOrWhiteSpace(name) ? name : "(không xác định)";
+        }
+
+        return raw;
+    }
+
+    /// <summary>
+    /// Đọc <c>LogMeta</c> — JSON <c>{ "changes": { field: { old, new } } }</c> — thành danh sách field thay đổi.
+    /// Mọi cấu trúc lạ trả danh sách RỖNG (không ném): LogMeta là dữ liệu lịch sử do nhiều phiên bản ghi ra.
+    /// </summary>
+    private static IReadOnlyList<TimelineChange> ParseChanges(string? logMeta)
+    {
+        if (string.IsNullOrWhiteSpace(logMeta))
+            return Array.Empty<TimelineChange>();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(logMeta);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("changes", out var changes)
+                || changes.ValueKind != JsonValueKind.Object)
+                return Array.Empty<TimelineChange>();
+
+            var result = new List<TimelineChange>();
+            foreach (var prop in changes.EnumerateObject())
+            {
+                string? oldValue = null;
+                string? newValue = null;
+                if (prop.Value.ValueKind == JsonValueKind.Object)
+                {
+                    if (prop.Value.TryGetProperty("old", out var oldElement))
+                        oldValue = ToChangeText(oldElement);
+                    if (prop.Value.TryGetProperty("new", out var newElement))
+                        newValue = ToChangeText(newElement);
+                }
+
+                result.Add(new TimelineChange(prop.Name, oldValue, newValue));
+            }
+
+            return result;
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<TimelineChange>();
+        }
+    }
+
+    /// <summary>Đọc một thuộc tính chuỗi ở cấp cao nhất của LogMeta (VD <c>serial</c> của sự kiện CREATE).</summary>
+    private static string? ReadTopLevelString(string? logMeta, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(logMeta))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(logMeta);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty(propertyName, out var value))
+                return null;
+
+            return value.ValueKind == JsonValueKind.String ? value.GetString() : ToChangeText(value);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? ToChangeText(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.Null or JsonValueKind.Undefined => null,
+        JsonValueKind.String => element.GetString(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        _ => element.GetRawText()
+    };
+
     /// <summary>
     /// Nhãn tiếng Việt + eventType cho một <see cref="ActionType"/> (khớp nhãn đang dùng ở FE
     /// <c>ActionLogTable.ACTION_TYPE_TAGS</c> để 2 màn hình không lệch nhau).
@@ -794,7 +1242,7 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
         ActionType.Inspect => ("INSPECT", "Kiểm tra"),
         ActionType.Publish => ("PUBLISH", "Phát hành"),
         ActionType.Complete => ("COMPLETE", "Hoàn thành"),
-        _ => (ToScreamingSnake(actionType.ToString()), actionType.ToString())
+        _ => (AssetTimelineEventTypes.Token(actionType), actionType.ToString())
     };
 
     private static string DescribeCampaignStatus(MaintenanceCampaignStatus status) => status switch
@@ -834,21 +1282,6 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
     /// </summary>
     public static DateTime ToApiKind(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
-    /// <summary>PascalCase → SCREAMING_SNAKE (fallback cho ActionType mới chưa có nhãn).</summary>
-    private static string ToScreamingSnake(string value)
-    {
-        var builder = new StringBuilder(value.Length + 4);
-        for (var i = 0; i < value.Length; i++)
-        {
-            var ch = value[i];
-            if (char.IsUpper(ch) && i > 0)
-                builder.Append('_');
-            builder.Append(char.ToUpperInvariant(ch));
-        }
-
-        return builder.ToString();
-    }
-
     // ==================== Kiểu nội bộ ====================
 
     /// <summary>Một sự kiện CHƯA ghép DTO (đủ dữ liệu cho cả 5 nguồn + sắp xếp/con trỏ).</summary>
@@ -871,7 +1304,8 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
         Guid? CampaignId = null,
         AssetMaintenanceType? MaintenanceType = null,
         string? MaintenanceTitle = null,
-        DateTime? CompletionDate = null);
+        DateTime? CompletionDate = null,
+        string? LogMeta = null);
 
     /// <summary>
     /// Thông tin đợt bảo dưỡng tra cứu theo lô cho TRANG hiện tại. KHÔNG chứa <c>StartDate</c>/<c>ReviewerId</c>:
@@ -889,5 +1323,26 @@ public class AssetTimelineQueryHandler : IRequestHandler<AssetTimelineQuery, Ass
         IReadOnlyDictionary<Guid, string> UserNames,
         IReadOnlyDictionary<Guid, string> DepartmentNames,
         IReadOnlyDictionary<Guid, string> PositionNames,
-        IReadOnlyDictionary<Guid, TimelineCampaignInfo> Campaigns);
+        IReadOnlyDictionary<Guid, TimelineCampaignInfo> Campaigns)
+    {
+        /// <summary>[LL-4b] Tên các đối tượng THAM CHIẾU trong <c>LogMeta.changes</c> để hiện tên thay vì GUID.</summary>
+        public IReadOnlyDictionary<Guid, string> LocationNames { get; init; } = EmptyNames;
+
+        /// <inheritdoc cref="LocationNames"/>
+        public IReadOnlyDictionary<Guid, string> SupplierNames { get; init; } = EmptyNames;
+
+        /// <inheritdoc cref="LocationNames"/>
+        public IReadOnlyDictionary<Guid, string> CompanyNames { get; init; } = EmptyNames;
+
+        /// <inheritdoc cref="LocationNames"/>
+        public IReadOnlyDictionary<Guid, string> ModelNames { get; init; } = EmptyNames;
+
+        private static readonly IReadOnlyDictionary<Guid, string> EmptyNames = new Dictionary<Guid, string>();
+    }
+
+    /// <summary>Một field thay đổi đọc từ <c>LogMeta.changes</c> (giá trị đã chuẩn hoá thành text; null = JSON null).</summary>
+    private sealed record TimelineChange(string Field, string? OldValue, string? NewValue);
+
+    /// <summary>Field trong <c>LogMeta.changes</c> trỏ tới bản ghi nào (để tra tên thay vì hiện GUID thô).</summary>
+    private enum ChangeRefKind { None, Location, Supplier, Company, Model }
 }

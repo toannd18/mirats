@@ -140,7 +140,7 @@ export const assetService = {
   unarchive: (id: string) => apiClient.post(`/assets/${id}/unarchive`, {}),
   // [LL-4] Lý lịch thiết bị — phân trang bằng con trỏ ĐỤC: truyền lại `pagination.nextCursor` của trang
   // trước qua `params.cursor`; `limit ≤ 0 → 50`, `> 200 → 200` (server chuẩn hoá). Xem docs/API.md.
-  getTimeline: (id: string, params?: { limit?: number; cursor?: string }) => apiClient.get(`/assets/${id}/timeline`, { params }),
+  getTimeline: (id: string, params?: { limit?: number; cursor?: string; types?: string }) => apiClient.get(`/assets/${id}/timeline`, { params }),
   // Maintenance
   listAllMaintenances: (params?: Record<string, unknown>) => apiClient.get('/maintenances', { params }),
   getMaintenance: (id: string) => apiClient.get(`/maintenances/${id}`),

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using aspire_react.Server.Application.Assets.Queries;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
@@ -160,10 +161,10 @@ public class AssetTimelineQueryTests
         Assert.All(events, e => Assert.NotNull(e.RefId));
 
         // Nội dung tiếng Việt + người thực hiện.
-        Assert.Equal("Lắp vào vị trí Vị trí 1", events[5].Title);
+        Assert.Equal("Lắp đặt tại: Vị trí 1", events[5].Title);
         Assert.Contains("Hệ thống: Hệ thống LL-3", events[5].Details);
         Assert.Equal("Người Lắp", events[5].ActorName);          // tên denormalize của lý lịch
-        Assert.Equal("Tháo khỏi vị trí Vị trí 1", events[1].Title);
+        Assert.Equal("Tháo khỏi: Vị trí 1", events[1].Title);
 
         Assert.Equal("Cấp phát", events[4].Title);
         Assert.Contains("cho Kiểm Thử", events[4].Details);       // tra cứu tên user theo lô
@@ -878,5 +879,444 @@ public class AssetTimelineQueryTests
 
         Assert.Contains("JOIN", campaignsSql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("\"StartDate\"", campaignsSql);
+
+        // [LL-4b] Vị từ lọc theo `types` (HashSet<ActionType> ⇒ IN/ANY phía SQL) cũng phải dịch được — nếu
+        // không, endpoint 500 trên Postgres thật trong khi InMemory vẫn xanh (đúng bài học BUG-Q).
+        var allowedActionTypes = new HashSet<ActionType> { ActionType.Create, ActionType.Update, ActionType.UpdateRejected };
+        var filterSql = db.ActionLogs.AsNoTracking()
+            .Where(l => l.ItemType == ItemType.Asset
+                        && l.ItemId == assetId
+                        && l.DeletedAt == null
+                        && !(l.TargetType == AssignmentTargetType.SystemPosition
+                             && (l.ActionType == ActionType.Checkout || l.ActionType == ActionType.Checkin))
+                        && (allowedActionTypes == null || allowedActionTypes.Contains(l.ActionType)))
+            .OrderByDescending(l => l.ActionDate)
+            .ThenByDescending(l => l.Id)
+            .Take(51)
+            .ToQueryString();
+
+        Assert.True(
+            filterSql.Contains("IN (", StringComparison.OrdinalIgnoreCase)
+            || filterSql.Contains("ANY", StringComparison.OrdinalIgnoreCase),
+            "Bộ lọc `types` phải dịch thành IN/ANY ở phía SQL:\n" + filterSql);
+    }
+
+    // ==================== [LL-4b] Lọc `types` + `id` + tiêu đề/details ====================
+
+    /// <summary>Seed 1 thiết bị có ĐỦ 5 sự kiện thuộc 4 loại: INSTALL, REMOVE, AUDIT, MAINTENANCE_CAMPAIGN, MAINTENANCE.</summary>
+    private static async Task<Fixture> SeedAllEventTypesAsync(AppDbContext db)
+    {
+        var fx = await SeedAsync(db);
+        var position = new SystemPosition { Code = "LL4B-POS", Name = "Vị trí 1", SystemInfoId = fx.System.Id };
+        db.SystemPositions.Add(position);
+        db.AssetInstallations.Add(LedgerRow(fx, position.Id, position.Name, Base.AddDays(1), Base.AddDays(2)));
+        db.ActionLogs.Add(new ActionLog
+        {
+            ItemType = ItemType.Asset,
+            ItemId = fx.Asset.Id,
+            ActionType = ActionType.Audit,
+            CreatedBy = fx.Creator.Id,
+            ActionDate = Base.AddDays(3),
+            LocationName = "Kho A",
+            Note = "kiểm kê định kỳ"
+        });
+        db.MaintenanceCampaignDeviceSnapshots.Add(new MaintenanceCampaignDeviceSnapshot
+        {
+            CampaignId = fx.Campaign.Id,
+            AssetId = fx.Asset.Id,
+            AssetTag = fx.Asset.AssetTag,
+            AssetName = fx.Asset.Name,
+            SystemPositionName = position.Name,
+            CreatedAt = Base.AddDays(4)
+        });
+        db.AssetMaintenances.Add(new AssetMaintenance
+        {
+            AssetId = fx.Asset.Id,
+            Title = "Thay quạt",
+            Type = AssetMaintenanceType.Repair,
+            CompanyId = Guid.NewGuid(),
+            StartDate = Base.AddDays(5),
+            CompletionDate = Base.AddDays(6),
+            CreatedById = fx.Creator.Id
+        });
+        await db.SaveChangesAsync();
+        return fx;
+    }
+
+    /// <summary>[LL-4b] `types` lọc theo eventType — chỉ trả về đúng các loại được yêu cầu.</summary>
+    [Fact]
+    public async Task Timeline_TypesFilter_ReturnsOnlyRequestedTypes()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_TypesFilter_ReturnsOnlyRequestedTypes));
+        var fx = await SeedAllEventTypesAsync(db);
+
+        // Không lọc ⇒ đủ 5 sự kiện (đối chiếu để thấy bộ lọc THẬT SỰ có tác dụng).
+        var all = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+        Assert.Equal(5, all.Events!.Count);
+
+        // Tập "Sự kiện chính" của FE (LL-4b yêu cầu 6) — 4 loại riêng của lý lịch, KHÔNG có AUDIT.
+        var main = await Handler(db).Handle(
+            new AssetTimelineQuery(fx.Asset.Id, null, 50, new[] { "INSTALL", "REMOVE", "MAINTENANCE", "MAINTENANCE_CAMPAIGN" }),
+            CancellationToken.None);
+        Assert.Equal(
+            new[] { "INSTALL", "MAINTENANCE", "MAINTENANCE_CAMPAIGN", "REMOVE" },
+            main.Events!.Select(e => e.EventType).OrderBy(x => x).ToArray());
+
+        // Chỉ AUDIT (sự kiện đến từ ActionLog).
+        var audit = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50, new[] { "AUDIT" }), CancellationToken.None);
+        var only = Assert.Single(audit.Events!);
+        Assert.Equal("AUDIT", only.EventType);
+
+        // `types` rỗng ⇒ KHÔNG lọc (không phải lỗi).
+        var empty = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50, new[] { "" }), CancellationToken.None);
+        Assert.Equal(5, empty.Events!.Count);
+    }
+
+    /// <summary>
+    /// [LL-4b] Lọc + phân trang CURSOR: đi từng trang (limit=1) với bộ lọc phải thu được ĐÚNG chuỗi sự kiện
+    /// của một trang lớn — KHÔNG mất, KHÔNG lặp (bộ lọc phải nằm ở WHERE của từng nguồn, không phải lọc sau).
+    /// </summary>
+    [Fact]
+    public async Task Timeline_TypesFilter_WithCursorPagination_NoLossNoDuplication()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_TypesFilter_WithCursorPagination_NoLossNoDuplication));
+        var fx = await SeedAllEventTypesAsync(db);
+        for (var i = 0; i < 5; i++)
+        {
+            db.ActionLogs.Add(new ActionLog
+            {
+                ItemType = ItemType.Asset,
+                ItemId = fx.Asset.Id,
+                ActionType = ActionType.Audit,
+                CreatedBy = fx.Creator.Id,
+                ActionDate = Base.AddDays(10 + i),
+                Note = $"kiểm kê {i}"
+            });
+        }
+
+        await db.SaveChangesAsync();
+
+        var filter = new[] { "AUDIT", "INSTALL" };
+
+        var full = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50, filter), CancellationToken.None);
+        Assert.Equal(7, full.Events!.Count);   // 6 AUDIT + 1 INSTALL (các loại khác bị lọc bỏ)
+        var expectedIds = full.Events.Select(e => e.Id).ToList();
+
+        var collected = new List<string>();
+        string? cursor = null;
+        var guard = 0;
+        do
+        {
+            var page = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, cursor, 1, filter), CancellationToken.None);
+            Assert.True(page.Success);
+            collected.AddRange(page.Events!.Select(e => e.Id));
+            cursor = page.NextCursor;
+        } while (cursor != null && ++guard < 50);
+
+        Assert.Null(cursor);
+        Assert.Equal(expectedIds, collected);
+        Assert.Equal(collected.Count, collected.Distinct().Count());
+    }
+
+    /// <summary>[LL-4b] `types` chứa giá trị lạ ⇒ 400 INVALID_TYPES (không im lặng bỏ qua).</summary>
+    [Fact]
+    public async Task Timeline_TypesFilter_UnknownValue_ReturnsInvalidTypesError()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_TypesFilter_UnknownValue_ReturnsInvalidTypesError));
+        var fx = await SeedAsync(db);
+
+        var result = await Handler(db).Handle(
+            new AssetTimelineQuery(fx.Asset.Id, null, 50, new[] { "INSTALL", "KHONG-CO" }), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(AssetTimelineQuery.InvalidTypesErrorCode, result.ErrorCode);
+        Assert.Contains("KHONG-CO", result.Message!);
+        Assert.Null(result.Events);
+    }
+
+    /// <summary>[LL-4b] `types` nhận tên ActionType dạng SCREAMING_SNAKE, không phân biệt hoa thường, và cả dạng có dấu phẩy.</summary>
+    [Fact]
+    public async Task Timeline_TypesFilter_AcceptsActionTypeNames_CaseInsensitiveAndCommaSeparated()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_TypesFilter_AcceptsActionTypeNames_CaseInsensitiveAndCommaSeparated));
+        var fx = await SeedAsync(db);
+        db.ActionLogs.Add(new ActionLog
+        {
+            ItemType = ItemType.Asset,
+            ItemId = fx.Asset.Id,
+            ActionType = ActionType.Checkout,
+            CreatedBy = fx.Creator.Id,
+            ActionDate = Base.AddDays(1),
+            TargetType = AssignmentTargetType.User,
+            TargetId = fx.Creator.Id
+        });
+        db.ActionLogs.Add(new ActionLog { ItemType = ItemType.Asset, ItemId = fx.Asset.Id, ActionType = ActionType.Update, CreatedBy = fx.Creator.Id, ActionDate = Base.AddDays(2) });
+        db.ActionLogs.Add(new ActionLog { ItemType = ItemType.Asset, ItemId = fx.Asset.Id, ActionType = ActionType.UpdateRejected, CreatedBy = fx.Creator.Id, ActionDate = Base.AddDays(3) });
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(
+            new AssetTimelineQuery(fx.Asset.Id, null, 50, new[] { "checkout,UPDATE", "UPDATE_REJECTED" }), CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(
+            new[] { "CHECKOUT", "UPDATE", "UPDATE_REJECTED" },
+            result.Events!.Select(e => e.EventType).OrderBy(x => x).ToArray());
+    }
+
+    /// <summary>[LL-4b] Chuẩn hoá tham số <c>types</c> (đơn vị nhỏ nhất, không cần dựng DB).</summary>
+    [Theory]
+    [InlineData(null, true, true)]
+    [InlineData("", true, true)]
+    [InlineData("   ", true, true)]
+    [InlineData("INSTALL", true, false)]
+    [InlineData("install,remove", true, false)]
+    [InlineData("MAINTENANCE", true, false)]
+    [InlineData("UPDATE_REJECTED", true, false)]
+    [InlineData("khong-co-loai-nay", false, false)]
+    public void TypesFilter_TryCreate_NormalizesAndValidates(string? raw, bool expectedOk, bool expectNoFilter)
+    {
+        var input = raw is null ? null : new[] { raw };
+
+        var ok = AssetTimelineTypeFilter.TryCreate(input, out var filter, out var unknown);
+
+        Assert.Equal(expectedOk, ok);
+        if (expectedOk)
+            Assert.Equal(expectNoFilter, filter == null);
+        else
+            Assert.Contains("KHONG-CO-LOAI-NAY", unknown);
+
+        Assert.Contains("INSTALL", AssetTimelineTypeFilter.KnownValues);
+        Assert.Contains("CHECKOUT", AssetTimelineTypeFilter.KnownValues);
+    }
+
+    /// <summary>[LL-4b] Tiêu đề lắp/tháo dùng dạng ngắn, KHÔNG lặp chữ "vị trí".</summary>
+    [Fact]
+    public async Task Timeline_InstallAndRemoveTitles_UseShortForm()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_InstallAndRemoveTitles_UseShortForm));
+        var fx = await SeedAllEventTypesAsync(db);
+
+        var result = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+
+        var install = result.Events!.Single(e => e.EventType == "INSTALL");
+        var remove = result.Events!.Single(e => e.EventType == "REMOVE");
+        Assert.Equal("Lắp đặt tại: Vị trí 1", install.Title);
+        Assert.Equal("Tháo khỏi: Vị trí 1", remove.Title);
+        Assert.DoesNotContain("vị trí Vị trí", install.Title);
+        Assert.DoesNotContain("vị trí Vị trí", remove.Title);
+    }
+
+    /// <summary>
+    /// [LL-4b] Dòng <c>Source = Backfill</c>: Note kỹ thuật KHÔNG lộ ra details (cả sự kiện lắp LẪN sự kiện tháo),
+    /// trong khi dòng do API ghi vẫn hiện Note; và dữ liệu Note trong DB KHÔNG bị sửa.
+    /// </summary>
+    [Fact]
+    public async Task Timeline_BackfillRows_DoNotExposeTechnicalNote_AndDbDataStaysIntact()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_BackfillRows_DoNotExposeTechnicalNote_AndDbDataStaysIntact));
+        var fx = await SeedAsync(db);
+        var posA = new SystemPosition { Code = "LL4B-A", Name = "Vị trí A", SystemInfoId = fx.System.Id };
+        var posB = new SystemPosition { Code = "LL4B-B", Name = "Vị trí B", SystemInfoId = fx.System.Id };
+        var posC = new SystemPosition { Code = "LL4B-C", Name = "Vị trí C", SystemInfoId = fx.System.Id };
+        db.SystemPositions.AddRange(posA, posB, posC);
+
+        var backfillOpen = LedgerRow(fx, posA.Id, posA.Name, Base.AddDays(1), source: AssetInstallationSource.Backfill, loggedByName: null);
+        var backfillClosed = LedgerRow(fx, posB.Id, posB.Name, Base.AddDays(2), Base.AddDays(3), AssetInstallationSource.Backfill, loggedByName: null);
+        var apiRow = LedgerRow(fx, posC.Id, posC.Name, Base.AddDays(4));
+        db.AssetInstallations.AddRange(backfillOpen, backfillClosed, apiRow);
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+        var events = result.Events!;
+        Assert.Equal(4, events.Count);   // 3 INSTALL + 1 REMOVE
+
+        var backfillInstall = events.Single(e => e.EventType == "INSTALL" && e.Title.Contains("Vị trí A"));
+        Assert.True(backfillInstall.IsEstimated);
+        Assert.NotNull(backfillInstall.Details);
+        Assert.DoesNotContain("ghi chú lý lịch", backfillInstall.Details!);
+        Assert.Contains("Hệ thống: Hệ thống LL-3", backfillInstall.Details!);
+
+        var backfillRemove = events.Single(e => e.EventType == "REMOVE" && e.Title.Contains("Vị trí B"));
+        Assert.False(backfillRemove.IsEstimated);
+        Assert.NotNull(backfillRemove.Details);
+        Assert.DoesNotContain("ghi chú lý lịch", backfillRemove.Details!);
+
+        // Dòng do API ghi ⇒ Note vẫn hiện bình thường (không chặn oan).
+        var apiInstall = events.Single(e => e.EventType == "INSTALL" && e.Title.Contains("Vị trí C"));
+        Assert.Contains("ghi chú lý lịch", apiInstall.Details!);
+
+        // KHÔNG sửa dữ liệu Note trong DB.
+        var stored = await db.AssetInstallations.AsNoTracking().SingleAsync(i => i.Id == backfillOpen.Id);
+        Assert.Equal("ghi chú lý lịch", stored.Note);
+    }
+
+    /// <summary>[LL-4b] Sự kiện CREATE: details tiếng Việt, KHÔNG lặp lại mã/tên thiết bị.</summary>
+    [Fact]
+    public async Task Timeline_CreateEvent_DetailsAreVietnameseAndDoNotRepeatAssetIdentity()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_CreateEvent_DetailsAreVietnameseAndDoNotRepeatAssetIdentity));
+        var fx = await SeedAsync(db);
+        db.ActionLogs.Add(new ActionLog
+        {
+            ItemType = ItemType.Asset,
+            ItemId = fx.Asset.Id,
+            ActionType = ActionType.Create,
+            CreatedBy = fx.Creator.Id,
+            ActionDate = Base,
+            // Note gốc của CreateAssetCommand: tiếng Anh + lặp lại mã và tên thiết bị.
+            Note = $"Created asset: {fx.Asset.AssetTag} - {fx.Asset.Name}",
+            LogMeta = JsonSerializer.Serialize(new { assetTag = fx.Asset.AssetTag, name = fx.Asset.Name, serial = "SN-001" })
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+        var create = result.Events!.Single(e => e.EventType == "CREATE");
+
+        Assert.Equal("Tạo mới", create.Title);
+        Assert.Contains("Serial: SN-001", create.Details!);
+        Assert.DoesNotContain("Created asset", create.Details!);
+        Assert.DoesNotContain(fx.Asset.AssetTag, create.Details!);
+        Assert.DoesNotContain(fx.Asset.Name, create.Details!);
+    }
+
+    /// <summary>[LL-4b] Sự kiện CREATE không có serial ⇒ không có details (không lặp lại Note tiếng Anh).</summary>
+    [Fact]
+    public async Task Timeline_CreateEvent_WithoutSerial_HasNoDetails()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_CreateEvent_WithoutSerial_HasNoDetails));
+        var fx = await SeedAsync(db);
+        db.ActionLogs.Add(new ActionLog
+        {
+            ItemType = ItemType.Asset,
+            ItemId = fx.Asset.Id,
+            ActionType = ActionType.Create,
+            CreatedBy = fx.Creator.Id,
+            ActionDate = Base,
+            Note = $"Created asset: {fx.Asset.AssetTag} - {fx.Asset.Name}"
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+        var create = result.Events!.Single(e => e.EventType == "CREATE");
+
+        Assert.Null(create.Details);
+    }
+
+    /// <summary>
+    /// [LL-4b] Sự kiện UPDATE: details liệt kê field thay đổi từ <c>LogMeta.changes</c> — nhãn tiếng Việt,
+    /// "cũ → mới", id tham chiếu được TRA TÊN; field ngày KHÔNG đưa giá trị vào details (quy ước LL-3).
+    /// </summary>
+    [Fact]
+    public async Task Timeline_UpdateEvent_DetailsListChangedFieldsWithVietnameseLabels()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_UpdateEvent_DetailsListChangedFieldsWithVietnameseLabels));
+        var fx = await SeedAsync(db);
+        var location = new Location { Name = "Kho B" };
+        db.Locations.Add(location);
+        await db.SaveChangesAsync();
+
+        db.ActionLogs.Add(new ActionLog
+        {
+            ItemType = ItemType.Asset,
+            ItemId = fx.Asset.Id,
+            ActionType = ActionType.Update,
+            CreatedBy = fx.Creator.Id,
+            ActionDate = Base,
+            Note = "cập nhật thiết bị",
+            LogMeta = JsonSerializer.Serialize(new
+            {
+                changes = new Dictionary<string, object?>
+                {
+                    ["name"] = new { old = "Tên cũ", @new = "Tên mới" },
+                    ["serial"] = new { old = (string?)null, @new = "SN-9" },
+                    ["location_id"] = new { old = (Guid?)null, @new = location.Id },
+                    ["physical"] = new { old = false, @new = true },
+                    ["purchase_date"] = new { old = (string?)null, @new = "2026-10-01T00:00:00Z" }
+                }
+            })
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+        var update = result.Events!.Single(e => e.EventType == "UPDATE");
+
+        Assert.Equal("Cập nhật", update.Title);
+        Assert.Contains("Tên: Tên cũ → Tên mới", update.Details!);
+        Assert.Contains("Serial: (trống) → SN-9", update.Details!);
+        Assert.Contains("Vị trí: (trống) → Kho B", update.Details!);      // id ⇒ tra ra TÊN, không hiện GUID
+        Assert.Contains("Thiết bị vật lý: Không → Có", update.Details!);
+        Assert.Contains("Ngày mua: (đã đổi)", update.Details!);          // field ngày: không có giá trị trong details
+        Assert.DoesNotContain("cập nhật thiết bị", update.Details!);      // KHÔNG dùng lại Note gốc
+        Assert.DoesNotContain(location.Id.ToString(), update.Details!);   // không lộ GUID
+        Assert.DoesNotContain("2026", update.Details!);                   // không ngày trong details
+    }
+
+    /// <summary>[LL-4b] UPDATE không có changes (LogMeta null) ⇒ details mặc định.</summary>
+    [Fact]
+    public async Task Timeline_UpdateEvent_WithoutChanges_UsesDefaultDetails()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_UpdateEvent_WithoutChanges_UsesDefaultDetails));
+        var fx = await SeedAsync(db);
+        db.ActionLogs.Add(new ActionLog
+        {
+            ItemType = ItemType.Asset,
+            ItemId = fx.Asset.Id,
+            ActionType = ActionType.Update,
+            CreatedBy = fx.Creator.Id,
+            ActionDate = Base,
+            Note = "cập nhật thiết bị"
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+        var update = result.Events!.Single(e => e.EventType == "UPDATE");
+
+        Assert.Equal("Cập nhật thông tin thiết bị", update.Details);
+    }
+
+    /// <summary>[LL-4b] LogMeta hỏng/không đúng cấu trúc ⇒ KHÔNG ném, dùng details mặc định.</summary>
+    [Fact]
+    public async Task Timeline_UpdateEvent_WithUnparsableLogMeta_UsesDefaultDetails()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_UpdateEvent_WithUnparsableLogMeta_UsesDefaultDetails));
+        var fx = await SeedAsync(db);
+        db.ActionLogs.Add(new ActionLog
+        {
+            ItemType = ItemType.Asset,
+            ItemId = fx.Asset.Id,
+            ActionType = ActionType.Update,
+            CreatedBy = fx.Creator.Id,
+            ActionDate = Base,
+            LogMeta = "{khong-phai-json"
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+        var update = result.Events!.Single(e => e.EventType == "UPDATE");
+
+        Assert.Equal("Cập nhật thông tin thiết bị", update.Details);
+    }
+
+    /// <summary>[LL-4b] `id` sự kiện: duy nhất, ỔN ĐỊNH giữa 2 lần gọi, và phân biệt INSTALL/REMOVE của cùng một dòng.</summary>
+    [Fact]
+    public async Task Timeline_EventIds_AreStableUniqueAndDistinguishInstallFromRemove()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Timeline_EventIds_AreStableUniqueAndDistinguishInstallFromRemove));
+        var fx = await SeedAllEventTypesAsync(db);
+
+        var first = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+        var second = await Handler(db).Handle(new AssetTimelineQuery(fx.Asset.Id, null, 50), CancellationToken.None);
+
+        var ids = first.Events!.Select(e => e.Id).ToList();
+        Assert.All(ids, id => Assert.False(string.IsNullOrWhiteSpace(id)));
+        Assert.Equal(ids.Count, ids.Distinct().Count());
+        Assert.Equal(ids, second.Events!.Select(e => e.Id).ToList());
+
+        var install = first.Events.Single(e => e.EventType == "INSTALL");
+        var remove = first.Events.Single(e => e.EventType == "REMOVE");
+        Assert.StartsWith("install:", install.Id);
+        Assert.StartsWith("remove:", remove.Id);
+        Assert.Equal(install.RefId, remove.RefId);   // cùng MỘT dòng lý lịch gốc...
+        Assert.NotEqual(install.Id, remove.Id);      // ...nhưng id sự kiện phải khác nhau
     }
 }

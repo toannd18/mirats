@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Empty, Skeleton, Tag, Timeline, Tooltip, Typography, theme } from 'antd';
+import { Alert, Button, Empty, Grid, Skeleton, Tag, Timeline, Tooltip, Typography, theme, Segmented } from 'antd';
 import {
   AuditOutlined, CheckCircleOutlined, CheckOutlined, ClockCircleOutlined, CloseOutlined,
   CloudUploadOutlined, DeleteOutlined, DisconnectOutlined, EditOutlined, ExportOutlined,
@@ -10,15 +10,26 @@ import {
 import { Link } from 'react-router-dom';
 import { assetService } from '../services/asset.service';
 import { formatDateTimeShort } from '../../../utils/format';
-import {
-  timelineEventKey, timelineRefRoute,
-  type AssetTimelineEvent, type AssetTimelineResponse,
-} from '../types/timeline';
+import { timelineRefRoute, type AssetTimelineEvent, type AssetTimelineResponse } from '../types/timeline';
 
 const { Text } = Typography;
 
 /** Số sự kiện mỗi trang khi bấm "Tải thêm" (LL-4 yêu cầu 6). */
 const PAGE_SIZE = 20;
+
+/**
+ * [LL-4b] Nhóm "Sự kiện chính" — 4 loại riêng của lý lịch, gửi lên server qua tham số `types`.
+ * Giá trị là danh sách `eventType` ngăn bằng dấu phẩy (hợp đồng: docs/API.md § Asset Timeline).
+ */
+const MAIN_EVENT_TYPES = 'INSTALL,REMOVE,MAINTENANCE,MAINTENANCE_CAMPAIGN';
+
+type TimelineFilter = 'main' | 'all';
+
+/** Trạng thái lỗi đã tách sẵn: mô tả (KHÔNG lặp tiêu đề) + mã lỗi/HTTP để hiển thị riêng. */
+interface TimelineError {
+  description: string;
+  code: string | null;
+}
 
 type TimelineToken = ReturnType<typeof theme.useToken>['token'];
 
@@ -68,49 +79,80 @@ function eventMeta(eventType: string, token: TimelineToken): { color: string; ic
  * Tab "Lý lịch" của trang chi tiết thiết bị — dòng thời gian dọc (mới nhất trước) từ
  * `GET /api/v1/assets/{id}/timeline` (hợp đồng: docs/API.md).
  *
- * Trạng thái: đang tải (Skeleton) · rỗng ("Chưa có sự kiện lý lịch") · lỗi (thông báo + nút thử lại).
- * Phân trang bằng con trỏ: nút "Tải thêm" chỉ hiện khi server còn trả `nextCursor`; nối trang và khử
- * trùng theo khoá sự kiện (xem `timelineEventKey`).
+ * [LL-4b] Bộ chọn nhóm sự kiện: "Sự kiện chính" (mặc định — INSTALL/REMOVE/MAINTENANCE/MAINTENANCE_CAMPAIGN,
+ * lọc ở SERVER qua `types`) hoặc "Tất cả". Đổi nhóm ⇒ tải lại từ trang đầu.
+ *
+ * Trạng thái: đang tải (Skeleton) · rỗng · lỗi (mô tả + mã lỗi, nút thử lại). Phân trang bằng con trỏ:
+ * nút "Tải thêm" chỉ hiện khi server còn trả `nextCursor`; nối trang và khử trùng theo `id` sự kiện do
+ * server cấp (`AssetTimelineEvent.id`) — KHÔNG ghép khoá ở client.
  */
 export default function AssetTimelineTab({ assetId }: { assetId: string }) {
   const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
+  // < 576px (VD 390px): nút "Thử lại" xuống dòng riêng thay vì nằm cạnh phần mô tả.
+  const isNarrow = !screens.sm;
+
+  const [filter, setFilter] = useState<TimelineFilter>('main');
   const [events, setEvents] = useState<AssetTimelineEvent[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<TimelineError | null>(null);
 
   // `append = false` → tải trang đầu (thay danh sách); `append = true` → nối thêm theo `cursor`.
   const load = useCallback(async (cursor: string | null, append: boolean) => {
     if (append) setLoadingMore(true); else setLoading(true);
     setError(null);
     try {
-      const res = await assetService.getTimeline(assetId, cursor ? { limit: PAGE_SIZE, cursor } : { limit: PAGE_SIZE });
+      const types = filter === 'main' ? MAIN_EVENT_TYPES : undefined;
+      const res = await assetService.getTimeline(assetId, cursor ? { limit: PAGE_SIZE, cursor, types } : { limit: PAGE_SIZE, types });
       const body = res.data as AssetTimelineResponse | undefined;
       const page = Array.isArray(body?.data) ? body!.data : [];
       setEvents(prev => {
-        const seen = new Set(append ? prev.map(timelineEventKey) : []);
-        const fresh = page.filter(e => !seen.has(timelineEventKey(e)));
+        const seen = new Set(append ? prev.map(e => e.id) : []);
+        const fresh = page.filter(e => !seen.has(e.id));
         return append ? [...prev, ...fresh] : fresh;
       });
       setNextCursor(body?.pagination?.nextCursor ?? null);
     } catch (err: unknown) {
-      const e = err as { response?: { status?: number; data?: { message?: string } } };
-      // `e?.response?.status` là mã HTTP (KHÔNG phải enum phân quyền) — sweep S2 trong
-      // `scripts/audit-sweeps.ps1` bỏ qua đúng dạng so sánh này (ngoại lệ đã ghi ở đầu sweep).
-      setError(
-        e?.response?.status === 404
-          ? 'Không tìm thấy thiết bị (hoặc thiết bị ngoài phạm vi công ty của bạn).'
-          : e?.response?.data?.message || 'Không thể tải lý lịch thiết bị.',
-      );
+      const e = err as {
+        response?: { status?: number; data?: { message?: string; error_code?: string } };
+      };
+      // `e?.response?.status` là mã HTTP (KHÔNG phải enum nghiệp vụ). Sweep S2 trong
+      // `scripts/audit-sweeps.ps1` chỉ bỏ qua dòng có ĐÚNG chuỗi `response?.status`, nên phép so sánh 404
+      // phải viết INLINE trên chính dòng đó (không tách ra biến `status`).
+      const status = e?.response?.status;
+      const errorCode = e?.response?.data?.error_code;
+      setError({
+        // Mô tả KHÔNG lặp lại tiêu đề của Alert ("Không thể tải lý lịch thiết bị").
+        description: e?.response?.status === 404
+          ? 'Thiết bị không tồn tại hoặc nằm ngoài phạm vi công ty của bạn.'
+          : (e?.response?.data?.message || 'Vui lòng thử lại sau.'),
+        code: errorCode ?? (status ? `HTTP ${status}` : null),
+      });
       // Trang nối lỗi → giữ nguyên danh sách đã có (chỉ báo lỗi, không xoá dữ liệu đang xem).
       if (!append) { setEvents([]); setNextCursor(null); }
     } finally {
       if (append) setLoadingMore(false); else setLoading(false);
     }
-  }, [assetId]);
+  }, [assetId, filter]);
 
   useEffect(() => { void load(null, false); }, [load]);
+
+  const filterPicker = (
+    <div style={{ marginBottom: 12 }}>
+      <Tooltip title={`Sự kiện chính: lắp đặt, tháo khỏi vị trí, phiếu bảo dưỡng và đợt bảo dưỡng.`}>
+        <Segmented<TimelineFilter>
+          value={filter}
+          onChange={(value) => setFilter(value)}
+          options={[
+            { label: 'Sự kiện chính', value: 'main' },
+            { label: 'Tất cả', value: 'all' },
+          ]}
+        />
+      </Tooltip>
+    </div>
+  );
 
   if (loading) return <Skeleton active paragraph={{ rows: 5 }} />;
 
@@ -120,24 +162,48 @@ export default function AssetTimelineTab({ assetId }: { assetId: string }) {
         type="error"
         showIcon
         title="Không thể tải lý lịch thiết bị"
-        description={error}
-        action={<Button size="small" onClick={() => void load(null, false)}>Thử lại</Button>}
+        description={
+          <div>
+            <div>{error.description}</div>
+            {error.code && (
+              <div style={{ marginTop: 4, fontSize: 12, color: token.colorTextSecondary }}>
+                Mã lỗi: {error.code}
+              </div>
+            )}
+            {isNarrow && (
+              <div style={{ marginTop: 8 }}>
+                <Button size="small" onClick={() => void load(null, false)}>Thử lại</Button>
+              </div>
+            )}
+          </div>
+        }
+        action={isNarrow ? undefined : <Button size="small" onClick={() => void load(null, false)}>Thử lại</Button>}
       />
     );
   }
 
   if (events.length === 0) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có sự kiện lý lịch" />;
+    return (
+      <div>
+        {filterPicker}
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={filter === 'main' ? 'Chưa có sự kiện chính nào — chọn "Tất cả" để xem toàn bộ.' : 'Chưa có sự kiện lý lịch'}
+        />
+      </div>
+    );
   }
 
   return (
     <div>
+      {filterPicker}
       <Timeline
         items={events.map(event => {
           const meta = eventMeta(event.eventType, token);
           const route = timelineRefRoute(event.refType, event.refId);
           return {
-            key: timelineEventKey(event),
+            // [LL-4b] `id` do server cấp, ổn định giữa các trang ⇒ dùng thẳng làm key.
+            key: event.id,
             // antd 6: Timeline item.dot deprecated → `icon` (màu giữ ở span ngoài theo theme token).
             icon: <span style={{ color: meta.color, fontSize: 14 }}>{meta.icon}</span>,
             content: (
