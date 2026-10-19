@@ -64,6 +64,20 @@
      `SeatNumber`, kiểu cột `CreatedAt`/`UpdatedAt` và check constraint `CK_license_seats_single_target`
      (đã chuyển sang `ToTable(t => t.HasCheckConstraint(...))` ở N17) → gộp phải giữ **đủ cả hai nhóm**,
      và vẫn phải chạy đủ 6 gate trước khi commit.
+2. **MT-TZ-B — chuyển 3 cột NGÀY THUẦN sang `date` + `DateOnly`** (`asset_maintenances.StartDate`,
+   `asset_maintenances.CompletionDate`, `licenses.TerminationDate`). Hiện vẫn là `timestamp without time zone`
+   chứa mốc nửa đêm giờ VN quy đổi UTC (VD `2026-11-09 17:00:00` = 10/11/2026 giờ VN) và đã được trả kèm `Z`
+   theo phương án **A-ngày** (MT-TZ, 2026-10-19) nên **không lệch trong luồng hiện tại**.
+   - **Điều kiện kích hoạt:** khi xuất hiện **báo cáo / bộ lọc theo NGÀY** trên 3 cột này — lúc đó
+     `::date` / `date_trunc` theo UTC sẽ lệch **±1 ngày** so với ngày nghiệp vụ VN; phải backfill
+     `AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Ho_Chi_Minh'`, đổi cột sang `date`, DTO/handler sang `DateOnly`.
+   - **Tiêu chí nghiệm thu:** 0 chỗ so sánh/lọc theo ngày lệch 1 ngày khi chạy bộ lọc "theo ngày" trên dữ
+     liệu thật; `dotnet ef migrations has-pending-model-changes` rỗng sau migration.
+3. **Dọn `ToApiKind`/`ToColumnKind` (LL-3) trong `AssetTimelineQuery.cs`** — 2 helper chuyển `DateTimeKind`
+   cho mốc cursor `occurredAt` được tạo ở giai đoạn cột còn naive. Sau MT-TZ (ValueConverter đọc ra
+   `Kind=Utc` cho mọi cột naive đã đăng ký) chúng **không còn cần thiết**, nhưng để lại cũng không sai.
+   - **Tiêu chí nghiệm thu:** bỏ 2 helper mà `AssetTimelineQueryTests` + phân trang cursor trên **DB thật**
+     vẫn PASS, và mốc `occurredAt` trả ra vẫn có `Z` đúng như trước.
 
 ### 🤖 Đề xuất đưa `ConcurrencyRaceAuditTests` vào CI (mục D — CHƯA sửa `ci.yml`)
 
@@ -656,9 +670,9 @@
 
 ---
 
-## MT-TZ — Endpoint CŨ trả mốc `timestamp without time zone` KHÔNG có hậu tố `Z` → FE đọc lệch 7 tiếng (ĐANG LÀM — Bước 1–2 XONG 2026-10-19)
+## MT-TZ — Endpoint CŨ trả mốc `timestamp without time zone` KHÔNG có hậu tố `Z` → FE đọc lệch 7 tiếng (RESOLVED 2026-10-19 — phương án A + A-ngày)
 
-- **Trạng thái: IN PROGRESS** (đăng ký 2026-10-18 theo quyết định của người dùng khi duyệt LL-3 — **KHÔNG** sửa trong LL-3/LL-4).
+- **Trạng thái: RESOLVED 2026-10-19** (đăng ký 2026-10-18 theo quyết định của người dùng khi duyệt LL-3 — **KHÔNG** sửa trong LL-3/LL-4; xử lý ở Bước 1–3 — backend commit `ffdc3fd`, Bước 3 = áp dev + kiểm UI thật).
 - **Bối cảnh (đã kiểm chứng trên DB dev thật + API thật):** mọi cột `timestamp without time zone` của app này
   chứa **wall-clock UTC**, không phải giờ VN. Bằng chứng: đối chiếu 12/12 bản ghi `asset_maintenances` —
   `CreatedAt` khớp `action_logs.ActionDate AT TIME ZONE 'UTC'` trong vài ms, còn lệch
@@ -701,10 +715,22 @@
   `Unspecified`); test canary `NaiveDateTimeKindTests` (model InMemory + đối chiếu `information_schema`
   + roundtrip `Z`). Đã áp lên DB dev (1 dòng đổi) — chi tiết + bằng chứng + gates: `docs/HANDOFF_LATEST.md`
   mục "2026-10-19 — MT-TZ (Bước 1 + Bước 2)".
-- **CÒN LẠI (gợi ý Bước 3+):** (a) restart stack dev để endpoint trả `Z` (build cũ vẫn chạy); (b) cân nhắc
-  chuyển 3 cột NGÀY THUẦN sang `date` + `DateOnly` (phương án B — backfill `AT TIME ZONE 'UTC' AT TIME ZONE
-  'Asia/Ho_Chi_Minh'`) nếu muốn sạch về ngữ nghĩa "ngày"; (c) rà FE lần cuối (không còn chỗ nào tự `new Date()`
-  trên chuỗi không `Z`) và cập nhật `docs/API.md` nếu muốn ghi rõ quy ước `Z` cho 16 cột.
+- **ĐÃ LÀM — Bước 3 (áp dev + kiểm UI thật, 2026-10-19):** restart stack dev (AppHost) để chạy build mới;
+  `GET /api/v1/maintenances/{id}` giờ trả `"startDate":"2026-09-01T00:00:00Z"` (trước restart: không có `Z`).
+  Kiểm UI THẬT bằng `playwright-cli`, **chỉ xem** (không tạo/sửa dữ liệu dev) trên bản ghi `ee7d4c09…` của
+  asset `G12AST-222003`: trang **Bảo trì** hiện `1/9/2026` (Ngày bắt đầu) — tab **Lý lịch** của asset hiện
+  `01/09/2026 07:00` ⇒ **khớp ngày**; ảnh chụp 1440px + 390px trong `screenshots/mttz3-*.png`.
+  Kiểm form sửa trên **DB TẠM** (container riêng): tạo phiếu bằng payload y như FE
+  (`2026-11-09T17:00:00.000Z` → DB `2026-11-09 17:00:00`), mở form **Sửa** → bấm **Cập nhật** mà không đổi gì
+  → `UpdatedAt` đổi (`03:46:22`) nhưng `StartDate`/`CompletionDate` **y nguyên** (SQL log chỉ có
+  `UPDATE … SET "UpdatedAt"`), UI vẫn `10/11/2026` / `13/11/2026`, ActionLog Update vẫn ghi.
+  Gates `scripts/precommit-gates.ps1` **6/6 xanh** (TRX `logs/trx/dotnet-test.trx`: 635 passed / 0 failed /
+  12 skipped — các test `*_OnRealPostgres` tự skip khi không bật ThrowawayDb). Chạy lại kèm
+  `MIRATS_TEST_THROWAWAY_DB=1` trên Postgres thật: **647 passed / 0 failed / 0 skipped**
+  (TRX `logs/trx/mttz3-throwaway.trx`), bao gồm 2 test canary `NaiveDateTimeKindTests`.
+- **GHI CHÚ — 3 cột NGÀY THUẦN:** vẫn là `timestamp` (phương án A-ngày) ⇒ chỉ an toàn khi **chưa** có báo
+  cáo/bộ lọc theo NGÀY; đã tách thành mục **MT-TZ-B** ở "🚧 OPEN (LOW)". Việc dọn `ToApiKind`/`ToColumnKind`
+  (LL-3) đã tách thành mục 3 cùng chỗ.
 
 ---
 

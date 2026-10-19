@@ -3813,6 +3813,94 @@ Code là nguồn sự thật và code ĐÚNG; các chỗ lệch là **tài liệ
   `mttz2-pg`/`mttz2-redis` + API 5500 đã dọn; dev stack nguyên vẹn (`postgres-vxczaqxs`, `cache-wgmcupje`,
   `pgadmin-jdesxdfy`).
 
+---
+
+## 2026-10-19 — MT-TZ (Bước 3): áp stack dev + kiểm UI thật + rà bí mật trong git → MT-TZ **RESOLVED**
+
+> **Vào luật:** `ffdc3fd` (Bước 2, backend) — Bước 3 = restart dev, kiểm chứng UI THẬT, kiểm form sửa trên
+> DB tạm, chạy gates qua `scripts/precommit-gates.ps1`, cập nhật BACKLOG. Backend **không đổi thêm** ở bước này.
+> **Quy tắc mới áp từ phiên này:** KHÔNG ghi mật khẩu / connection string chứa mật khẩu vào HANDOFF, docs,
+> hay báo cáo (mọi giá trị bí mật chỉ tồn tại trong user-secrets + file gitignored).
+
+### 0. Rà bí mật trong git (làm trước — CHỈ BÁO CÁO)
+
+- **Nguồn quét:** 6 giá trị bí mật THẬT của máy dev (mật khẩu admin dev ở file gitignored + 5 user-secrets:
+  `postgres-password`, `dbPassword`, `cache-password`, `authSigningKey`, `authBootstrapPassword`).
+- **Phạm vi:** (a) file **đang được git theo dõi** (`git grep` HEAD + working tree); (b) **toàn bộ lịch sử**
+  mọi ref (`git log --all -S<chuỗi>`); (c) **toàn bộ object store** kể cả object dangling/unreachable/reflog
+  (`git cat-file --batch-all-objects --batch`, **37.623.873 bytes**).
+- **Kết quả: 0/0/0** — không giá trị nào xuất hiện ở bất kỳ file, commit, hay object nào ⇒ **không rò rỉ**.
+- **Các "hit" của mẫu `Password=…` (13 commit, 4 file) đều là placeholder, không phải bí mật thật:**
+  `${POSTGRES_PASSWORD}`, `${REDIS_PASSWORD:?...REDIS_PASSWORD is required}` (`.env.example`,
+  `docker-compose.yml`, 2 workflow mẫu của skill deployment), `Password=postgres` / `Password=canary`
+  (design-time factory + test cục bộ), `$KC_BOOTSTRAP_ADMIN_PASSWORD` (thời Keycloak), và các dòng docs
+  **cố ý** in ví dụ mojibake (khớp mẫu tìm kiếm nhưng không chứa bí mật).
+- `.mirats-test-admin-password` **được gitignore** (`.gitignore:102`) và **không** có trong index;
+  `backups/*.dump` cũng gitignore (`.gitignore:98`).
+
+### 1. Áp stack dev + kiểm UI thật
+
+- **Restart stack dev:** dừng AppHost (pid 40104) + `dcp` + vite ⇒ DCP xoá container ⇒ nhưng AppHost khai
+  `.WithDataVolume("postgres-data")` nên **dữ liệu DB dev an toàn** (volume `postgres-data` 65,2 MB còn
+  nguyên; đã kiểm tra trước khi tin). Chạy lại `dotnet run` ở `aspire-react.AppHost`:
+  **`/health` 5428 = 200**, FE 5173 lên lại, `StartupDataSeeder.Migrate()` no-op (migration đã áp ở Bước 2).
+- **Đối chứng trước/sau restart (cùng endpoint, cùng bản ghi `ee7d4c09…`):**
+  - TRƯỚC (build cũ): `"startDate":"2026-09-01T00:00:00"` — **không `Z`**.
+  - SAU: `"startDate":"2026-09-01T00:00:00Z"`, `"completionDate":"2026-09-03T00:00:00Z"`,
+    `"createdAt":"2026-09-04T07:58:29.92316Z"`; timeline asset `G12AST-222003` (`425aae25…`) →
+    `"occurredAt":"2026-09-01T00:00:00Z"` — **khớp trang Bảo trì**.
+- **Kiểm UI THẬT (`playwright-cli`, CHỈ XEM — KHÔNG tạo/sửa dữ liệu dev):**
+
+  | Màn hình | Giá trị đọc được |
+  |---|---|
+  | `/maintenances` — card `QA-C renamed` (asset `G12AST-222003`) | Ngày bắt đầu **`1/9/2026`** · Ngày hoàn thành `3/9/2026` |
+  | `/assets/425aae25…` tab **Lý lịch** — sự kiện `Bảo trì định kỳ: QA-C renamed` | **`01/09/2026 07:00`** |
+
+  ⇒ **hai màn hình cùng một ngày** (đúng yêu cầu). Ảnh: `screenshots/mttz3-1440-01..04` (1440×900) và
+  `screenshots/mttz3-390-01..03` (390×844). Console trang: 0 error.
+- **Lưu ý trung thực:** bản ghi này có wall-clock `00:00:00` nên ngày hiển thị **vốn đã khớp cả trước fix**
+  (`00:00Z` → 07:00 cùng ngày VN). Ca **thực sự lộ lệch** là mốc "nửa đêm giờ VN" (`17:00Z` ngày trước) —
+  được kiểm ở mục 2.
+
+### 2. Kiểm form Sửa trên DB TẠM (container riêng `mttz3-pg` + `mttz3-redis` + API Release 5501 + vite 5174 — đã dọn)
+
+- Tạo phiếu bằng payload **y hệt FE** (`POST /api/v1/maintenances`, `"startDate":"2026-11-09T17:00:00.000Z"`,
+  `"completionDate":"2026-11-12T17:00:00.000Z"`) → DB raw `2026-11-09 17:00:00` / `2026-11-12 17:00:00`;
+  `GET` trả `…T17:00:00Z`; UI hiện **10/11/2026 – 13/11/2026** (đúng ngày VN người dùng chọn).
+- Mở form **Sửa** (`AssetMaintenanceSection` → nút "Sửa") → bấm **Cập nhật** **không đổi gì**:
+  - `UpdatedAt` đổi `03:46:22.316877` ⇒ **PUT đã chạy thật** (không phải no-op bị bỏ qua);
+  - `StartDate` / `CompletionDate` **y nguyên từng byte**; SQL log EF chỉ có
+    `UPDATE asset_maintenances SET "UpdatedAt" = @p0 WHERE "Id" = @p1;` (**không** có 2 cột ngày trong `SET`);
+  - UI sau khi lưu vẫn **10/11/2026 / 13/11/2026**; `action_logs` ghi 1 dòng `ActionType=2` (Update),
+    `ItemType=8` (AssetMaintenance) cùng transaction.
+- **Vì sao ca này quan trọng:** trước fix, FE đọc `2026-11-12T17:00:00` (không `Z`) như **giờ LOCAL** rồi
+  `toISOString()` ⇒ **lùi 7 giờ mỗi lần lưu** (17:00 → 10:00 → … sẽ lệch cả NGÀY); sau fix giá trị lưu
+  giữ đúng.
+
+### Gates (qua `scripts/precommit-gates.ps1` — giữ TRX)
+
+- **`scripts/precommit-gates.ps1`: PASS 6/6** (1 format · 2 build Release · 3 dotnet test · 4 npm lint ·
+  5 npm build · 6 audit-sweeps).
+- **TRX `logs/trx/dotnet-test.trx`: 635 passed / 0 failed / 12 not-executed** — 12 test `*_OnRealPostgres`
+  tự skip khi không bật ThrowawayDb (**0 test lỗi**, không có tên test fail nào để báo).
+- Chạy lại nhóm test trên **Postgres thật** (`MIRATS_TEST_THROWAWAY_DB=1`, TRX
+  `logs/trx/mttz3-throwaway.trx`): **647 passed / 0 failed / 0 skipped** — bao gồm 2 canary
+  `NaiveDateTimeKindTests.Postgres_*`, `InstallationCorrectionTests`, `AssetDetailAssignmentTests`.
+- Dọn sạch: container `mttz3-pg`/`mttz3-redis`, API 5501, vite 5174 đã stop; dev stack vẫn chạy.
+
+### Backlog + quan sát ngoài phạm vi
+
+- `MT-TZ` → **RESOLVED 2026-10-19** (phương án A + A-ngày).
+- Thêm **MT-TZ-B** (mức thấp): 3 cột ngày thuần → `date` + `DateOnly`; **kích hoạt** khi có báo cáo/bộ lọc
+  theo NGÀY trên 3 cột này.
+- Thêm mục (mức thấp): dọn `ToApiKind`/`ToColumnKind` của LL-3.
+- **Quan sát (chưa đăng ký BACKLOG — chờ quyết định, KHÔNG phải lỗi do MT-TZ):**
+  `UpdateMaintenanceCommand.BuildLogEntry` ghi ActionLog **không** kèm `LogMeta.changes` (đo trên DB tạm:
+  dòng Update của maintenance có `LogMeta` = NULL), trong khi convention dự án yêu cầu `LogMeta.changes` cho
+  mọi Update (đối chiếu `UpdateUserCommand` có dựng `changes`). Các entity khác (User…) vẫn có `changes`.
+
+
+
 
 
 
