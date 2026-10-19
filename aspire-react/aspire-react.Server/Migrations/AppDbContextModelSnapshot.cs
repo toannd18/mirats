@@ -230,7 +230,10 @@ namespace aspirereact.Server.Migrations
 
                     b.HasIndex("ItemType", "ItemId");
 
-                    b.ToTable("action_logs", (string)null);
+                    b.ToTable("action_logs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_action_logs_DeletedAt_no_infinity", "\"DeletedAt\" <> '-infinity'::timestamp AND \"DeletedAt\" <> 'infinity'::timestamp");
+                        });
                 });
 
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.Asset", b =>
@@ -547,7 +550,22 @@ namespace aspirereact.Server.Migrations
 
                     b.HasIndex("SupplierId");
 
-                    b.ToTable("asset_maintenances", (string)null);
+                    b.ToTable("asset_maintenances", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_asset_maintenances_ClosedAt_no_infinity", "\"ClosedAt\" <> '-infinity'::timestamp AND \"ClosedAt\" <> 'infinity'::timestamp");
+
+                            t.HasCheckConstraint("CK_asset_maintenances_CompletionDate_no_infinity", "\"CompletionDate\" <> '-infinity'::timestamp AND \"CompletionDate\" <> 'infinity'::timestamp");
+
+                            t.HasCheckConstraint("CK_asset_maintenances_CreatedAt_no_infinity", "\"CreatedAt\" <> '-infinity'::timestamp AND \"CreatedAt\" <> 'infinity'::timestamp");
+
+                            t.HasCheckConstraint("CK_asset_maintenances_DeletedAt_no_infinity", "\"DeletedAt\" <> '-infinity'::timestamp AND \"DeletedAt\" <> 'infinity'::timestamp");
+
+                            t.HasCheckConstraint("CK_asset_maintenances_InspectedAt_no_infinity", "\"InspectedAt\" <> '-infinity'::timestamp AND \"InspectedAt\" <> 'infinity'::timestamp");
+
+                            t.HasCheckConstraint("CK_asset_maintenances_StartDate_no_infinity", "\"StartDate\" <> '-infinity'::timestamp AND \"StartDate\" <> 'infinity'::timestamp");
+
+                            t.HasCheckConstraint("CK_asset_maintenances_UpdatedAt_no_infinity", "\"UpdatedAt\" <> '-infinity'::timestamp AND \"UpdatedAt\" <> 'infinity'::timestamp");
+                        });
                 });
 
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.AssetMaintenanceAssignee", b =>
@@ -577,7 +595,10 @@ namespace aspirereact.Server.Migrations
                     b.HasIndex("MaintenanceId", "UserId")
                         .IsUnique();
 
-                    b.ToTable("asset_maintenance_assignees", (string)null);
+                    b.ToTable("asset_maintenance_assignees", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_asset_maintenance_assignees_AssignedAt_no_infinity", "\"AssignedAt\" <> '-infinity'::timestamp AND \"AssignedAt\" <> 'infinity'::timestamp");
+                        });
                 });
 
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.AssetModel", b =>
@@ -952,7 +973,14 @@ namespace aspirereact.Server.Migrations
 
                     b.HasIndex("Status");
 
-                    b.ToTable("component_units", (string)null);
+                    b.ToTable("component_units", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_component_units_CreatedAt_no_infinity", "\"CreatedAt\" <> '-infinity'::timestamp AND \"CreatedAt\" <> 'infinity'::timestamp");
+
+                            t.HasCheckConstraint("CK_component_units_DeletedAt_no_infinity", "\"DeletedAt\" <> '-infinity'::timestamp AND \"DeletedAt\" <> 'infinity'::timestamp");
+
+                            t.HasCheckConstraint("CK_component_units_UpdatedAt_no_infinity", "\"UpdatedAt\" <> '-infinity'::timestamp AND \"UpdatedAt\" <> 'infinity'::timestamp");
+                        });
                 });
 
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.Consumable", b =>
@@ -1319,7 +1347,12 @@ namespace aspirereact.Server.Migrations
 
                     b.HasIndex("SupplierId");
 
-                    b.ToTable("licenses", (string)null);
+                    b.ToTable("licenses", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_licenses_DeletedAt_no_infinity", "\"DeletedAt\" <> '-infinity'::timestamp AND \"DeletedAt\" <> 'infinity'::timestamp");
+
+                            t.HasCheckConstraint("CK_licenses_TerminationDate_no_infinity", "\"TerminationDate\" <> '-infinity'::timestamp AND \"TerminationDate\" <> 'infinity'::timestamp");
+                        });
                 });
 
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.LicenseSeat", b =>
@@ -1377,6 +1410,10 @@ namespace aspirereact.Server.Migrations
 
                     b.ToTable("license_seats", null, t =>
                         {
+                            t.HasCheckConstraint("CK_license_seats_CreatedAt_no_infinity", "\"CreatedAt\" <> '-infinity'::timestamp AND \"CreatedAt\" <> 'infinity'::timestamp");
+
+                            t.HasCheckConstraint("CK_license_seats_UpdatedAt_no_infinity", "\"UpdatedAt\" <> '-infinity'::timestamp AND \"UpdatedAt\" <> 'infinity'::timestamp");
+
                             t.HasCheckConstraint("CK_license_seats_single_target", "(((\"UserId\" IS NOT NULL)::int + (\"AssetId\" IS NOT NULL)::int + (\"SystemInfoId\" IS NOT NULL)::int) <= 1)");
                         });
                 });

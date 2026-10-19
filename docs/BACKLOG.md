@@ -656,9 +656,9 @@
 
 ---
 
-## MT-TZ — Endpoint CŨ trả mốc `timestamp without time zone` KHÔNG có hậu tố `Z` → FE đọc lệch 7 tiếng (CHƯA LÀM)
+## MT-TZ — Endpoint CŨ trả mốc `timestamp without time zone` KHÔNG có hậu tố `Z` → FE đọc lệch 7 tiếng (ĐANG LÀM — Bước 1–2 XONG 2026-10-19)
 
-- **Trạng thái: OPEN** (đăng ký 2026-10-18 theo quyết định của người dùng khi duyệt LL-3 — **KHÔNG** sửa trong LL-3/LL-4).
+- **Trạng thái: IN PROGRESS** (đăng ký 2026-10-18 theo quyết định của người dùng khi duyệt LL-3 — **KHÔNG** sửa trong LL-3/LL-4).
 - **Bối cảnh (đã kiểm chứng trên DB dev thật + API thật):** mọi cột `timestamp without time zone` của app này
   chứa **wall-clock UTC**, không phải giờ VN. Bằng chứng: đối chiếu 12/12 bản ghi `asset_maintenances` —
   `CreatedAt` khớp `action_logs.ActionDate AT TIME ZONE 'UTC'` trong vài ms, còn lệch
@@ -689,6 +689,22 @@
 - **Phạm vi ước lượng:** ~10–20 endpoint trả DTO có trường ngày + (nếu chọn (b)) 1 migration + rà lại FE các chỗ
   format ngày. **Không** nằm trong phạm vi LL-3 (LL-3 chỉ chuẩn hoá đúng 2 trường của nguồn mình:
   `occurredAt`, `maintenanceCompletionDate`).
+
+- **ĐÃ LÀM — Bước 1 (khảo sát, 2026-10-19):** kiểm kê **16 cột naive / 6 bảng** (khớp 100%
+  `docs/HANDOFF_DATETIME_KIND_AUDIT.md` §7); phân loại **13 cột THỜI ĐIỂM** vs **3 cột NGÀY THUẦN**
+  (`asset_maintenances.StartDate`/`CompletionDate`, `licenses.TerminationDate`); đo lệch thật
+  (lệch 7h + lệch 1 NGÀY với mốc nửa đêm VN); đếm ±infinity = 1 dòng thật. **Người dùng duyệt: phương án A**
+  (ValueConverter tại `AppDbContext`) cho 13 cột thời điểm + **A-ngày** (giữ cột, chỉ gắn `Z`) cho 3 cột ngày thuần.
+- **ĐÃ LÀM — Bước 2 (backend, 2026-10-19):** migration `20261019031002_MT_TZ_NaiveUtcAndNoInfinity`
+  (dọn ±infinity: nullable → NULL, NOT NULL → `CreatedAt`; + **16 CHECK** `CK_<table>_<col>_no_infinity`);
+  ValueConverter đăng ký **tường minh từng property** (đọc → `Kind=Utc` ⇒ JSON có `Z`; ghi →
+  `Unspecified`); test canary `NaiveDateTimeKindTests` (model InMemory + đối chiếu `information_schema`
+  + roundtrip `Z`). Đã áp lên DB dev (1 dòng đổi) — chi tiết + bằng chứng + gates: `docs/HANDOFF_LATEST.md`
+  mục "2026-10-19 — MT-TZ (Bước 1 + Bước 2)".
+- **CÒN LẠI (gợi ý Bước 3+):** (a) restart stack dev để endpoint trả `Z` (build cũ vẫn chạy); (b) cân nhắc
+  chuyển 3 cột NGÀY THUẦN sang `date` + `DateOnly` (phương án B — backfill `AT TIME ZONE 'UTC' AT TIME ZONE
+  'Asia/Ho_Chi_Minh'`) nếu muốn sạch về ngữ nghĩa "ngày"; (c) rà FE lần cuối (không còn chỗ nào tự `new Date()`
+  trên chuỗi không `Z`) và cập nhật `docs/API.md` nếu muốn ghi rõ quy ước `Z` cho 16 cột.
 
 ---
 

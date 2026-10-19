@@ -3720,6 +3720,99 @@ Code là nguồn sự thật và code ĐÚNG; các chỗ lệch là **tài liệ
 - **PUSH:** gates xanh ⇒ **đã push TOÀN BỘ chuỗi LL-5** (`1edc3f7` → commit này) lên `origin/main`. Kiểm CI
   thật (3 job) theo §1.9 sau push.
 
+---
+
+## 2026-10-19 — MT-TZ (Bước 1 + Bước 2): cột `timestamp without time zone` — đọc `Kind=Utc` (converter) + chặn ±infinity
+
+> **Vào luật:** `f21212f` = `origin/main` (hết chuỗi LL-5). **Chỉ backend**, KHÔNG đụng FE, KHÔNG đụng
+> `ToApiKind`/`ToColumnKind` của LL-3. Commit **LOCAL, chưa push** theo chỉ đạo.
+> BACKLOG `MT-TZ` (§ dòng ~659) chuyển **OPEN → IN PROGRESS**.
+
+### Bước 1 (khảo sát — chỉ đọc, không sửa gì)
+
+- **Kiểm kê khớp 100%** với `docs/HANDOFF_DATETIME_KIND_AUDIT.md` §7: **16 cột** naive / **6 bảng**
+  (`action_logs.DeletedAt`; `asset_maintenances` ×7; `asset_maintenance_assignees.AssignedAt`;
+  `component_units` ×3; `license_seats` ×2; `licenses` ×2) trên nền **74 cột `timestamptz`**.
+- **Phân loại có căn cứ (FE gửi gì + giá trị thật trong DB):**
+  - **13 cột THỜI ĐIỂM** — mọi luồng ghi = `UtcNow`/`toISOString()` rồi `SpecifyKind(Unspecified)`.
+  - **3 cột NGÀY THUẦN** — `asset_maintenances.StartDate`, `asset_maintenances.CompletionDate`,
+    `licenses.TerminationDate` (picker `format="DD/MM/YYYY"`, không `showTime`; FE vẫn gửi `toISOString()`
+    của nửa đêm GIỜ VN ⇒ cột chứa `17:00Z` của ngày trước).
+- **Kết luận:** cột naive chứa **wall-clock UTC** ⇒ đọc đúng phải là `Kind=Utc`; người dùng **chốt**
+  phương án **A** (ValueConverter tại `AppDbContext`) cho 13 cột thời điểm + **A-ngày** (giữ cột, chỉ gắn `Z`)
+  cho 3 cột ngày thuần; phương án B (`date`+`DateOnly`, backfill TZ-aware) để dành bước riêng.
+- **`-infinity` (đo thật):** đúng **1 dòng** (`asset_maintenances.StartDate`, id `cd796eb5…`, asset
+  `DOC-AST-001`, đã soft-delete); `infinity` = 0; `0001-01-01` = 0. Npgsql đọc `-infinity` → `DateTime.MinValue`
+  (HTTP **200**, JSON `"0001-01-01T00:00:00"`) ⇒ **không** nổ 500, nhưng lần UPDATE sau sẽ ghi lại
+  `0001-01-01` **thật** (mất dấu vô cực) ⇒ phải dọn + chặn bằng CHECK **trước** khi bật converter.
+
+### Bước 2 (đã làm — backend)
+
+1. **Migration `20261019031002_MT_TZ_NaiveUtcAndNoInfinity`** (EF migration duy nhất, không SQL self-heal):
+   - **Dọn ±infinity TRƯỚC khi thêm CHECK**: 8 cột **nullable → NULL**; 8 cột **NOT NULL → `CreatedAt`**
+     của chính dòng (nếu chính `CreatedAt` cũng vô cực → `CURRENT_TIMESTAMP`); riêng
+     `asset_maintenance_assignees.AssignedAt` **không có cột `CreatedAt`** (bảng liên kết thuần) → dùng
+     `CURRENT_TIMESTAMP` (đúng bằng DEFAULT của cột). `Down()` chỉ gỡ CHECK — dọn vô cực **không đảo ngược được**.
+   - **16 CHECK `CK_<table>_<col>_no_infinity`** với SQL `"Col" <> '-infinity'::timestamp AND "Col" <> 'infinity'::timestamp`
+     (NULL không bị chặn — so sánh với NULL ⇒ NULL ⇒ CHECK coi là đạt).
+2. **ValueConverter đăng ký TƯỜNG MINH từng property** tại `AppDbContext` (`NaiveUtcConverter` cho cột
+   NOT NULL, `NullableNaiveUtcConverter` cho cột NULL) — **đọc → `Kind=Utc`** (JSON có `Z`) / **ghi →
+   `Kind=Unspecified`** (Npgsql không ném "Cannot write DateTime with Kind=UTC…"). **KHÔNG** dùng convention
+   toàn cục ⇒ mọi read-site/write-site cũ (kể cả `ToColumnKind`/`ToApiKind` của LL-3) chạy nguyên trạng.
+3. **Test canary `NaiveDateTimeKindTests` (3 test)** chặn việc quên đăng ký:
+   (a) model InMemory: mọi property map vào `Relational:ColumnType = "timestamp without time zone"` phải có
+   converter đọc-ra-Utc, **ghim đúng 16 cột**; (b) đối chiếu hai chiều với `information_schema.columns`
+   trên **Postgres thật**; (c) roundtrip: ghi payload FE → cột naive đúng wall-clock → đọc ra `Kind=Utc`
+   → JSON `"…Z"` → PUT lại (đổi field khác) **không** đổi giá trị ngày trong DB.
+4. **Rà soát CHỈ BÁO CÁO (không sửa) mọi chỗ server lọc/gom/so sánh theo NGÀY** trên 3 cột ngày thuần —
+   **kết quả: KHÔNG có chỗ nào**:
+   - Chỉ **sắp xếp** (`OrderByDescending(StartDate)`): `ListAssetMaintenancesQuery.cs:55`,
+     `ListAllMaintenancesQuery.cs:51`, `AssetTimelineQuery.cs:700` (mốc sự kiện + cursor).
+   - **Cursor timeline** `AssetTimelineQuery.cs:692-696` (`ToColumnKind`, LL-3 — giữ nguyên) + `:715`
+     `ToApiKind` — không đổi hành vi; đã verify sống `GET /assets/{id}/timeline`.
+   - **Guard nghiệp vụ** (so sánh 2 mốc, không phải biên ngày): `CreateMaintenanceCommand.cs:81`,
+     `UpdateMaintenanceCommand.cs:95` (FIELD_LOCKED, so **ticks**) + `:98`;
+     null-check `MaintenanceWorkflowCommands.cs:99,174`. Lệch −7h áp cho **cả hai vế** ⇒ bất biến.
+   - `licenses.TerminationDate`: **chỉ** truyền thẳng ra DTO (`ListLicensesQuery.cs:24/76`,
+     `GetLicenseByIdQuery.cs:12/51`, `CreateLicenseCommand.cs:21/61`, `UpdateLicenseCommand.cs:19/78`) —
+     **không** so sánh/lọc ở đâu.
+   - **"Quá hạn/hết hạn"** (`ListLicensesQuery` `expiringSoon`, `AuditReportQuery` `overdue`) dùng
+     `licenses.ExpirationDate` / `assets.NextAuditDate` = **`timestamptz`** ⇒ ngoài phạm vi, không lệch.
+   - So sánh theo NGÀY duy nhất của app nằm ở **FE** (`MaintenanceCompleteModal.tsx:104`
+     `dayjs(record.startDate).startOf('day')` + các date-picker) — sau fix nhận `Z` nên tính đúng
+     **nửa đêm giờ VN** (trước fix lệch 1 ngày).
+
+### Bằng chứng (Postgres THẬT, container riêng `mttz2-pg` + API Release 5500 + Redis `mttz2-redis`, đã xoá)
+
+| # | Kịch bản | Kết quả |
+|---|---|---|
+| 1 | `POST /api/v1/maintenances` payload **y hệt FE** cho ngày **10/11/2026** giờ VN (`"startDate":"2026-11-09T17:00:00.000Z"`) | DB raw `2026-11-09 17:00:00` (wall-clock giữ nguyên) |
+| 2 | `GET /api/v1/maintenances/{id}` (model MỚI) | `"startDate":"2026-11-09T17:00:00Z"` — **CÓ `Z`** ✅ |
+| 3 | `GET /api/v1/assets/{id}/timeline` cùng bản ghi | `"occurredAt":"2026-11-09T17:00:00Z"` — **khớp trang Bảo trì** ✅ |
+| 4 | `PUT /maintenances/{id}` (không đổi ngày) | DB raw **y nguyên** `2026-11-09 17:00:00` ✅ (SQL log: chỉ `UPDATE … SET "UpdatedAt"`) |
+| 5 | Đối chứng **model CŨ** (dev API 5428, chưa restart) | `"startDate":"2026-09-01T00:00:00"` — **không `Z`** (đúng trạng thái trước fix) |
+| 6 | Restore dump dev vào DB tạm → `dotnet ef database update` | dòng `cd796eb5…` `StartDate: -infinity → 2026-10-16 03:49:02.33167` **= `CreatedAt`** ✅; ±infinity còn lại **0**; **16** CHECK |
+| 7 | `INSERT … StartDate='-infinity'` / `CompletionDate='infinity'` / `license_seats.CreatedAt='infinity'` | **ERROR 23514** đúng tên CHECK tương ứng ✅; INSERT giá trị thường vẫn OK ✅ |
+
+### Gates + DB dev
+
+- **Gates:** `dotnet build aspire-react.sln -c Release` **0 lỗi/0 warning** · `dotnet format --verify-no-changes`
+  **exit 0** (đã chuẩn hoá EOL của migration EF sinh ra về LF) · `dotnet test --filter "Category!=Concurrency"`
+  = **647 passed / 0 failed / 0 skipped** (chạy lại 3 lượt liên tiếp; **1 lần fail lẻ** ở lượt đầu — không tái
+  hiện, không liên quan MT-TZ vì cùng binary) · `audit-sweeps.ps1` **0 vi phạm** · `has-pending-model-changes`
+  = "No changes have been made to the model since the last migration" · FE không đổi nên bỏ lint/build FE.
+- **Nhóm ThrowawayDb (Postgres thật, DB tạm `mttz2-pg`):** 3 test mới + `InstallationCorrectionTests` (15) +
+  `AssetDetailAssignmentTests` (2) + `AssetTimelineQueryTests` — tất cả trong lượt 647.
+- **DB dev:** backup trước khi áp: `backups/mttz-dev-pre-migration-20261019-101110.dump`
+  (376253 bytes, SHA256 `84BB13A6F99484529A2C0FB778179595D46B6E8EA4A9D1E51DD3C250B89AB46F`).
+  Áp bằng `dotnet ef database update --connection …:63630` (**không** downtime AppHost):
+  **1 dòng đổi giá trị** (`cd796eb5…`: `-infinity` → `2026-10-16 03:49:02.33167`), ±infinity còn lại **0**,
+  16 CHECK đã tạo, `asset_maintenances` vẫn **12** dòng, 0 dòng fixture lạ; **`/health` 5428 = 200**.
+- **Lưu ý cho người sau:** API dev đang chạy là **build CŨ** ⇒ vẫn trả JSON **không `Z`** cho tới khi
+  restart stack (khi restart, `StartupDataSeeder.Migrate()` thấy migration đã áp → no-op). Container tạm
+  `mttz2-pg`/`mttz2-redis` + API 5500 đã dọn; dev stack nguyên vẹn (`postgres-vxczaqxs`, `cache-wgmcupje`,
+  `pgadmin-jdesxdfy`).
+
 
 
 

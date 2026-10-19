@@ -4,6 +4,7 @@ using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace aspire_react.Server.Infrastructure.Persistence;
 
@@ -15,6 +16,38 @@ public class AppDbContext : DbContext, IApplicationDbContext
     {
         _companyScope = companyScope;
     }
+
+    // ==================== [MT-TZ] Kind cho cột `timestamp without time zone` ====================
+    //
+    // 16 cột naive (6 bảng) chứa WALL-CLOCK UTC (mọi luồng ghi của app dùng UtcNow/toISOString rồi
+    // SpecifyKind(..., Unspecified) — xem docs/HANDOFF_DATETIME_KIND_AUDIT.md). Npgsql KHÔNG gắn Kind
+    // khi đọc `timestamp without time zone` ⇒ DateTime.Kind = Unspecified ⇒ System.Text.Json bỏ hậu tố
+    // "Z" ⇒ FE `new Date(value)` hiểu là giờ ĐỊA PHƯƠNG ⇒ lệch 7h và lệch 1 NGÀY với mốc nửa đêm VN.
+    //
+    // Hai converter dưới đây ép Kind=Utc khi ĐỌC và Kind=Unspecified khi GHI. Đăng ký TƯỜNG MINH cho
+    // TỪNG property (KHÔNG dùng convention toàn cục) — test canary `NaiveDateTimeKindCanaryTests`
+    // (liệt kê mọi property map vào cột naive trên model + trên Postgres thật) fail nếu có cột quên đăng ký.
+    // Vì sao không chỉ sửa read-site: ghi qua EF từ Kind=Utc cũng phải hạ Kind, nếu không Npgsql ném
+    // `Cannot write DateTime with Kind=UTC to PostgreSQL type 'timestamp without time zone'` (500).
+
+    /// <summary>[MT-TZ] Cột naive NOT NULL: đọc → Kind=Utc, ghi → Kind=Unspecified.</summary>
+    private static readonly ValueConverter<DateTime, DateTime> NaiveUtcConverter = new(
+        v => DateTime.SpecifyKind(v, DateTimeKind.Unspecified),
+        v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+
+    /// <summary>[MT-TZ] Cột naive NULLABLE: như trên, giữ nguyên NULL.</summary>
+    private static readonly ValueConverter<DateTime?, DateTime?> NullableNaiveUtcConverter = new(
+        v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Unspecified) : v,
+        v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v);
+
+    /// <summary>
+    /// [MT-TZ] SQL của CHECK chặn giá trị vô cực (<c>'-infinity'</c>/<c>'infinity'</c>) — Postgres chấp nhận
+    /// hai literal này cho <c>timestamp</c> nhưng .NET chỉ có <see cref="DateTime.MinValue"/>/<c>MaxValue</c>:
+    /// giá trị vô cực đọc lên thành MinValue rồi lần UPDATE sau sẽ ghi lại thành <c>0001-01-01</c> thật
+    /// (mất dấu "vô cực"). NULL không bị chặn (so sánh với NULL → NULL → CHECK coi là đạt).
+    /// </summary>
+    private static string FiniteTimestamp(string column) =>
+        $"\"{column}\" <> '-infinity'::timestamp AND \"{column}\" <> 'infinity'::timestamp";
 
     // Auth & Permission
     public DbSet<Company> Companies => Set<Company>();
@@ -490,12 +523,13 @@ public class AppDbContext : DbContext, IApplicationDbContext
 
         modelBuilder.Entity<ActionLog>(entity =>
         {
-            entity.ToTable("action_logs");
+            entity.ToTable("action_logs", t =>
+                t.HasCheckConstraint("CK_action_logs_DeletedAt_no_infinity", FiniteTimestamp("DeletedAt")));
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
             entity.HasIndex(e => new { e.ItemType, e.ItemId });
             entity.HasIndex(e => e.TargetSystemInfoId);
-            entity.Property(e => e.DeletedAt).HasColumnType("timestamp without time zone");
+            entity.Property(e => e.DeletedAt).HasColumnType("timestamp without time zone").HasConversion(NullableNaiveUtcConverter);
             entity.HasOne(e => e.Creator).WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -549,7 +583,12 @@ public class AppDbContext : DbContext, IApplicationDbContext
 
         modelBuilder.Entity<ComponentUnit>(entity =>
         {
-            entity.ToTable("component_units");
+            entity.ToTable("component_units", t =>
+            {
+                t.HasCheckConstraint("CK_component_units_CreatedAt_no_infinity", FiniteTimestamp("CreatedAt"));
+                t.HasCheckConstraint("CK_component_units_UpdatedAt_no_infinity", FiniteTimestamp("UpdatedAt"));
+                t.HasCheckConstraint("CK_component_units_DeletedAt_no_infinity", FiniteTimestamp("DeletedAt"));
+            });
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
             entity.Property(e => e.SerialNo).HasColumnType("text");
@@ -559,9 +598,9 @@ public class AppDbContext : DbContext, IApplicationDbContext
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.CurrentAssetId);
             entity.Property(e => e.Status).HasConversion<int>().HasDefaultValueSql("0");
-            entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
-            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone");
-            entity.Property(e => e.DeletedAt).HasColumnType("timestamp without time zone");
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(NaiveUtcConverter);
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(NaiveUtcConverter);
+            entity.Property(e => e.DeletedAt).HasColumnType("timestamp without time zone").HasConversion(NullableNaiveUtcConverter);
             entity.HasOne(e => e.Component).WithMany(c => c.Units).HasForeignKey(e => e.ComponentId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.CurrentAsset).WithMany().HasForeignKey(e => e.CurrentAssetId).OnDelete(DeleteBehavior.SetNull);
             // Soft delete — units are never hard-deleted so the per-serial audit trail survives.
@@ -606,14 +645,18 @@ public class AppDbContext : DbContext, IApplicationDbContext
 
         modelBuilder.Entity<License>(entity =>
         {
-            entity.ToTable("licenses");
+            entity.ToTable("licenses", t =>
+            {
+                t.HasCheckConstraint("CK_licenses_DeletedAt_no_infinity", FiniteTimestamp("DeletedAt"));
+                t.HasCheckConstraint("CK_licenses_TerminationDate_no_infinity", FiniteTimestamp("TerminationDate"));
+            });
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
             entity.Property(e => e.Name).IsRequired().HasMaxLength(255);
             entity.Property(e => e.Serial).HasMaxLength(255);
             entity.Property(e => e.Reassignable).HasDefaultValueSql("true");
-            entity.Property(e => e.DeletedAt).HasColumnType("timestamp without time zone");
-            entity.Property(e => e.TerminationDate).HasColumnType("timestamp without time zone");
+            entity.Property(e => e.DeletedAt).HasColumnType("timestamp without time zone").HasConversion(NullableNaiveUtcConverter);
+            entity.Property(e => e.TerminationDate).HasColumnType("timestamp without time zone").HasConversion(NullableNaiveUtcConverter);
             entity.HasOne(e => e.Manufacturer).WithMany().HasForeignKey(e => e.ManufacturerId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(e => e.Category).WithMany().HasForeignKey(e => e.CategoryId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(e => e.Company).WithMany().HasForeignKey(e => e.CompanyId).OnDelete(DeleteBehavior.SetNull);
@@ -631,19 +674,28 @@ public class AppDbContext : DbContext, IApplicationDbContext
 
         modelBuilder.Entity<AssetMaintenance>(entity =>
         {
-            entity.ToTable("asset_maintenances");
+            entity.ToTable("asset_maintenances", t =>
+            {
+                t.HasCheckConstraint("CK_asset_maintenances_StartDate_no_infinity", FiniteTimestamp("StartDate"));
+                t.HasCheckConstraint("CK_asset_maintenances_CompletionDate_no_infinity", FiniteTimestamp("CompletionDate"));
+                t.HasCheckConstraint("CK_asset_maintenances_ClosedAt_no_infinity", FiniteTimestamp("ClosedAt"));
+                t.HasCheckConstraint("CK_asset_maintenances_InspectedAt_no_infinity", FiniteTimestamp("InspectedAt"));
+                t.HasCheckConstraint("CK_asset_maintenances_CreatedAt_no_infinity", FiniteTimestamp("CreatedAt"));
+                t.HasCheckConstraint("CK_asset_maintenances_UpdatedAt_no_infinity", FiniteTimestamp("UpdatedAt"));
+                t.HasCheckConstraint("CK_asset_maintenances_DeletedAt_no_infinity", FiniteTimestamp("DeletedAt"));
+            });
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
             entity.Property(e => e.Title).IsRequired().HasColumnType("text");
             entity.Property(e => e.Type).HasConversion<int>();
             entity.Property(e => e.CompanyId).HasDefaultValueSql("'00000000-0000-0000-0000-000000000000'::uuid");
-            entity.Property(e => e.StartDate).HasColumnType("timestamp without time zone");
-            entity.Property(e => e.CompletionDate).HasColumnType("timestamp without time zone");
-            entity.Property(e => e.ClosedAt).HasColumnType("timestamp without time zone");
-            entity.Property(e => e.InspectedAt).HasColumnType("timestamp without time zone");
-            entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
-            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone");
-            entity.Property(e => e.DeletedAt).HasColumnType("timestamp without time zone");
+            entity.Property(e => e.StartDate).HasColumnType("timestamp without time zone").HasConversion(NaiveUtcConverter);
+            entity.Property(e => e.CompletionDate).HasColumnType("timestamp without time zone").HasConversion(NullableNaiveUtcConverter);
+            entity.Property(e => e.ClosedAt).HasColumnType("timestamp without time zone").HasConversion(NullableNaiveUtcConverter);
+            entity.Property(e => e.InspectedAt).HasColumnType("timestamp without time zone").HasConversion(NullableNaiveUtcConverter);
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(NaiveUtcConverter);
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(NaiveUtcConverter);
+            entity.Property(e => e.DeletedAt).HasColumnType("timestamp without time zone").HasConversion(NullableNaiveUtcConverter);
             entity.Property(e => e.IsWarranty).HasDefaultValueSql("false");
             entity.Property(e => e.IsClosed).HasDefaultValueSql("false");
             entity.HasIndex(e => e.AssetId);
@@ -657,12 +709,13 @@ public class AppDbContext : DbContext, IApplicationDbContext
 
         modelBuilder.Entity<AssetMaintenanceAssignee>(entity =>
         {
-            entity.ToTable("asset_maintenance_assignees");
+            entity.ToTable("asset_maintenance_assignees", t =>
+                t.HasCheckConstraint("CK_asset_maintenance_assignees_AssignedAt_no_infinity", FiniteTimestamp("AssignedAt")));
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
             entity.HasIndex(e => new { e.MaintenanceId, e.UserId }).IsUnique();
             entity.HasIndex(e => e.MaintenanceId);
-            entity.Property(e => e.AssignedAt).HasColumnType("timestamp without time zone").HasDefaultValueSql("CURRENT_TIMESTAMP");
+            entity.Property(e => e.AssignedAt).HasColumnType("timestamp without time zone").HasDefaultValueSql("CURRENT_TIMESTAMP").HasConversion(NaiveUtcConverter);
             entity.HasOne(e => e.Maintenance).WithMany(m => m.Assignees).HasForeignKey(e => e.MaintenanceId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.User).WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -687,16 +740,22 @@ public class AppDbContext : DbContext, IApplicationDbContext
             // [FIX-N17 2026-10-02] Check constraint declared on the TABLE builder — the entity-level
             // HasCheckConstraint overload is obsolete (CS0618). Name + SQL text verbatim, so the EF
             // model and the migration snapshot are unchanged.
-            entity.ToTable("license_seats", t => t.HasCheckConstraint(
-                "CK_license_seats_single_target",
-                "(((\"UserId\" IS NOT NULL)::int + (\"AssetId\" IS NOT NULL)::int + (\"SystemInfoId\" IS NOT NULL)::int) <= 1)"));
+            entity.ToTable("license_seats", t =>
+            {
+                t.HasCheckConstraint(
+                    "CK_license_seats_single_target",
+                    "(((\"UserId\" IS NOT NULL)::int + (\"AssetId\" IS NOT NULL)::int + (\"SystemInfoId\" IS NOT NULL)::int) <= 1)");
+                // [MT-TZ] hai cột naive của license_seats (CreatedAt/UpdatedAt) — chặn ±infinity.
+                t.HasCheckConstraint("CK_license_seats_CreatedAt_no_infinity", FiniteTimestamp("CreatedAt"));
+                t.HasCheckConstraint("CK_license_seats_UpdatedAt_no_infinity", FiniteTimestamp("UpdatedAt"));
+            });
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
             entity.HasIndex(e => e.LicenseId);
             entity.HasIndex(e => new { e.LicenseId, e.SeatNumber }).IsUnique();
             entity.Property(e => e.SeatNumber).HasDefaultValueSql("0");
-            entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasDefaultValueSql("CURRENT_TIMESTAMP");
-            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasDefaultValueSql("CURRENT_TIMESTAMP");
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasDefaultValueSql("CURRENT_TIMESTAMP").HasConversion(NaiveUtcConverter);
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasDefaultValueSql("CURRENT_TIMESTAMP").HasConversion(NaiveUtcConverter);
             entity.HasOne(e => e.User).WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(e => e.Asset).WithMany().HasForeignKey(e => e.AssetId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(e => e.SystemInfo).WithMany().HasForeignKey(e => e.SystemInfoId).OnDelete(DeleteBehavior.SetNull);
