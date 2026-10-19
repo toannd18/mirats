@@ -156,6 +156,17 @@ public class CorrectInstallationCommandHandler : IRequestHandler<CorrectInstalla
             if (!string.Equals(newNote, entry.Note, StringComparison.Ordinal))
                 changes["note"] = new { old = entry.Note, @new = newNote };
 
+            // [LL-5 Bước 7] Ngoại lệ "CHỈ XÁC NHẬN MỐC" của dòng Backfill: chuyển Backfill → Correction LUÔN là
+            // một thay đổi nghiệp vụ thật (bản mới KHÔNG còn nhãn "Thời điểm ước tính"), nên đính chính chỉ gửi
+            // `reason` (không đổi trường nào khác) vẫn HỢP LỆ — kể cả khi note kỹ thuật rỗng (không có thay đổi
+            // `note` nào để "đỡ"). Nguồn KHÁC không đổi gì ⇒ giữ nguyên 400 CORRECTION_NO_CHANGES.
+            if (entry.Source == AssetInstallationSource.Backfill)
+                changes["source"] = new
+                {
+                    old = nameof(AssetInstallationSource.Backfill),
+                    @new = nameof(AssetInstallationSource.Correction)
+                };
+
             if (changes.Count == 0)
                 return new CorrectionResult(false, "Không có thay đổi nào so với bản ghi hiện tại.",
                     ErrorCode: "CORRECTION_NO_CHANGES");

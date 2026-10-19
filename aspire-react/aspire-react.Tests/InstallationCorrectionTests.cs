@@ -347,6 +347,67 @@ public class InstallationCorrectionTests
     }
 
     /// <summary>
+    /// [Bước 7] Ngoại lệ "CHỈ XÁC NHẬN MỐC" của dòng Backfill: đính chính chỉ có <c>reason</c> (không đổi trường
+    /// nào khác) vẫn HỢP LỆ — vì <c>Backfill → Correction</c> tự nó là thay đổi nghiệp vụ (bản mới MẤT nhãn
+    /// "Thời điểm ước tính"). Nguồn KHÁC không đổi gì ⇒ 400 <c>CORRECTION_NO_CHANGES</c>. Kèm ca biên: dòng
+    /// Backfill có note RỖNG vẫn hợp lệ (quy tắc KHÔNG phụ thuộc nội dung note kỹ thuật).
+    /// </summary>
+    [ThrowawayDbFact]
+    public async Task Correction_BackfillConfirmOnly_IsValid_OtherSourcesRejected_OnRealPostgres()
+    {
+        await using var db = await CreateContextAsync();
+        var fx = await SeedAsync(db);
+        var handler = Handler(db, fx.Actor.Id);
+
+        // (a) Backfill (có note kỹ thuật) + CHỈ reason ⇒ hợp lệ; bản mới mất nhãn ước tính + Note = null.
+        var confirm = await handler.Handle(
+            new CorrectInstallationCommand(fx.Asset.Id, fx.Backfill.Id, null, null, null, null, ValidReason, fx.Actor.Id),
+            CancellationToken.None);
+        Assert.True(confirm.Success, confirm.Message);
+
+        var confirmed = await db.AssetInstallations.AsNoTracking().SingleAsync(i => i.Id == confirm.NewEntryId);
+        Assert.Equal(AssetInstallationSource.Correction, confirmed.Source);   // mất nhãn ước tính
+        Assert.Null(confirmed.Note);                                          // note kỹ thuật không kế thừa
+        Assert.Equal(fx.Backfill.StartedAt, confirmed.StartedAt);             // KHÔNG đổi mốc nào
+        Assert.Equal(fx.Backfill.EndedAt, confirmed.EndedAt);
+
+        // (b) Ca biên: Backfill KHÁC có note = NULL + CHỈ reason ⇒ vẫn hợp lệ (chuyển nguồn tự nó là thay đổi).
+        var noNoteBackfill = new AssetInstallation
+        {
+            AssetId = fx.Asset.Id,
+            SystemPositionId = fx.PosB.Id,
+            SystemPositionName = fx.PosB.Name,
+            SystemInfoId = fx.System.Id,
+            SystemInfoName = fx.System.Name,
+            StartedAt = fx.Base.AddDays(-6),
+            EndedAt = fx.Base.AddDays(-5),
+            Source = AssetInstallationSource.Backfill,
+            Note = null,
+            LoggedById = fx.Actor.Id,
+            LoggedByName = "Kiểm Thử"
+        };
+        db.AssetInstallations.Add(noNoteBackfill);
+        await db.SaveChangesAsync();
+
+        var confirmNoNote = await handler.Handle(
+            new CorrectInstallationCommand(fx.Asset.Id, noNoteBackfill.Id, null, null, null, null, ValidReason, fx.Actor.Id),
+            CancellationToken.None);
+        Assert.True(confirmNoNote.Success, confirmNoNote.Message);
+
+        // (c) Nguồn KHÁC (Api) + không đổi gì ⇒ 400 CORRECTION_NO_CHANGES (không tạo bản rác).
+        var noChanges = await handler.Handle(
+            new CorrectInstallationCommand(fx.Asset.Id, fx.Closed.Id, null, null, null, null, ValidReason, fx.Actor.Id),
+            CancellationToken.None);
+        Assert.False(noChanges.Success);
+        Assert.Equal("CORRECTION_NO_CHANGES", noChanges.ErrorCode);
+
+        // LogMeta của bản đính chính Backfill ghi rõ thay đổi "source" (Backfill → Correction).
+        Assert.True(await db.ActionLogs.AsNoTracking().AnyAsync(l =>
+            l.ItemType == ItemType.Asset && l.ItemId == fx.Asset.Id && l.ActionType == ActionType.Correct
+            && l.LogMeta != null && l.LogMeta.Contains("source")));
+    }
+
+    /// <summary>
     /// (n) Chồng khoảng thời gian: exclusion constraint <c>EX_asset_installations_no_overlap</c> (23P01) ⇒
     /// <c>INSTALLATION_PERIOD_OVERLAP</c> (controller map sang 409) và transaction ROLLBACK — không ghi gì.
     /// </summary>

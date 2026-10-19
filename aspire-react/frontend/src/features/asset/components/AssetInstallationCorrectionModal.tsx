@@ -45,6 +45,9 @@ export default function AssetInstallationCorrectionModal({ open, assetId, entryI
   const [positionOptions, setPositionOptions] = useState<{ label: string; value: string }[]>([]);
 
   const isOpenEntry = detail != null && detail.endedAt === null;
+  // [LL-5 Bước 7] Dòng ĐÃ ĐÓNG — áp dụng cho MỌI nguồn (Api/Import/Backfill/Correction): mốc "Kết thúc" là
+  // BẮT BUỘC và không cho xoá trống. (Không phụ thuộc `source`/`isEstimated`.)
+  const isClosedRow = detail != null && detail.endedAt !== null;
 
   // Nạp dòng gốc mỗi lần mở modal.
   useEffect(() => {
@@ -214,9 +217,9 @@ export default function AssetInstallationCorrectionModal({ open, assetId, entryI
             <Form.Item
               name="endedAt"
               label="Kết thúc"
-              // [LL-5 Bước 6] Dòng ĐÃ ĐÓNG: mốc kết thúc là BẮT BUỘC (không còn nhãn "(Tùy chọn)").
-              required={!isOpenEntry}
-              rules={!isOpenEntry
+              // [LL-5 Bước 7] MỌI dòng ĐÃ ĐÓNG (bất kể Source): mốc kết thúc BẮT BUỘC ⇒ không còn nhãn "(Tùy chọn)".
+              required={isClosedRow}
+              rules={isClosedRow
                 ? [{ required: true, message: 'Chọn mốc kết thúc cho dòng đã đóng' }]
                 : undefined}
               extra={isOpenEntry ? 'Dòng đang mở: dùng Thu hồi để đóng khoảng lắp đặt.' : undefined}

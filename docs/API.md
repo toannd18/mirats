@@ -372,6 +372,11 @@ cho bản cũ → `INSERT` bản mới (`CorrectsEntryId` = bản cũ, `Source =
 - **KHÔNG đính chính nào đổi `asset.SystemPositionId`** — muốn đổi vị trí hiện tại thì dùng Thu hồi + Cấp phát lại.
 - Không đính chính bản đã bị thay thế (`SupersededAt != null`) ⇒ **409**.
 - Không có thay đổi thực sự ⇒ **400 `CORRECTION_NO_CHANGES`** (không tạo bản rác).
+- **Ngoại lệ "CHỈ XÁC NHẬN MỐC" của dòng `Source = Backfill`** (chốt 2026-10-19): đính chính dòng chuyển dữ
+  liệu cũ MÀ **KHÔNG gửi trường nào khác** (chỉ có `reason`) vẫn **HỢP LỆ** — vì chuyển `Backfill` →
+  `Correction` tự nó là một thay đổi nghiệp vụ thật: **bản mới MẤT nhãn "Thời điểm ước tính"**. Note kỹ thuật
+  của bản cũ **KHÔNG được kế thừa** (không gửi `note` ⇒ bản mới `note = null`). Với **mọi nguồn KHÁC**
+  (`Api`/`Import`/`Correction`), payload không đổi gì ⇒ **400 `CORRECTION_NO_CHANGES`** như trên.
 - Đính chính bản `Source = Backfill` ⇒ bản mới `Source = Correction` ⇒ **mất nhãn "Thời điểm ước tính"**
   (mốc đã do người dùng xác nhận).
 - Bản bị thay thế **biến mất khỏi tab Lý lịch**; bản mới mang `isCorrection = true` (FE gắn Tag "Đã đính chính").

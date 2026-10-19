@@ -3662,6 +3662,64 @@ Code là nguồn sự thật và code ĐÚNG; các chỗ lệch là **tài liệ
   snapshot `.yml` tạm đã xoá (không còn file lạ ở repo root); dev API `/health` 5428 = 200.
 - **Commit:** commit LOCAL — **CHƯA push**.
 
+---
+
+## 2026-10-19 — LL-5 (Bước 8): dòng Backfill ĐÃ ĐÓNG (ô Kết thúc) + ngoại lệ "chỉ xác nhận mốc" · PUSH chuỗi LL-5
+
+### 1) "Modal dòng Backfill ĐÃ ĐÓNG vẫn hiện (Tùy chọn)" — ĐIỀU TRA (báo cáo thẳng, §1.7)
+
+- **Code đã đúng từ Bước 7; nguyên nhân là 2 hiểu nhầm dữ liệu/ảnh — KHÔNG phải lỗi logic:**
+  - **Dữ liệu dev thật:** 100% dòng `Source = Backfill` trên DB dev là **ĐANG MỞ** (`EndedAt IS NULL`) —
+    `SELECT … FROM asset_installations WHERE "Source"=3` → **6/6 `is_open = t`** (migration LL-2 chỉ backfill
+    cho thiết bị ĐANG gắn vị trí). Với dòng ĐANG MỞ, ô "Kết thúc" bị **`disabled`** (đóng khoảng phải qua
+    Thu hồi) nên **`(Tùy chọn)` là ĐÚNG theo thiết kế** — không phải lỗi.
+  - **Ảnh bàn giao ở Bước 7 bị CŨ:** `ll5e-modal-backfill-1440.png` được chụp TRƯỚC khi tôi thêm
+    `required={!isOpenEntry}` (lúc đó chỉ có `allowClear={false}`) ⇒ ảnh đó vẫn hiện "(Tùy chọn)" dù code
+    đã sửa (tôi chỉ re-chụp lại modal dòng đã đóng nguồn `Api`, không re-chụp dòng Backfill).
+- **Không cần đổi hành vi** — để rõ ý "mọi dòng đã đóng, bất kể Source", code dùng cờ tường minh:
+  `isClosedRow = detail != null && detail.endedAt !== null` → `required={isClosedRow}` + rule `required` +
+  `allowClear={false}` + bỏ câu "Bỏ trống nếu dòng vẫn đang mở".
+- **Đã XÁC MINH LẠI bằng DOM trên DB tạm cho CẢ HAI nguồn** (container riêng `ll5f-pg-tmp`, API Release,
+  Vite phụ 5174):
+
+| Modal | `endedAt` label | `(Tùy chọn)`? | clear? | disabled? |
+|---|---|---|---|---|
+| ĐÃ ĐÓNG — `Source = Backfill` | `Kết thúc` | **KHÔNG** | **KHÔNG** | không |
+| ĐÃ ĐÓNG — `Source = Api` | `Kết thúc` | **KHÔNG** | **KHÔNG** | không |
+| ĐANG MỞ — `Source = Backfill` (ca của dev) | `Kết thúc (Tùy chọn)` | có | không | **CÓ** (`disabled`) — đúng thiết kế |
+
+- **Ảnh MỚI (sau sửa):** `screenshots/ll5f-modal-backfill-closed-1440.png`, `ll5f-modal-backfill-closed-390.png`
+  (modal 374px @390, không tràn) + `ll5f-modal-backfill-open-1440.png` (ca đang-mở của dev, field disabled).
+
+### 2) Ngoại lệ "CHỈ XÁC NHẬN MỐC" cho dòng Backfill (code + docs + test)
+
+- **Vấn đề thật:** trước đây "chỉ gửi `reason`" chỉ hợp lệ khi dòng Backfill CÓ note kỹ thuật (vì note bị
+  drop tạo ra 1 thay đổi); dòng Backfill có note **rỗng** ⇒ rơi vào `400 CORRECTION_NO_CHANGES` — sai với luật.
+- **Fix (`CorrectInstallationCommand.cs`):** thêm thay đổi nghiệp vụ tường minh cho mọi dòng Backfill:
+  `changes["source"] = { old: "Backfill", new: "Correction" }` ⇒ chuyển `Backfill → Correction` (mất nhãn
+  "Thời điểm ước tính") LUÔN tính là thay đổi, **không phụ thuộc nội dung note**. Nguồn khác giữ nguyên.
+- **Docs:** `docs/API.md` § Đính chính — thêm bullet ngoại lệ; `docs/ERROR_CODES.md` dòng
+  `CORRECTION_NO_CHANGES` — ghi rõ ngoại lệ. `docs-verify` **PASS**.
+- **Test (ThrowawayDb, Postgres THẬT):** mới `Correction_BackfillConfirmOnly_IsValid_OtherSourcesRejected_OnRealPostgres`
+  — (a) Backfill CÓ note + chỉ `reason` ⇒ **200**, bản mới `Source=Correction` + `Note=null`, mốc KHÔNG đổi;
+  (b) ca biên Backfill note **NULL** + chỉ `reason` ⇒ **200** (chuyển nguồn tự nó là thay đổi);
+  (c) nguồn `Api` + chỉ `reason` ⇒ **400 `CORRECTION_NO_CHANGES`**; + LogMeta đính chính Backfill có `source`.
+- **Bằng chứng RAW (API thật, DB tạm):** `POST …/correct` body `{"reason":"Chỉ xác nhận mốc theo biên bản bàn giao"}`
+  trên dòng **Backfill đã đóng** ⇒ `HTTP/1.1 200 OK` (DB: bản mới `Source=4`, `Note=<NULL>`, bản cũ giữ note,
+  `LogMeta` chứa `source`); trên dòng **Api đã đóng** ⇒ `HTTP/1.1 400` `{"error_code":"CORRECTION_NO_CHANGES"}`.
+
+### Gates, dọn dẹp, push
+
+- **6 gate PASS:** `dotnet format --verify-no-changes` (exit 0) · build Release 0 lỗi ·
+  `dotnet test --filter "Category!=Concurrency"` = **634 passed / 10 skipped** · `npm run lint` **0 error**
+  (11 warning pre-existing) · `npm run build` 0 lỗi TS · `audit-sweeps.ps1` **0 vi phạm**; `docs-verify` PASS.
+- **Nhóm ThrowawayDb (Postgres thật, DB tạm `ll5f_verify`):** `InstallationCorrectionTests` **15/15** +
+  `AssetDetailAssignmentTests` **2/2**.
+- **Dọn dẹp:** container tạm `ll5f-pg-tmp` đã `docker rm -f`; Vite 5174 + API 5499 đã kill; DB dev chỉ còn
+  `aspire-react-db`; dev API `/health` 5428 = 200.
+- **PUSH:** gates xanh ⇒ **đã push TOÀN BỘ chuỗi LL-5** (`1edc3f7` → commit này) lên `origin/main`. Kiểm CI
+  thật (3 job) theo §1.9 sau push.
+
 
 
 

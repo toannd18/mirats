@@ -194,7 +194,7 @@ Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`Au
 | `INVALID_TYPES` | 400 | GET {id}/timeline | [LL-4b] Tham số lọc `types` chứa giá trị không nhận diện được (message nêu đúng các giá trị sai) |
 | `INSTALLATION_ENTRY_NOT_FOUND` | 404 | POST {id}/installations/{entryId}/correct | [LL-5] `entryId` không thuộc asset (hoặc không tồn tại) — cùng quy ước hide-existence với `GET /assets/{id}` |
 | `INSTALLATION_ALREADY_SUPERSEDED` | **409** | POST {id}/installations/{entryId}/correct | [LL-5] Bản ghi đã bị đính chính trước đó (`SupersededAt != null`) — chỉ đính chính được bản đang hiệu lực |
-| `CORRECTION_NO_CHANGES` | 400 | POST {id}/installations/{entryId}/correct | [LL-5] Payload không thay đổi gì so với bản ghi hiện tại (không tạo bản rác) |
+| `CORRECTION_NO_CHANGES` | 400 | POST {id}/installations/{entryId}/correct | [LL-5] Payload không thay đổi gì so với bản ghi hiện tại (không tạo bản rác). **Ngoại lệ:** dòng `Source = Backfill` — đính chính CHỈ có `reason` vẫn hợp lệ (chuyển `Backfill` → `Correction` = mất nhãn "Thời điểm ước tính", note kỹ thuật không kế thừa) |
 | `CORRECTION_REASON_REQUIRED` | 400 | POST {id}/installations/{entryId}/correct | [LL-5] Thiếu lý do đính chính hoặc ngắn hơn **10** ký tự (validator) |
 | `INSTALLATION_OPEN_POSITION_LOCKED` | 400 | POST {id}/installations/{entryId}/correct | [LL-5] Dòng ĐANG MỞ kèm `systemPositionId` — đổi vị trí hiện tại phải qua Thu hồi + Cấp phát lại |
 | `INSTALLATION_CLOSE_USE_CHECKIN` | 400 | POST {id}/installations/{entryId}/correct | [LL-5] Dòng ĐANG MỞ kèm `endedAt` — đóng khoảng phải dùng Thu hồi/Lưu trữ |
