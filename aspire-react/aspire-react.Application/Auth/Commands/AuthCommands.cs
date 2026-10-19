@@ -222,7 +222,7 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, A
 /// </summary>
 public record LogoutCommand(string RawRefreshToken) : IRequest<AuthSimpleResult>;
 
-public record AuthSimpleResult(bool Success, string? ErrorCode = null);
+public record AuthSimpleResult(bool Success, string? ErrorCode = null, string? LogMeta = null);
 
 public class LogoutCommandHandler : IRequestHandler<LogoutCommand, AuthSimpleResult>
 {

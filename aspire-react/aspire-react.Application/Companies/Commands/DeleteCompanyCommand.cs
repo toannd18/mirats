@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common;
+using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -35,6 +36,8 @@ public record DeleteCompanyCommand(Guid Id, Guid CurrentUserId)
             ActionType = ActionType.Delete,
             CreatedBy = CurrentUserId,
             CompanyId = null,
+            // [AUDIT-LOG B6b] Snapshot TỐI THIỂU cho xóa cứng (id + mã + tên) — không dữ liệu nhạy cảm.
+            LogMeta = JsonSerializer.Serialize(new { id = response.CompanyId ?? Id, code = response.Code, name = response.Name }),
             Note = $"Xóa công ty \"{response.Name}\""
         };
     }
@@ -93,6 +96,6 @@ public class DeleteCompanyCommandHandler : IRequestHandler<DeleteCompanyCommand,
         _context.Companies.Remove(c);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return new CompanyResult(true, "Deleted", CompanyId: request.Id, Name: c.Name);
+        return new CompanyResult(true, "Deleted", CompanyId: request.Id, Code: c.Code, Name: c.Name);
     }
 }

@@ -190,6 +190,42 @@ public class ActionLogChangesTests
         Assert.Null(meta);
     }
 
+    /// <summary>
+    /// [AUDIT-LOG B6a-fix] Cột `timestamp without time zone` đọc ra Kind=Unspecified — theo quy ước
+    /// MT-TZ nó LÀ UTC ⇒ LogMeta phải serialize có `Z` (trước fix: `"2026-09-01T10:30:00"` không Z).
+    /// </summary>
+    [Fact]
+    public void ToLogMeta_UnspecifiedDateTime_IsSerializedAsUtcWithZ()
+    {
+        var naiveUtc = new DateTime(2026, 9, 1, 10, 30, 0, DateTimeKind.Unspecified);
+
+        var meta = new ActionLogChanges()
+            .Track("closedAt", (DateTime?)null)
+            .Set("closedAt", naiveUtc)
+            .ToLogMeta();
+
+        using var doc = JsonDocument.Parse(meta!);
+        var value = doc.RootElement.GetProperty("changes").GetProperty("closed_at").GetProperty("new").GetString();
+        Assert.EndsWith("Z", value);
+        Assert.Equal(naiveUtc, DateTime.Parse(value!).ToUniversalTime());
+    }
+
+    [Fact]
+    public void ToLogMeta_LocalDateTime_IsConvertedToUtc()
+    {
+        var local = new DateTime(2026, 9, 1, 10, 30, 0, DateTimeKind.Local);
+
+        var meta = new ActionLogChanges()
+            .Track("inspectedAt", (DateTime?)null)
+            .Set("inspectedAt", local)
+            .ToLogMeta();
+
+        using var doc = JsonDocument.Parse(meta!);
+        var value = doc.RootElement.GetProperty("changes").GetProperty("inspected_at").GetProperty("new").GetString();
+        Assert.EndsWith("Z", value);
+        Assert.Equal(local.ToUniversalTime(), DateTime.Parse(value!).ToUniversalTime());
+    }
+
     /// <summary>[AUDIT-LOG B6a] `ToChangesMap` — dạng MAP để command GHÉP thêm key phụ cạnh `changes`.</summary>
     [Fact]
     public void ToChangesMap_ReturnsOnlyChangedFields_AndIsEmptyWhenNothingChanged()

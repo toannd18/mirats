@@ -1,3 +1,4 @@
+using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -30,6 +31,8 @@ public record DeleteSystemInfoCommand(Guid Id, Guid CurrentUserId)
             ActionType = ActionType.Delete,
             CreatedBy = CurrentUserId,
             CompanyId = response.CompanyId,
+            // [AUDIT-LOG B6b] Snapshot TỐI THIỂU cho xóa cứng (id + mã + tên) — không dữ liệu nhạy cảm.
+            LogMeta = JsonSerializer.Serialize(new { id = response.Id ?? Id, code = response.Code, name = response.Name }),
             Note = $"Xóa hệ thống \"{response.Name}\""
         };
     }
@@ -95,6 +98,6 @@ public class DeleteSystemInfoCommandHandler : IRequestHandler<DeleteSystemInfoCo
         _context.SystemInfos.Remove(s);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return new SystemInfoResult(true, "Deleted.", Id: request.Id, Name: s.Name, CompanyId: s.CompanyId);
+        return new SystemInfoResult(true, "Deleted.", Id: request.Id, Code: s.Code, Name: s.Name, CompanyId: s.CompanyId);
     }
 }

@@ -258,7 +258,9 @@ public class DeleteMaintenanceTemplateCommandHandler : IRequestHandler<DeleteMai
         await DbTransaction.ExecuteAsync(_context, async _ =>
         {
             _actionLogService.Log(MaintenanceTemplateLogging.Build(
-                ActionType.Delete, t, request.CurrentUserId, $"Xóa template bảo dưỡng \"{name}\""));
+                ActionType.Delete, t, request.CurrentUserId, $"Xóa template bảo dưỡng \"{name}\"",
+                // [AUDIT-LOG B6b] Snapshot TỐI THIỂU cho xóa cứng (id + tên + hệ thống) — không dữ liệu nhạy cảm.
+                new { id = t.Id, name, system_info_id = t.SystemInfoId }));
             await _context.SaveChangesAsync(cancellationToken);
         }, cancellationToken);
         return new DeleteMaintenanceTemplateResult(true, "Deleted.");

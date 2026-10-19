@@ -198,22 +198,19 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
        TRƯỚC, có thể null); Reopen = `status` Closed→Open (không ghi closed_at/by vì cố ý giữ nguyên).
        **Đã xóa 3 lệnh khỏi `Exempt`** — bánh cóc giờ chỉ còn `UpdateComponentUnitStatusCommand`.
      · Test: `AuditLogB6aLogMetaTests` (7) + `ToChangesMap` (1); evidence bằng API thật trên DB tạm.
-   - **B6b — ĐÃ KHẢO SÁT, CHƯA SỬA** (23 `Delete*Command`):
-     · **Xóa mềm:** `DeleteMaintenance` (DeletedAt + **full snapshot**); `DeleteLicense` (DeletedAt,
-       **LogMeta null** — serial KHÔNG bị ghi, tốt cho bảo mật nhưng mất ảnh chụp); `DeleteComponentUnit`
-       (service: DeletedAt + Qty−1, meta null); `DeleteUser` (IsActive=false; meta `{username,email,
-       isActive,companyId}` — **không** có PasswordHash).
-     · **Xóa cứng + LogMeta null:** Component, Group, CustomField, Location, Department, Company, Model,
-       Category, Supplier, Manufacturer, SystemInfo, SystemPosition, `DeletePasskey` (không lộ
-       CredentialId/PublicKey), MaintenanceTemplate.
-     · **Xóa cứng + có ảnh chụp:** Asset `{assetTag,name,serial}`, Accessory `{name,itemNo,qty}`,
-       TemplateVersion `{scope,versionId,versionNumber}`, ChecklistItem `{scope,…,itemId}`, StandardParam
-       `{scope,…,paramId}`, CampaignResult `{…,deleted{measuredValue,isPass,notes}}`.
-     · **Nhạy cảm KHÔNG nằm trong ảnh chụp:** `User.PasswordHash` (không log delete nào chứa),
-       `License.Serial` (soft + meta null), passkey `CredentialId/PublicKey`. Lưu ý khi sửa B6b:
-       `User.Email` (PII) và `CampaignResult.Notes` (free-text) hiện CÓ trong meta.
-     · **Đề xuất (chưa làm):** snapshot tối thiểu (name/code + vài field định danh, KHÔNG PII/secret) cho
-       11 delete cứng đang meta null + test khẳng định không có `password_hash`/`serial`.
+   - **B6b — ✅ XONG (commit local B6a+B6b, 2026-10-19)** — 23 `Delete*Command` đã khảo sát + bổ sung
+     snapshot tối thiểu cho **14 lệnh xóa CỨNG từng có `LogMeta = null`**: Component, Group, CustomField,
+     Location, Department, Company, Model, Category, Supplier, Manufacturer, SystemInfo, SystemPosition,
+     MaintenanceTemplate, DeletePasskey. Nội dung snapshot CHỈ gồm `id` + `code` (nếu có) + `name`
+     (+ `system_info_id` cho template, `item_no` cho component, `name` passkey) — **KHÔNG** dữ liệu nhạy cảm.
+     · **Xóa mềm (giữ nguyên cơ chế):** `DeleteMaintenance` (full snapshot); `DeleteLicense` (DeletedAt,
+       meta null — serial KHÔNG bị ghi); `DeleteComponentUnit` (DeletedAt + Qty−1, meta null);
+       `DeleteUser` (IsActive=false; meta có email nhưng **không** PasswordHash).
+     · **Nhạy cảm KHÔNG nằm trong bất kỳ ảnh chụp delete nào:** `User.PasswordHash`, `License.Serial`,
+       passkey `CredentialId`/`PublicKey` — có test 2 lớp (`DeleteLogSensitivityTests`): guard tĩnh quét
+       mọi `Delete*.cs` + test hành vi (license serial, passkey credential/public key, company snapshot).
+     · **Lưu ý còn lại:** `User.Email` (PII) và `CampaignResult.Notes` (free-text) hiện CÓ trong meta —
+       chưa thay đổi (cần quyết định sản phẩm nếu muốn ẩn).
    - **Tiêu chí nghiệm thu:** số field phủ = DTO; test khẳng định.
 6. **B7 — gộp các `changes` hard-code còn lại về helper** (sau B6): dần thay `new { changes = … }` ở
    master data bằng `ActionLogChanges` để hết tình trạng "serialize cả field không đổi" (noise) và giữ 1

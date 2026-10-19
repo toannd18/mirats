@@ -1,3 +1,4 @@
+using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -51,7 +52,17 @@ public class DeleteComponentCommandHandler : IRequestHandler<DeleteComponentComm
         if (hasAllocationHistory)
             return new ComponentOperationResult(false, "Linh kiện đã từng được cấp phát, không thể xóa.", "COMPONENT_HAS_ALLOCATION_HISTORY");
 
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Component, ItemId = request.Id, ActionType = ActionType.Delete, CreatedBy = request.CurrentUserId, CompanyId = c.CompanyId, Note = $"Xóa linh kiện \"{c.Name}\"" });
+        // [AUDIT-LOG B6b] Snapshot TỐI THIỂU cho xóa cứng (id + mã + tên) — không dữ liệu nhạy cảm.
+        _actionLogService.Log(new ActionLogEntry
+        {
+            ItemType = ItemType.Component,
+            ItemId = request.Id,
+            ActionType = ActionType.Delete,
+            CreatedBy = request.CurrentUserId,
+            CompanyId = c.CompanyId,
+            LogMeta = JsonSerializer.Serialize(new { id = c.Id, name = c.Name, item_no = c.ItemNo }),
+            Note = $"Xóa linh kiện \"{c.Name}\""
+        });
         _context.Components.Remove(c);
         await _context.SaveChangesAsync(cancellationToken);
         return new ComponentOperationResult(true, "Component deleted.");

@@ -207,6 +207,9 @@ public record DeletePasskeyCommand(Guid CurrentUserId, Guid PasskeyId)
             ActionType = ActionType.Delete,
             CreatedBy = CurrentUserId,
             CompanyId = null,
+            // [AUDIT-LOG B6b] Snapshot TỐI THIỂU: CHỈ tên gợi nhớ của passkey — KHÔNG credential id,
+            // KHÔNG public key (xem test DeleteLogSensitivityTests).
+            LogMeta = response.LogMeta,
             Note = "Xóa passkey đã đăng ký"
         };
     }
@@ -224,6 +227,7 @@ public class DeletePasskeyCommandHandler(IApplicationDbContext context)
 
         context.UserPasskeys.Remove(passkey);
         await context.SaveChangesAsync(cancellationToken);
-        return new AuthSimpleResult(true);
+        return new AuthSimpleResult(true,
+            LogMeta: System.Text.Json.JsonSerializer.Serialize(new { id = passkey.Id, name = passkey.Name }));
     }
 }

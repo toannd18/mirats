@@ -225,6 +225,8 @@ public class AuditLogB6aLogMetaTests
         Assert.Equal("Closed", changes.GetProperty("status").GetProperty("new").GetString());
         Assert.Equal(JsonValueKind.Null, changes.GetProperty("closed_at").GetProperty("old").ValueKind);
         Assert.NotEqual(JsonValueKind.Null, changes.GetProperty("closed_at").GetProperty("new").ValueKind);
+        // [AUDIT-LOG B6a-fix] DateTime phải chuẩn hoá UTC ⇒ chuỗi có hậu tố Z.
+        Assert.EndsWith("Z", changes.GetProperty("closed_at").GetProperty("new").GetString());
         Assert.Equal(JsonValueKind.Null, changes.GetProperty("closed_by_id").GetProperty("old").ValueKind);
         Assert.Equal(actor, changes.GetProperty("closed_by_id").GetProperty("new").GetGuid());
     }
@@ -257,6 +259,7 @@ public class AuditLogB6aLogMetaTests
         Assert.Equal(firstInspector, secondChanges.GetProperty("inspected_by_id").GetProperty("old").GetGuid());
         Assert.Equal(secondInspector, secondChanges.GetProperty("inspected_by_id").GetProperty("new").GetGuid());
         Assert.NotEqual(JsonValueKind.Null, secondChanges.GetProperty("inspected_at").GetProperty("old").ValueKind);
+        Assert.EndsWith("Z", secondChanges.GetProperty("inspected_at").GetProperty("new").GetString());
     }
 
     [Fact]

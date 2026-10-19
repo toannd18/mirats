@@ -60,6 +60,27 @@ const CHANGE_LABELS: Record<string, string> = {
   quantity: 'Số lượng',
   checkout_type: 'Loại cấp phát',
   return_qty: 'Số lượng trả lại',
+  // [AUDIT-LOG B6a] Nhật ký User: đọc được CẢ HAI kiểu khóa — camelCase (log CŨ trước B6a) và
+  // snake_case (log MỚI). Thiếu map ⇒ cột "Chi tiết" hiện tên khóa thô tiếng Anh.
+  firstName: 'Tên',
+  first_name: 'Tên',
+  lastName: 'Họ',
+  last_name: 'Họ',
+  username: 'Tên đăng nhập',
+  email: 'Email',
+  employeeNumber: 'Mã nhân viên',
+  employee_number: 'Mã nhân viên',
+  jobTitle: 'Chức danh',
+  job_title: 'Chức danh',
+  isActive: 'Đang hoạt động',
+  is_active: 'Đang hoạt động',
+  isSuperUser: 'Quyền superuser',
+  is_super_user: 'Quyền superuser',
+  companyId: 'Công ty',
+  company_id: 'Công ty',
+  departmentId: 'Phòng ban',
+  department_id: 'Phòng ban',
+  locationId: 'Vị trí',
 };
 
 const CHECKOUT_TYPE_LABELS: Record<string, string> = {
@@ -86,6 +107,9 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
             if (k === 'status') return ({ Pending: 'Chờ cấp phát', Deployed: 'Đã cấp phát', Archived: 'Đã lưu trữ' })[String(val)] ?? String(val);
             if (k === 'isConfirmed') return /true/i.test(String(val)) ? 'Đã xác nhận' : 'Chưa xác nhận';
             if (k === 'checkout_type') return CHECKOUT_TYPE_LABELS[String(val)] ?? String(val);
+            // [AUDIT-LOG B6a] Cờ boolean (is_active / is_super_user / isActive / isSuperUser…) hiển thị
+            // tiếng Việt thay vì "True"/"False" thô — áp dụng cho cả log cũ và mới.
+            if (typeof val === 'boolean') return val ? 'Có' : 'Không';
             return String(val);
           };
           const oldStr = fmt(v?.old);
@@ -97,10 +121,14 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
           else parts.push(`${label}: ${oldStr} → ${newStr}`);
         }
       } else {
-        // Top-level metadata (e.g. component logs: { quantity, serialNo, before, after }).
+        // Top-level metadata (e.g. component logs: { quantity, serialNo, before, after }) hoặc nhật ký
+        // User CŨ do backend ghi kiểu phẳng (không có wrapper `changes`: { username, email, isActive… }).
+        // [AUDIT-LOG B6a] Vẫn áp NHÃN tiếng Việt + boolean cho cả hai kiểu khóa (camelCase/snake_case).
         for (const [k, v] of Object.entries(meta)) {
           if (v === null || v === undefined || v === '') continue;
-          parts.push(`${k}: ${String(v)}`);
+          if (typeof v === 'object') continue; // object lồng: không in "[object Object]"
+          const val = typeof v === 'boolean' ? (v ? 'Có' : 'Không') : String(v);
+          parts.push(`${CHANGE_LABELS[k] ?? k}: ${val}`);
         }
       }
     } catch { /* ignore malformed meta */ }

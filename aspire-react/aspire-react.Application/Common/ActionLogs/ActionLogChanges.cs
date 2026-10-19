@@ -136,10 +136,28 @@ public sealed class ActionLogChanges
         {
             map[field] = _sensitive.Contains(field)
                 ? new { changed = true }
-                : new { old = _old[field], @new = _new[field] };
+                : new { old = NormalizeValue(_old[field]), @new = NormalizeValue(_new[field]) };
         }
         return map;
     }
+
+    /// <summary>
+    /// [AUDIT-LOG B6a-fix] Chuẩn hoá giá trị trước khi serialize: MỌI <see cref="DateTime"/> thành UTC
+    /// để JSON luôn có hậu tố <c>Z</c> (nhất quán cho FE/timeline). Theo quy ước MT-TZ, cột
+    /// <c>timestamp without time zone</c> (Kind=Unspecified) được COI LÀ UTC — nếu không chuẩn hoá,
+    /// JSON sẽ là <c>"2026-10-19T13:40:31"</c> (không Z ⇒ FE hiểu nhầm là giờ local).
+    /// </summary>
+    private static object? NormalizeValue(object? value) => value switch
+    {
+        DateTime dt => dt.Kind switch
+        {
+            DateTimeKind.Utc => dt,
+            DateTimeKind.Local => dt.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+        },
+        DateTimeOffset dto => dto.UtcDateTime,
+        _ => value
+    };
 
     /// <summary>camelCase/PascalCase → snake_case (đã snake_case thì giữ nguyên).</summary>
     public static string ToSnakeCase(string field)

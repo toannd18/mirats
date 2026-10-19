@@ -1,3 +1,4 @@
+using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -28,6 +29,8 @@ public record DeleteSystemPositionCommand(Guid SystemInfoId, Guid PosId, Guid Cu
             ActionType = ActionType.Delete,
             CreatedBy = CurrentUserId,
             CompanyId = response.CompanyId,
+            // [AUDIT-LOG B6b] Snapshot TỐI THIỂU cho xóa cứng (id + mã + tên) — không dữ liệu nhạy cảm.
+            LogMeta = JsonSerializer.Serialize(new { id = response.Id ?? PosId, code = response.Code, name = response.Name }),
             Note = $"Xóa vị trí \"{response.Name}\""
         };
     }
@@ -78,6 +81,6 @@ public class DeleteSystemPositionCommandHandler : IRequestHandler<DeleteSystemPo
         await _context.SaveChangesAsync(cancellationToken);
 
         return new SystemInfoResult(true, "Position deleted.",
-            Id: request.PosId, Name: pos.Name, CompanyId: pos.SystemInfo?.CompanyId);
+            Id: request.PosId, Code: pos.Code, Name: pos.Name, CompanyId: pos.SystemInfo?.CompanyId);
     }
 }

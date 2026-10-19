@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common;
+using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -32,6 +33,8 @@ public record DeleteManufacturerCommand(Guid Id, Guid CurrentUserId)
             ActionType = ActionType.Delete,
             CreatedBy = CurrentUserId,
             CompanyId = null,
+            // [AUDIT-LOG B6b] Snapshot TỐI THIỂU cho xóa cứng (id + mã + tên) — không dữ liệu nhạy cảm.
+            LogMeta = JsonSerializer.Serialize(new { id = response.ManufacturerId ?? Id, code = response.Code, name = response.Name }),
             Note = $"Xóa nhà sản xuất \"{response.Name}\""
         };
     }
@@ -62,6 +65,6 @@ public class DeleteManufacturerCommandHandler : IRequestHandler<DeleteManufactur
         _context.Manufacturers.Remove(m);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return new ManufacturerResult(true, "Deleted.", ManufacturerId: request.Id, Name: m.Name);
+        return new ManufacturerResult(true, "Deleted.", ManufacturerId: request.Id, Code: m.Code, Name: m.Name);
     }
 }

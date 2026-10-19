@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { Button, Card, Descriptions, Empty, Space, Spin, Tag, Typography } from 'antd';
 import apiClient from '../../../services/api-client';
+import ActionLogTable, { type ActionLogRow } from '../../../shared/components/ActionLogTable';
 import LicenseUsageTable from '../../../shared/components/LicenseUsageTable';
 
 const { Title } = Typography;
@@ -69,6 +70,23 @@ export default function UserDetailPage() {
       </Card>
       <Card title="License đang sử dụng" style={{ marginBottom: 16 }}>
         <LicenseUsageTable scope={{ type: 'user', id: user.id }} />
+      </Card>
+      {/* [AUDIT-LOG B6a] Nhật ký hoạt động của người dùng — dùng chung ActionLogTable để mọi định dạng
+          logMeta (camelCase của log CŨ và snake_case của log MỚI) hiển thị cùng một cách. */}
+      <Card title="Lịch sử hoạt động">
+        <ActionLogTable
+          params={{ itemType: 10, itemId: user.id }}
+          request={async () => {
+            try {
+              const res = await apiClient.get('/action-logs', { params: { itemType: 10, itemId: user.id } });
+              const data = (res.data?.data ?? []) as ActionLogRow[];
+              return { data, success: true, total: data.length };
+            } catch (err) {
+              console.error('Failed to load user action logs:', err);
+              return { data: [], success: false, total: 0 };
+            }
+          }}
+        />
       </Card>
     </div>
   );

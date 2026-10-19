@@ -1,3 +1,4 @@
+using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -32,6 +33,8 @@ public record DeleteGroupCommand(Guid Id, Guid CurrentUserId, bool ActorIsRealmS
             ActionType = ActionType.Delete,
             CreatedBy = CurrentUserId,
             CompanyId = null, // PermissionGroup has no CompanyId — company-independent log
+            // [AUDIT-LOG B6b] Snapshot TỐI THIỂU cho xóa cứng (id + tên) — không dữ liệu nhạy cảm.
+            LogMeta = JsonSerializer.Serialize(new { id = response.GroupId ?? Id, name = response.Name }),
             Note = $"Deleted group: {response.Name}"
         };
     }

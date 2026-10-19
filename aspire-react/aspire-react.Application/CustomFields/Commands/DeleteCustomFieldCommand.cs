@@ -1,3 +1,4 @@
+using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -28,6 +29,8 @@ public record DeleteCustomFieldCommand(Guid Id, Guid CurrentUserId)
             ActionType = ActionType.Delete,
             CreatedBy = CurrentUserId,
             CompanyId = null,
+            // [AUDIT-LOG B6b] Snapshot TỐI THIỂU cho xóa cứng (id + tên) — không dữ liệu nhạy cảm.
+            LogMeta = JsonSerializer.Serialize(new { id = response.CustomFieldId ?? Id, name = response.Name }),
             Note = $"Xóa trường tùy chỉnh \"{response.Name}\""
         };
     }
