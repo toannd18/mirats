@@ -3587,6 +3587,81 @@ Code là nguồn sự thật và code ĐÚNG; các chỗ lệch là **tài liệ
   còn `aspire-react-db`.
 - **Commit:** commit LOCAL — **CHƯA push**.
 
+---
+
+## 2026-10-19 — LL-5 (Bước 7): sửa FORM ĐÍNH CHÍNH (note Backfill · ô Kết thúc · cảnh báo)
+
+> **Phạm vi:** CHỈ form đính chính (`AssetInstallationCorrectionModal` + đúng 1 nhánh backend cho note Backfill).
+> Vào lượt: HEAD `e90f13c` (LL-5 Bước 6, local).
+
+### Thay đổi
+
+**Frontend — `frontend/src/features/asset/components/AssetInstallationCorrectionModal.tsx`**
+1. **Dòng Backfill: KHÔNG điền sẵn note kỹ thuật** — `note: data.isEstimated ? '' : (data.note ?? '')`
+   (trước đây luôn `data.note ?? ''` ⇒ lộ note "Backfill LL-2: … (ƯỚC TÍNH).").
+   Kèm patch-semantics đúng: so sánh với "gốc" `baseNote = isEstimated ? '' : (detail.note ?? '')`
+   ⇒ người dùng để trống thì **KHÔNG gửi** `note` (thay vì gửi `""` như một thay đổi giả).
+2. **Tag "Backfill" → "Thời điểm ước tính"** (dùng `detail.isEstimated`, cùng nguồn với Alert ước tính).
+3. **Dòng ĐÃ ĐÓNG — ô "Kết thúc":** `allowClear={false}` (bỏ nút xoá trống) + `required` cho dòng đã đóng
+   (bỏ luôn nhãn "(Tùy chọn)" vốn mâu thuẫn) + **bỏ câu** "Bỏ trống nếu dòng vẫn đang mở".
+4. **Cảnh báo trong modal:** chỉ dẫn đổi thành "…(xem lý do ở sự kiện Đính chính trong tab Lý lịch,
+   chế độ “Tất cả”)" (trước đây ghi "tab Lịch sử").
+
+**Backend — `Application/Assets/Commands/CorrectInstallationCommand.cs`**
+- `newNote = request.Note ?? (entry.Source == AssetInstallationSource.Backfill ? null : entry.Note)`
+  ⇒ đính chính dòng `Source=Backfill` mà KHÔNG gửi `note` → bản mới **Note = null** (không kế thừa note kỹ thuật);
+  CÓ gửi `note` → dùng note đó. Nguồn KHÁC Backfill giữ nguyên patch-semantics (không gửi ⇒ kế thừa note cũ).
+
+### Test (ThrowawayDb — Postgres THẬT)
+
+- Mới: `InstallationCorrectionTests.Correction_BackfillNote_NotInherited_OnRealPostgres` — 3 ca:
+  (a) Backfill + không gửi note ⇒ bản mới `Note = null`, **bản cũ giữ nguyên note kỹ thuật** (chỉ thêm `SupersededAt`);
+  (b) Backfill KHÁC + có gửi note ⇒ bản mới dùng note đó;
+  (c) nguồn **Api** + không gửi note ⇒ **vẫn kế thừa** note cũ (chứng minh ngoại lệ chỉ áp cho Backfill).
+- **Nhóm ThrowawayDb trên Postgres thật** (DB tạm `ll5e_verify`, container riêng `ll5e-pg-tmp`):
+  `InstallationCorrectionTests` **14/14 PASS** + `AssetDetailAssignmentTests` **2/2 PASS**.
+
+### Bằng chứng UI (DB TẠM + ảnh 1440/390)
+
+- **DB tạm:** container Postgres RIÊNG `ll5e-pg-tmp` (cổng `55434`), DB `ll5e_api` + fixture SQL (asset
+  `LL5E-AST-1` gắn Kệ A: dòng ĐANG MỞ `Api` + dòng ĐÃ ĐÓNG `Api` + dòng `Backfill` có note kỹ thuật).
+  **Đã `docker rm -f`** sau khi xong; DB dev chỉ còn `aspire-react-db`.
+- **API:** standalone `aspire-react.Server.dll` bản **Release** (có code mới) trên `http://127.0.0.1:5499`.
+- **Vite phụ 5174:** override proxy qua `services__server__https__0=http://127.0.0.1:5499`.
+  ⚠️ **KHÔNG dùng `VITE_API_BASE_URL`** cho việc này: biến đó là **baseURL phía client** (`api-client.ts`)
+  ⇒ browser gọi thẳng `http://…:5499` từ trang HTTPS = **mixed content** (`net::ERR_FAILED`, trang hiện
+  "Không tìm thấy tài sản"). Đây là bẫy đã gặp thật trong lượt này (xem commit chỉ dùng proxy override).
+- **DOM đo trực tiếp (không suy đoán):**
+
+| Kiểm | Kết quả |
+|---|---|
+| Modal Backfill — `#note` | `""` (TRỐNG) ✔ |
+| Modal Backfill — tag | `["Thời điểm ước tính"]`, KHÔNG còn chữ "Backfill" ✔ |
+| Modal Backfill — chỉ dẫn Alert | có "…sự kiện Đính chính trong tab Lý lịch"; KHÔNG còn "tab Lịch sử" ✔ |
+| Modal ĐÃ ĐÓNG — `endedAt` | `clear: false` (StartedAt vẫn `clear: true`) ✔ |
+| Modal ĐÃ ĐÓNG — nhãn | `"Kết thúc"` (KHÔNG còn "(Tùy chọn)"); `#note` = `"ghi chú đã đóng"` ✔ |
+| Cả 2 modal @390px | width **374 ≤ 390**, `scrollWidth == innerWidth` (không tràn) ✔ |
+| Sau đính chính (DB) | bản mới `Source=4`, `Note = <NULL>`; bản cũ `SupersededAt` set + giữ note; `LogMeta.changes.note.new = null` ✔ |
+| Timeline "Sự kiện chính" | **5** sự kiện; KHÔNG còn "Thời điểm ước tính" ✔ |
+| Timeline "Tất cả" | **6** sự kiện (thêm `CORRECT`), details `Lý do: Xác nhận lại mốc theo biên bản bàn giao`; 2 sự kiện Kệ B mang tag "Đã đính chính" ✔ |
+| 390px | đã cuộn tới vùng timeline (`scrollY` 1860 / 1956), không tràn ngang ✔ |
+| Console | 0 error ở lần load sạch; 1 warning `useForm … not connected to any Form element` là **pre-existing** (`destroyOnHidden` unmount Form) ✔ |
+
+- **Ảnh (8) trong `screenshots/`:** `ll5e-modal-backfill-1440.png`, `ll5e-modal-backfill-390.png`,
+  `ll5e-modal-closed-1440.png`, `ll5e-modal-closed-390.png`, `ll5e-timeline-main-1440.png`,
+  `ll5e-timeline-main-390.png`, `ll5e-timeline-all-1440.png`, `ll5e-timeline-all-390.png`.
+
+### Gates & dọn dẹp
+
+- **6 gate PASS:** `dotnet format --verify-no-changes` (exit 0) · build Release 0 lỗi ·
+  `dotnet test --filter "Category!=Concurrency"` = **634 passed / 9 skipped** · `npm run lint` **0 error**
+  (11 warning pre-existing) · `npm run build` 0 lỗi TS · `audit-sweeps.ps1` **0 vi phạm**;
+  `docs-verify` (ERROR_CODES.md + API.md) **PASS**.
+- **Nhóm ThrowawayDb:** 14/14 + 2/2 (nêu trên).
+- **Dọn dẹp:** browser session đã `close`; Vite 5174 + API 5499 đã kill (cổng trống); container tạm đã xoá;
+  snapshot `.yml` tạm đã xoá (không còn file lạ ở repo root); dev API `/health` 5428 = 200.
+- **Commit:** commit LOCAL — **CHƯA push**.
+
 
 
 

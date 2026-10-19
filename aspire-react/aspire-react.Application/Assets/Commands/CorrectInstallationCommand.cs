@@ -139,7 +139,11 @@ public class CorrectInstallationCommandHandler : IRequestHandler<CorrectInstalla
             // Giá trị hiệu dụng sau patch (chỉ trường được gửi mới thay đổi).
             var newStartedAt = request.StartedAt ?? entry.StartedAt;
             var newEndedAt = isOpen ? (DateTime?)null : (request.EndedAt ?? entry.EndedAt);
-            var newNote = request.Note ?? entry.Note;
+            // [LL-5 Bước 6] Dòng Backfill: Note KỸ THUẬT của bước chuyển dữ liệu KHÔNG được kế thừa sang
+            // bản đã do người dùng xác nhận — không gửi note ⇒ bản mới Note = null (kể cả khi bản cũ có
+            // note kỹ thuật). Các nguồn khác giữ nguyên patch-semantics (không gửi ⇒ giữ note cũ).
+            var newNote = request.Note
+                ?? (entry.Source == AssetInstallationSource.Backfill ? null : entry.Note);
             var newPositionId = isOpen ? entry.SystemPositionId : (request.SystemPositionId ?? entry.SystemPositionId);
 
             var changes = new Dictionary<string, object?>();

@@ -30,6 +30,9 @@ interface Props {
  *  - Tải dữ liệu dòng GỐC từ `GET /assets/{assetId}/installations/{entryId}` (timeline DTO không đủ field).
  *  - Dòng ĐANG MỞ: khoá "Kết thúc" và "Vị trí" (kèm chú thích dùng Thu hồi + Cấp phát lại).
  *  - Chỉ GỬI các trường đã thay đổi (patch-semantics); `reason` luôn bắt buộc 10–500 ký tự.
+ *  - Dòng ĐÃ ĐÓNG: mốc "Kết thúc" bắt buộc (không có nút xoá trống).
+ *  - Dòng Backfill: ô "Ghi chú lý lịch" để TRỐNG (không điền note kỹ thuật) — backend cũng không kế thừa
+ *    note của dòng backfill.
  *  - Hiển thị ĐÚNG `message` + `error_code` mà server trả về (không tự bịa lỗi).
  */
 export default function AssetInstallationCorrectionModal({ open, assetId, entryId, onClose, onSuccess }: Props) {
@@ -63,7 +66,9 @@ export default function AssetInstallationCorrectionModal({ open, assetId, entryI
           startedAt: data.startedAt ? dayjs(data.startedAt) : undefined,
           endedAt: data.endedAt ? dayjs(data.endedAt) : undefined,
           systemPositionId: data.systemPositionId ?? undefined,
-          note: data.note ?? '',
+          // [LL-5 Bước 6] Dòng Backfill: KHÔNG điền sẵn Note KỸ THUẬT của bước chuyển dữ liệu (ô để trống);
+          // backend cũng KHÔNG kế thừa note của dòng backfill ⇒ bản mới Note = null khi không gửi.
+          note: data.isEstimated ? '' : (data.note ?? ''),
           reason: '',
         });
       } catch {
@@ -118,8 +123,11 @@ export default function AssetInstallationCorrectionModal({ open, assetId, entryI
       if (positionId && positionId !== detail.systemPositionId) payload.systemPositionId = positionId;
     }
 
+    // [LL-5 Bước 6] Dòng Backfill: giá trị "gốc" để so sánh patch là chuỗi RỖNG (note kỹ thuật KHÔNG được
+    // kế thừa) ⇒ người dùng để trống thì KHÔNG gửi note, và backend cũng không kế thừa (bản mới Note = null).
+    const baseNote = detail.isEstimated ? '' : (detail.note ?? '');
     const note = String(values.note ?? '');
-    if (note !== (detail.note ?? '')) payload.note = note;
+    if (note !== baseNote) payload.note = note;
 
     setSubmitting(true);
     try {
@@ -162,7 +170,7 @@ export default function AssetInstallationCorrectionModal({ open, assetId, entryI
             showIcon
             style={{ marginBottom: 12 }}
             title="Bản ghi hiện tại sẽ bị ĐÁNH DẤU là đã bị thay thế"
-            description="Dữ liệu cũ KHÔNG bị xoá: hệ thống tạo một bản ghi mới và ẩn bản cũ khỏi tab Lý lịch (xem lý do ở sự kiện “Đính chính” trong tab Lịch sử)."
+            description="Dữ liệu cũ KHÔNG bị xoá: hệ thống tạo một bản ghi mới và ẩn bản cũ khỏi tab Lý lịch (xem lý do ở sự kiện Đính chính trong tab Lý lịch, chế độ “Tất cả”)."
           />
 
           {detail.isEstimated && (
@@ -181,7 +189,7 @@ export default function AssetInstallationCorrectionModal({ open, assetId, entryI
             {' · '}
             {formatDateTimeShort(detail.startedAt)} → {detail.endedAt ? formatDateTimeShort(detail.endedAt) : 'đang mở'}
             {isOpenEntry ? <Tag style={{ marginInlineStart: 6 }}>Dòng đang mở</Tag> : null}
-            {detail.source === 'Backfill' ? <Tag color="warning" style={{ marginInlineStart: 6 }}>Backfill</Tag> : null}
+            {detail.isEstimated ? <Tag color="warning" style={{ marginInlineStart: 6 }}>Thời điểm ước tính</Tag> : null}
           </div>
 
           <Form form={form} layout="vertical" requiredMark="optional">
@@ -206,9 +214,21 @@ export default function AssetInstallationCorrectionModal({ open, assetId, entryI
             <Form.Item
               name="endedAt"
               label="Kết thúc"
-              extra={isOpenEntry ? 'Dòng đang mở: dùng Thu hồi để đóng khoảng lắp đặt.' : 'Bỏ trống nếu dòng vẫn đang mở.'}
+              // [LL-5 Bước 6] Dòng ĐÃ ĐÓNG: mốc kết thúc là BẮT BUỘC (không còn nhãn "(Tùy chọn)").
+              required={!isOpenEntry}
+              rules={!isOpenEntry
+                ? [{ required: true, message: 'Chọn mốc kết thúc cho dòng đã đóng' }]
+                : undefined}
+              extra={isOpenEntry ? 'Dòng đang mở: dùng Thu hồi để đóng khoảng lắp đặt.' : undefined}
             >
-              <DatePicker showTime format="DD/MM/YYYY HH:mm" style={{ width: '100%' }} disabled={isOpenEntry} />
+              <DatePicker
+                showTime
+                format="DD/MM/YYYY HH:mm"
+                style={{ width: '100%' }}
+                disabled={isOpenEntry}
+                // Dòng ĐÃ ĐÓNG: không cho xoá trống (mốc kết thúc bắt buộc).
+                allowClear={false}
+              />
             </Form.Item>
 
             <Form.Item name="note" label="Ghi chú lý lịch" extra="Để trống để xoá ghi chú hiện tại.">

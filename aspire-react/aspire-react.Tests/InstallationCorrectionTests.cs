@@ -282,6 +282,71 @@ public class InstallationCorrectionTests
     }
 
     /// <summary>
+    /// [Bước 6] Note của dòng Backfill KHÔNG được kế thừa: đính chính mà KHÔNG gửi <c>note</c> ⇒ bản mới
+    /// <c>Note = null</c> (note kỹ thuật chỉ còn ở bản cũ); CÓ gửi <c>note</c> ⇒ dùng note đó. Dòng KHÔNG phải
+    /// Backfill giữ nguyên patch-semantics (không gửi ⇒ kế thừa note cũ) — chứng minh ngoại lệ chỉ áp cho Backfill.
+    /// </summary>
+    [ThrowawayDbFact]
+    public async Task Correction_BackfillNote_NotInherited_OnRealPostgres()
+    {
+        await using var db = await CreateContextAsync();
+        var fx = await SeedAsync(db);
+        var handler = Handler(db, fx.Actor.Id);
+
+        // (a) Backfill + KHÔNG gửi note (chỉ đổi startedAt) ⇒ bản mới Note = null.
+        var noNote = await handler.Handle(
+            new CorrectInstallationCommand(fx.Asset.Id, fx.Backfill.Id,
+                fx.Backfill.StartedAt.AddHours(2), null, null, null, ValidReason, fx.Actor.Id),
+            CancellationToken.None);
+        Assert.True(noNote.Success, noNote.Message);
+
+        var newNoNote = await db.AssetInstallations.AsNoTracking().SingleAsync(i => i.Id == noNote.NewEntryId);
+        Assert.Null(newNoNote.Note);
+        Assert.Equal(AssetInstallationSource.Correction, newNoNote.Source);
+
+        var oldBackfill = await db.AssetInstallations.AsNoTracking().SingleAsync(i => i.Id == fx.Backfill.Id);
+        Assert.NotNull(oldBackfill.SupersededAt);                     // bản cũ bị supersede...
+        Assert.Equal(fx.Backfill.Note, oldBackfill.Note);             // ...nhưng GIỮ nguyên note kỹ thuật
+
+        // (b) Backfill KHÁC + CÓ gửi note ⇒ bản mới dùng note đó.
+        var second = new AssetInstallation
+        {
+            AssetId = fx.Asset.Id,
+            SystemPositionId = fx.PosB.Id,
+            SystemPositionName = fx.PosB.Name,
+            SystemInfoId = fx.System.Id,
+            SystemInfoName = fx.System.Name,
+            StartedAt = fx.Base.AddDays(-6),
+            EndedAt = fx.Base.AddDays(-5),
+            Source = AssetInstallationSource.Backfill,
+            Note = "Backfill LL-2: uoc tinh (2).",
+            LoggedById = fx.Actor.Id,
+            LoggedByName = "Kiểm Thử"
+        };
+        db.AssetInstallations.Add(second);
+        await db.SaveChangesAsync();
+
+        var withNote = await handler.Handle(
+            new CorrectInstallationCommand(fx.Asset.Id, second.Id,
+                second.StartedAt.AddHours(1), null, null, "Ghi chú do người dùng nhập", ValidReason, fx.Actor.Id),
+            CancellationToken.None);
+        Assert.True(withNote.Success, withNote.Message);
+
+        var newWithNote = await db.AssetInstallations.AsNoTracking().SingleAsync(i => i.Id == withNote.NewEntryId);
+        Assert.Equal("Ghi chú do người dùng nhập", newWithNote.Note);
+
+        // (c) KHÔNG phải Backfill: không gửi note ⇒ VẪN kế thừa note cũ (hành vi không đổi).
+        var inherited = await handler.Handle(
+            new CorrectInstallationCommand(fx.Asset.Id, fx.Closed.Id,
+                fx.Closed.StartedAt.AddHours(1), null, null, null, ValidReason, fx.Actor.Id),
+            CancellationToken.None);
+        Assert.True(inherited.Success, inherited.Message);
+
+        var newInherited = await db.AssetInstallations.AsNoTracking().SingleAsync(i => i.Id == inherited.NewEntryId);
+        Assert.Equal(fx.Closed.Note, newInherited.Note);
+    }
+
+    /// <summary>
     /// (n) Chồng khoảng thời gian: exclusion constraint <c>EX_asset_installations_no_overlap</c> (23P01) ⇒
     /// <c>INSTALLATION_PERIOD_OVERLAP</c> (controller map sang 409) và transaction ROLLBACK — không ghi gì.
     /// </summary>
