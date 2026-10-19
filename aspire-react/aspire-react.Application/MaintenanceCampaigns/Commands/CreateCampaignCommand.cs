@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Persistence;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -41,7 +42,8 @@ public record CreateCampaignResult(
 /// NOTE verbatim quirk: ChangeTracker.Clear() detaches the pre-read SystemInfo BEFORE the campaign
 /// is added, so the Create log's TargetSystemInfoName is null (nav not fixed up) while
 /// TargetSystemInfoId stays correct from the scalar — pre-existing behavior, preserved as-is.
-/// Manual logging (CampaignAccess.BuildLog) — NOT ILoggableCommand (own transaction).
+/// Manual logging (CampaignAccess.BuildLog) — NOT ILoggableCommand (own transaction);
+/// [AUDIT-LOG B5] log nay nằm TRONG chính transaction đó (dữ liệu + nhật ký commit cùng nhau).
 /// </summary>
 public record CreateCampaignCommand(
     Guid SystemInfoId,
@@ -176,25 +178,29 @@ public class CreateCampaignCommandHandler : IRequestHandler<CreateCampaignComman
 
             _context.MaintenanceCampaigns.Add(campaign);
             await _context.SaveChangesAsync(cancellationToken);
+
+            // [AUDIT-LOG B5] Log trong CÙNG transaction với campaign (+ snapshot + executor):
+            // bước ghi log đổ ⇒ campaign cũng rollback (trước đây log nằm SAU commit ⇒ tạo được đợt
+            // bảo dưỡng mà KHÔNG có nhật ký).
+            _actionLogService.Log(CampaignAccess.BuildLog(
+                ActionType.Create, campaign, userId,
+                $"Tạo đợt bảo dưỡng cho hệ thống \"{sys.Name}\" — version {version.VersionNumber}",
+                new
+                {
+                    templateVersionId = version.Id,
+                    versionNumber = version.VersionNumber,
+                    batchNumber = campaign.BatchNumber,
+                    startDate = campaign.StartDate,
+                    endDate = campaign.EndDate,
+                    snapshotCount = campaign.DeviceSnapshots.Count,
+                    executorIds = executorIds
+                }));
+            await _context.SaveChangesAsync(cancellationToken);
+
             await tx.CommitAsync(cancellationToken);
         });
         if (raceError != null)
             return new CreateCampaignResult(false, raceError);
-
-        _actionLogService.Log(CampaignAccess.BuildLog(
-            ActionType.Create, campaign, userId,
-            $"Tạo đợt bảo dưỡng cho hệ thống \"{sys.Name}\" — version {version.VersionNumber}",
-            new
-            {
-                templateVersionId = version.Id,
-                versionNumber = version.VersionNumber,
-                batchNumber = campaign.BatchNumber,
-                startDate = campaign.StartDate,
-                endDate = campaign.EndDate,
-                snapshotCount = campaign.DeviceSnapshots.Count,
-                executorIds = executorIds
-            }));
-        await _context.SaveChangesAsync(cancellationToken);
 
         return new CreateCampaignResult(true,
             CampaignId: campaign.Id,

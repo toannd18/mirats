@@ -93,17 +93,27 @@
      `{"changes":{"title":{"old":…,"new":…}}}` với `old` **chụp TRƯỚC khi gán**; test unit chứng minh
      old ≠ new khi đổi thật; timeline hiện đúng field thay đổi.
 
-5. **Flaky lớp `WebAuthnCeremonyTests` khi chạy TOÀN BỘ suite song song** (phát hiện 2026-10-19 ở
-   AUDIT-LOG B2, tái diễn ở B3):
-   - **Hiện trạng (đo được):** trong `dotnet test … --filter "Category!=Concurrency"` đã có **2 lần FAIL
+5. **Flaky lớp `WebAuthnCeremonyTests` khi chạy TOÀN BỘ suite song song** — **🔴 ƯU TIÊN CAO: làm NGAY
+   SAU B5** (yêu cầu 2026-10-19), trước B6/B7. (phát hiện 2026-10-19 ở AUDIT-LOG B2, tái diễn ở B3 và B5):
+   - **Hiện trạng (đo được):** trong `dotnet test … --filter "Category!=Concurrency"` đã có **3 lần FAIL
      với 2 test KHÁC NHAU** trong cùng lớp — `Assertion_Discoverable_NoUsername_WorksWithUserHandle` (B2,
-     lần chạy ThrowawayDb đầu) và `Assertion_Ceremony_Verifies_And_Advances_Counter` (B3, gate 3). Chạy
-     RIÊNG lớp này: **7/7 PASS × 3 lần liên tiếp**; chạy lại cả bộ (cùng lệnh, cùng binary) ⇒ PASS
-     (669/669 ở B2; 666/666 và 678/678 ở B3). Không liên quan thay đổi đang làm (không chạm WebAuthn) —
-     kết luận: **state dùng chung giữa các test ceremony khi xUnit chạy song song với lớp khác**.
+     lần chạy ThrowawayDb đầu) và `Assertion_Ceremony_Verifies_And_Advances_Counter` (B3 + B5, các lần chạy
+     toàn bộ suite). Chạy RIÊNG lớp này: **7/7 PASS × 3 lần liên tiếp**; chạy lại cả bộ (cùng lệnh, cùng
+     binary) ⇒ PASS (666/666 ×2 ở B5). Không liên quan thay đổi đang làm (không chạm WebAuthn) — kết luận:
+     **state dùng chung giữa các test ceremony khi xUnit chạy song song với lớp khác**.
    - **Việc cần làm:** tìm state dùng chung (challenge/counter/credential dùng lại — có thể là static hoặc
      cùng tên InMemory DB) và cô lập (collection riêng / tắt song song cho lớp ceremony).
    - **Tiêu chí nghiệm thu:** chạy TOÀN BỘ suite **10 lần liên tiếp ⇒ 0 FAIL** ở lớp này.
+
+6. **FE: nhãn tiếng Việt cho `ComponentUnitStatus`** (thấp — phát hiện 2026-10-19 khi B3 đổi log unit
+   status sang schema `changes`):
+   - **Hiện trạng:** `formatLogDetail` (`frontend/src/shared/components/ActionLogTable.tsx`) map nhãn cho
+     key `status` chỉ có status của ASSET (`Pending/Deployed/Archived`); với log của linh kiện serial, giá
+     trị `InStock/Allocated/Damaged/Disposed` hiện **nguyên tiếng Anh** ở cột "Chi tiết".
+   - **Việc cần làm:** thêm nhãn cho 4 giá trị `ComponentUnitStatus` (phân biệt theo `ItemType` hoặc nhãn
+     dự phòng) — sửa FE ⇒ phải verify UI thật (playwright) ở 375/768/1440px.
+   - **Tiêu chí nghiệm thu:** log unit status hiện nhãn tiếng Việt (VD "Trong kho → Hỏng"), không còn chuỗi
+     tiếng Anh thô; lint/build xanh.
 
 ### 🧾 AUDIT-LOG — kế hoạch sửa `LogMeta.changes` (audit Bước 1 ngày 2026-10-19)
 
@@ -148,11 +158,22 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
    `UpdateManufacturerCommand` (5 field) + `UpdateSupplierCommand` (12 field) — `Track()` chụp old TRƯỚC
    mọi nhánh gán nên `code`/`name`/`url`/`city`… có old thật; gỡ cả mô tả "parity quirk" cũ trong file.
    - **Tiêu chí nghiệm thu:** test: đổi code/name/url/city ⇒ `old` là giá trị cũ thật; PUT thật trên DB tạm.
-4. **B5 — log cùng transaction với dữ liệu**: MaintenanceTemplates (mọi handler) + MaintenanceCampaigns
-   (Create/Complete/UpsertResult/DeleteResult) đang `SaveChanges` → log → `SaveChanges` KHÔNG bọc
-   transaction ⇒ gói vào `CreateExecutionStrategy + BeginTransaction`, log trước khi commit
-   (tôn trọng `ILoggableCommand` = không lồng transaction).
-   - **Tiêu chí nghiệm thu:** test trên Postgres thật chứng minh rollback kéo theo ActionLog; gates 6/6 xanh.
+4. **B5 — log cùng transaction với dữ liệu** *(✅ XONG — commit local B5, 2026-10-19)*: 17 handler
+   (13 MaintenanceTemplates + 4 MaintenanceCampaigns) đã chuyển sang helper
+   `Application/Common/Persistence/DbTransaction` (`CreateExecutionStrategy` + `BeginTransactionAsync`):
+   dữ liệu + `ActionLog` ghi trong CÙNG transaction, **commit 1 lần**. Publish giữ 2 SaveChanges có thứ tự
+   (unique index `IsCurrent`) nhưng log nằm TRONG transaction; Upsert giữ vòng retry 23505 bằng
+   **SAVEPOINT** (`CreateSavepointAsync`/`RollbackToSavepointAsync`, chỉ khi `Database.IsRelational()`).
+   - **Trước B5** (số lần `SaveChanges`): Create/Update/Delete Template 2; Create/Publish/Update/Delete
+     Version 3 (Publish: 2 trong tx + 1 sau commit); Add/Update/Delete Item 2; Add/Update/Delete Param 2;
+     CreateCampaign 2 (1 trong tx + 1 sau commit); Complete 2; UpsertResult 1 (trong vòng retry) + 1 sau;
+     DeleteResult 2 — **tất cả đều không có log chung transaction** (trừ 2 tx chỉ chứa dữ liệu).
+   - **Test (Postgres thật, `MaintenanceTransactionAtomicityTests`, 18 test)**: mỗi nhóm 1 ca thành công
+     (có dữ liệu + có log) + 1 ca thất bại có chủ đích (**không dữ liệu + không log**). **Kỹ thuật gây lỗi**:
+     `SaveChangesInterceptor` ném khi change tracker có `ActionLog` ở trạng thái `Added` (bước ghi nhật ký đổ).
+     Ca mạnh nhất: `VersionPublish_ActionLogSaveFails_RollsBackVersionFlip` — dữ liệu đã được ghi bằng 2
+     SaveChanges TRƯỚC bước log, lỗi ⇒ cả demote/promote rollback.
+   - **Tiêu chí nghiệm thu:** 18/18 test atomicity PASS trên DB tạm; gates 6/6; nhóm ThrowawayDb 696/696.
 5. **B6 — chuẩn hoá field còn thiếu (mức thấp)**: `UpdateUserCommand` thêm `employeeNumber`/`jobTitle`;
    `UpdateChecklistItemCommand` thêm `positionIds`; cân nhắc `Close/Inspect` ghi lý do/kết quả; Delete*
    snapshot (hiện chỉ `DeleteMaintenance`/`DeleteCampaignResult` có).

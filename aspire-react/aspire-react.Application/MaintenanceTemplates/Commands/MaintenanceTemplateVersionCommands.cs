@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Persistence;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -54,14 +55,17 @@ public class CreateTemplateVersionCommandHandler : IRequestHandler<CreateTemplat
             CreatedById = request.CurrentUserId
         };
         _context.MaintenanceChecklistTemplateVersions.Add(version);
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Create, t, request.CurrentUserId,
-            $"Tạo bản nháp version {nextNumber} cho template \"{t.Name}\"",
-            new { scope = "version", versionId = version.Id, versionNumber = nextNumber },
-            itemId: version.Id));
-        await _context.SaveChangesAsync(cancellationToken);
+        // [AUDIT-LOG B5] version + ActionLog trong CÙNG transaction (commit 1 lần).
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Create, t, request.CurrentUserId,
+                $"Tạo bản nháp version {nextNumber} cho template \"{t.Name}\"",
+                new { scope = "version", versionId = version.Id, versionNumber = nextNumber },
+                itemId: version.Id));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
 
         return new CreateTemplateVersionResult(true, "Created.", Version: new MaintenanceTemplateVersionView(
             version.Id, version.VersionNumber, version.EffectiveFrom, version.PublishedAt, version.IsCurrent));
@@ -114,9 +118,8 @@ public class PublishTemplateVersionCommandHandler : IRequestHandler<PublishTempl
         // transaction is ONLY legal inside CreateExecutionStrategy().ExecuteAsync (same convention
         // as ComponentsController/Checkout handlers). A bare BeginTransactionAsync throws
         // InvalidOperationException → HTTP 500 before touching a single row.
-        // Transaction boundary preserved verbatim — this is why Publish does NOT implement
-        // ILoggableCommand (nested BeginTransaction would throw); the log stays AFTER the commit,
-        // exactly like the pre-migration controller.
+        // Transaction boundary: Publish KHÔNG implement ILoggableCommand (nested BeginTransaction would
+        // throw) — [AUDIT-LOG B5] log nay nằm TRONG chính transaction này (xem cuối delegate).
         var strategy = _context.Database.CreateExecutionStrategy();
         Guid[] demotedIds = Array.Empty<Guid>();
         await strategy.ExecuteAsync(async () =>
@@ -135,15 +138,17 @@ public class PublishTemplateVersionCommandHandler : IRequestHandler<PublishTempl
             version.IsCurrent = true;
             await _context.SaveChangesAsync(cancellationToken);
 
+            // [AUDIT-LOG B5] Log TRONG cùng transaction: bước ghi log đổ ⇒ cả demote/promote rollback
+            // (trước đây log + SaveChanges nằm SAU commit ⇒ dữ liệu đã đổi mà mất nhật ký).
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Publish, t, request.CurrentUserId,
+                $"Publish version {version.VersionNumber} cho template \"{t.Name}\"",
+                new { scope = "version", versionId = version.Id, versionNumber = version.VersionNumber, demotedVersionIds = demotedIds },
+                itemId: version.Id));
+            await _context.SaveChangesAsync(cancellationToken);
+
             await tx.CommitAsync(cancellationToken);
         });
-
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Publish, t, request.CurrentUserId,
-            $"Publish version {version.VersionNumber} cho template \"{t.Name}\"",
-            new { scope = "version", versionId = version.Id, versionNumber = version.VersionNumber, demotedVersionIds = demotedIds },
-            itemId: version.Id));
-        await _context.SaveChangesAsync(cancellationToken);
 
         return new PublishTemplateVersionResult(true, "Published.", Version: new MaintenanceTemplateVersionView(
             version.Id, version.VersionNumber, version.EffectiveFrom, version.PublishedAt, version.IsCurrent));
@@ -191,13 +196,17 @@ public class UpdateTemplateVersionCommandHandler : IRequestHandler<UpdateTemplat
         if (request.EffectiveFrom.HasValue)
         {
             version.EffectiveFrom = MaintenanceTemplateAccess.ToUtc(request.EffectiveFrom.Value);
-            await _context.SaveChangesAsync(cancellationToken);
-            _actionLogService.Log(MaintenanceTemplateLogging.Build(
-                ActionType.Update, t, request.CurrentUserId,
-                $"Cập nhật version {version.VersionNumber} của template \"{t.Name}\"",
-                new { scope = "version", versionId = version.Id, changes = new { effectiveFrom = new { old = before, @new = version.EffectiveFrom } } },
-                itemId: version.Id));
-            await _context.SaveChangesAsync(cancellationToken);
+
+            // [AUDIT-LOG B5] dữ liệu + ActionLog trong CÙNG transaction (commit 1 lần).
+            await DbTransaction.ExecuteAsync(_context, async _ =>
+            {
+                _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                    ActionType.Update, t, request.CurrentUserId,
+                    $"Cập nhật version {version.VersionNumber} của template \"{t.Name}\"",
+                    new { scope = "version", versionId = version.Id, changes = new { effectiveFrom = new { old = before, @new = version.EffectiveFrom } } },
+                    itemId: version.Id));
+                await _context.SaveChangesAsync(cancellationToken);
+            }, cancellationToken);
         }
         return new UpdateTemplateVersionResult(true, "Updated.", Version: new MaintenanceTemplateVersionView(
             version.Id, version.VersionNumber, version.EffectiveFrom, version.PublishedAt, version.IsCurrent));
@@ -246,14 +255,17 @@ public class DeleteTemplateVersionCommandHandler : IRequestHandler<DeleteTemplat
 
         var number = version.VersionNumber;
         _context.MaintenanceChecklistTemplateVersions.Remove(version); // items/params cascade
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Delete, t, request.CurrentUserId,
-            $"Xóa bản nháp version {number} của template \"{t.Name}\"",
-            new { scope = "version", versionId = request.VersionId, versionNumber = number },
-            itemId: version.Id));
-        await _context.SaveChangesAsync(cancellationToken);
+        // [AUDIT-LOG B5] xóa + ActionLog trong CÙNG transaction (commit 1 lần).
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Delete, t, request.CurrentUserId,
+                $"Xóa bản nháp version {number} của template \"{t.Name}\"",
+                new { scope = "version", versionId = request.VersionId, versionNumber = number },
+                itemId: version.Id));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
         return new DeleteTemplateVersionResult(true, "Version deleted.");
     }
 }

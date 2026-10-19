@@ -1,5 +1,6 @@
 using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Persistence;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -114,13 +115,17 @@ public class CreateMaintenanceTemplateCommandHandler : IRequestHandler<CreateMai
         };
         template.Versions.Add(draft);
         _context.MaintenanceChecklistTemplates.Add(template);
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Create, template, userId,
-            $"Tạo template bảo dưỡng \"{template.Name}\"",
-            new { draftVersionId = draft.Id, versionNumber = 1 }));
-        await _context.SaveChangesAsync(cancellationToken);
+        // [AUDIT-LOG B5] template + version nháp + ActionLog trong CÙNG transaction (commit 1 lần):
+        // ghi log đổ ⇒ template cũng không được tạo.
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Create, template, userId,
+                $"Tạo template bảo dưỡng \"{template.Name}\"",
+                new { draftVersionId = draft.Id, versionNumber = 1 }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
 
         return new CreateMaintenanceTemplateResult(true, "Created.",
             TemplateId: template.Id, Name: template.Name, SystemInfoId: template.SystemInfoId,
@@ -196,20 +201,23 @@ public class UpdateMaintenanceTemplateCommandHandler : IRequestHandler<UpdateMai
         if (nameChanged) t.Name = newName!;
         if (sysChanged) t.SystemInfoId = request.SystemInfoId!.Value;
         if (activeChanged) t.IsActive = request.IsActive!.Value;
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Update, t, request.CurrentUserId,
-            $"Cập nhật template bảo dưỡng \"{t.Name}\"", new
-            {
-                changes = new
+        // [AUDIT-LOG B5] dữ liệu + ActionLog trong CÙNG transaction (commit 1 lần).
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Update, t, request.CurrentUserId,
+                $"Cập nhật template bảo dưỡng \"{t.Name}\"", new
                 {
-                    name = new { old = beforeName, @new = t.Name },
-                    systemInfoId = new { old = beforeSystemId, @new = t.SystemInfoId },
-                    isActive = new { old = beforeIsActive, @new = t.IsActive }
-                }
-            }));
-        await _context.SaveChangesAsync(cancellationToken);
+                    changes = new
+                    {
+                        name = new { old = beforeName, @new = t.Name },
+                        systemInfoId = new { old = beforeSystemId, @new = t.SystemInfoId },
+                        isActive = new { old = beforeIsActive, @new = t.IsActive }
+                    }
+                }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
         return new UpdateMaintenanceTemplateResult(true, "Updated.");
     }
 }
@@ -245,11 +253,14 @@ public class DeleteMaintenanceTemplateCommandHandler : IRequestHandler<DeleteMai
 
         var name = t.Name;
         _context.MaintenanceChecklistTemplates.Remove(t); // versions/items/params cascade (config-only, no history left behind)
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Delete, t, request.CurrentUserId, $"Xóa template bảo dưỡng \"{name}\""));
-        await _context.SaveChangesAsync(cancellationToken);
+        // [AUDIT-LOG B5] xóa + ActionLog trong CÙNG transaction (commit 1 lần).
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Delete, t, request.CurrentUserId, $"Xóa template bảo dưỡng \"{name}\""));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
         return new DeleteMaintenanceTemplateResult(true, "Deleted.");
     }
 }

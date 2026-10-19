@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Persistence;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -137,13 +138,16 @@ public class AddChecklistItemCommandHandler : IRequestHandler<AddChecklistItemCo
             item.Positions.Add(new MaintenanceChecklistItemPosition { SystemPositionId = pid });
         }
         _context.MaintenanceChecklistItems.Add(item);
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Create, t, request.CurrentUserId,
-            $"Thêm hạng mục \"{item.Name}\" vào version {version.VersionNumber}",
-            new { scope = "item", versionId = request.VersionId, versionNumber = version.VersionNumber, itemId = item.Id, Order = item.Order, positionIds = request.PositionIds ?? Array.Empty<Guid>() }));
-        await _context.SaveChangesAsync(cancellationToken);
+        // [AUDIT-LOG B5] item (+ positions) + ActionLog trong CÙNG transaction (commit 1 lần).
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Create, t, request.CurrentUserId,
+                $"Thêm hạng mục \"{item.Name}\" vào version {version.VersionNumber}",
+                new { scope = "item", versionId = request.VersionId, versionNumber = version.VersionNumber, itemId = item.Id, Order = item.Order, positionIds = request.PositionIds ?? Array.Empty<Guid>() }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
 
         return new AddChecklistItemResult(true, "Created.",
             ItemId: item.Id, Order: item.Order, Name: item.Name, CycleMonths: item.CycleMonths,
@@ -218,26 +222,29 @@ public class UpdateChecklistItemCommandHandler : IRequestHandler<UpdateChecklist
         if (request.CycleMonths.HasValue) item.CycleMonths = request.CycleMonths.Value;
         if (request.ToolsRequired is not null) item.ToolsRequired = request.ToolsRequired;
         if (request.Instruction is not null) item.Instruction = request.Instruction;
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Update, t, request.CurrentUserId,
-            $"Sửa hạng mục \"{item.Name}\" (version {version.VersionNumber})", new
-            {
-                scope = "item",
-                versionId = request.VersionId,
-                versionNumber = version.VersionNumber,
-                itemId = request.ItemId,
-                changes = new
+        // [AUDIT-LOG B5] dữ liệu (item + positions) + ActionLog trong CÙNG transaction (commit 1 lần).
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Update, t, request.CurrentUserId,
+                $"Sửa hạng mục \"{item.Name}\" (version {version.VersionNumber})", new
                 {
-                    order = new { old = before.Order, @new = item.Order },
-                    name = new { old = before.Name, @new = item.Name },
-                    cycleMonths = new { old = before.CycleMonths, @new = item.CycleMonths },
-                    toolsRequired = new { old = before.ToolsRequired, @new = item.ToolsRequired },
-                    instruction = new { old = before.Instruction, @new = item.Instruction }
-                }
-            }));
-        await _context.SaveChangesAsync(cancellationToken);
+                    scope = "item",
+                    versionId = request.VersionId,
+                    versionNumber = version.VersionNumber,
+                    itemId = request.ItemId,
+                    changes = new
+                    {
+                        order = new { old = before.Order, @new = item.Order },
+                        name = new { old = before.Name, @new = item.Name },
+                        cycleMonths = new { old = before.CycleMonths, @new = item.CycleMonths },
+                        toolsRequired = new { old = before.ToolsRequired, @new = item.ToolsRequired },
+                        instruction = new { old = before.Instruction, @new = item.Instruction }
+                    }
+                }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
 
         return new UpdateChecklistItemResult(true, "Item updated.");
     }
@@ -281,13 +288,16 @@ public class DeleteChecklistItemCommandHandler : IRequestHandler<DeleteChecklist
 
         var name = item.Name;
         _context.MaintenanceChecklistItems.Remove(item);
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Delete, t, request.CurrentUserId,
-            $"Xóa hạng mục \"{name}\" khỏi version {version.VersionNumber}",
-            new { scope = "item", versionId = request.VersionId, versionNumber = version.VersionNumber, itemId = request.ItemId }));
-        await _context.SaveChangesAsync(cancellationToken);
+        // [AUDIT-LOG B5] xóa + ActionLog trong CÙNG transaction (commit 1 lần).
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Delete, t, request.CurrentUserId,
+                $"Xóa hạng mục \"{name}\" khỏi version {version.VersionNumber}",
+                new { scope = "item", versionId = request.VersionId, versionNumber = version.VersionNumber, itemId = request.ItemId }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
         return new DeleteChecklistItemResult(true, "Item deleted.");
     }
 }
@@ -355,13 +365,16 @@ public class AddStandardParamCommandHandler : IRequestHandler<AddStandardParamCo
             Unit = request.Unit
         };
         _context.MaintenanceStandardParams.Add(param);
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Create, t, request.CurrentUserId,
-            $"Thêm tiêu chuẩn \"{param.ParamName}\" vào hạng mục \"{item.Name}\" (version {version.VersionNumber})",
-            new { scope = "param", versionId = request.VersionId, versionNumber = version.VersionNumber, itemId = request.ItemId, paramId = param.Id }));
-        await _context.SaveChangesAsync(cancellationToken);
+        // [AUDIT-LOG B5] param + ActionLog trong CÙNG transaction (commit 1 lần).
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Create, t, request.CurrentUserId,
+                $"Thêm tiêu chuẩn \"{param.ParamName}\" vào hạng mục \"{item.Name}\" (version {version.VersionNumber})",
+                new { scope = "param", versionId = request.VersionId, versionNumber = version.VersionNumber, itemId = request.ItemId, paramId = param.Id }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
 
         return new AddStandardParamResult(true, "Created.",
             ParamId: param.Id, ParamName: param.ParamName, NominalValue: param.NominalValue,
@@ -415,26 +428,29 @@ public class UpdateStandardParamCommandHandler : IRequestHandler<UpdateStandardP
         if (request.ThresholdValue.HasValue) param.ThresholdValue = request.ThresholdValue.Value;
         if (request.CheckMethod is not null) param.CheckMethod = request.CheckMethod;
         if (request.Unit is not null) param.Unit = request.Unit;
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Update, t, request.CurrentUserId,
-            $"Sửa tiêu chuẩn \"{param.ParamName}\" (version {version.VersionNumber})", new
-            {
-                scope = "param",
-                versionId = request.VersionId,
-                versionNumber = version.VersionNumber,
-                itemId = request.ItemId,
-                paramId = request.ParamId,
-                changes = new
+        // [AUDIT-LOG B5] dữ liệu + ActionLog trong CÙNG transaction (commit 1 lần).
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Update, t, request.CurrentUserId,
+                $"Sửa tiêu chuẩn \"{param.ParamName}\" (version {version.VersionNumber})", new
                 {
-                    paramName = new { old = before.ParamName, @new = param.ParamName },
-                    nominalValue = new { old = before.NominalValue, @new = param.NominalValue },
-                    thresholdOperator = new { old = before.ThresholdOperator.ToString(), @new = param.ThresholdOperator.ToString() },
-                    thresholdValue = new { old = before.ThresholdValue, @new = param.ThresholdValue }
-                }
-            }));
-        await _context.SaveChangesAsync(cancellationToken);
+                    scope = "param",
+                    versionId = request.VersionId,
+                    versionNumber = version.VersionNumber,
+                    itemId = request.ItemId,
+                    paramId = request.ParamId,
+                    changes = new
+                    {
+                        paramName = new { old = before.ParamName, @new = param.ParamName },
+                        nominalValue = new { old = before.NominalValue, @new = param.NominalValue },
+                        thresholdOperator = new { old = before.ThresholdOperator.ToString(), @new = param.ThresholdOperator.ToString() },
+                        thresholdValue = new { old = before.ThresholdValue, @new = param.ThresholdValue }
+                    }
+                }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
 
         return new UpdateStandardParamResult(true, "Param updated.");
     }
@@ -476,13 +492,16 @@ public class DeleteStandardParamCommandHandler : IRequestHandler<DeleteStandardP
 
         var name = param.ParamName;
         _context.MaintenanceStandardParams.Remove(param);
-        await _context.SaveChangesAsync(cancellationToken);
 
-        _actionLogService.Log(MaintenanceTemplateLogging.Build(
-            ActionType.Delete, t, request.CurrentUserId,
-            $"Xóa tiêu chuẩn \"{name}\" khỏi hạng mục (version {version.VersionNumber})",
-            new { scope = "param", versionId = request.VersionId, versionNumber = version.VersionNumber, itemId = request.ItemId, paramId = request.ParamId }));
-        await _context.SaveChangesAsync(cancellationToken);
+        // [AUDIT-LOG B5] xóa + ActionLog trong CÙNG transaction (commit 1 lần).
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(MaintenanceTemplateLogging.Build(
+                ActionType.Delete, t, request.CurrentUserId,
+                $"Xóa tiêu chuẩn \"{name}\" khỏi hạng mục (version {version.VersionNumber})",
+                new { scope = "param", versionId = request.VersionId, versionNumber = version.VersionNumber, itemId = request.ItemId, paramId = request.ParamId }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
         return new DeleteStandardParamResult(true, "Param deleted.");
     }
 }

@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Persistence;
 using aspire_react.Server.Application.Maintenance;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -85,21 +86,24 @@ public class CompleteCampaignCommandHandler : IRequestHandler<CompleteCampaignCo
             c.SystemInfo = await _context.SystemInfos.FindAsync(new object?[] { c.SystemInfoId }, cancellationToken);
         if (c.SystemInfo != null) c.SystemInfo.NextMaintenanceDueDate = due;
 
-        await _context.SaveChangesAsync(cancellationToken);
-
-        _actionLogService.Log(CampaignAccess.BuildLog(
-            ActionType.Complete, c, request.CurrentUserId,
-            $"Hoàn thành đợt bảo dưỡng cho hệ thống \"{c.SystemInfo?.Name ?? c.SystemInfoId.ToString()}\"", new
-            {
-                changes = new
+        // [AUDIT-LOG B5] campaign (+ SystemInfo.NextMaintenanceDueDate) + ActionLog trong CÙNG
+        // transaction (commit 1 lần) — trước đây 2 SaveChanges rời nhau, mất nhật ký nếu bước 2 đổ.
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            _actionLogService.Log(CampaignAccess.BuildLog(
+                ActionType.Complete, c, request.CurrentUserId,
+                $"Hoàn thành đợt bảo dưỡng cho hệ thống \"{c.SystemInfo?.Name ?? c.SystemInfoId.ToString()}\"", new
                 {
-                    status = new { old = MaintenanceCampaignStatus.InProgress.ToString(), @new = MaintenanceCampaignStatus.Completed.ToString() },
-                    endDate = new { old = (DateTime?)null, @new = endDate },
-                    nextMaintenanceDueDate = new { old = prevDue, @new = due },
-                    reviewerId = new { old = (Guid?)null, @new = c.ReviewerId }
-                }
-            }));
-        await _context.SaveChangesAsync(cancellationToken);
+                    changes = new
+                    {
+                        status = new { old = MaintenanceCampaignStatus.InProgress.ToString(), @new = MaintenanceCampaignStatus.Completed.ToString() },
+                        endDate = new { old = (DateTime?)null, @new = endDate },
+                        nextMaintenanceDueDate = new { old = prevDue, @new = due },
+                        reviewerId = new { old = (Guid?)null, @new = c.ReviewerId }
+                    }
+                }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
 
         return new CompleteCampaignOutcome(true,
             CampaignId: c.Id,

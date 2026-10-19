@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Persistence;
 using aspire_react.Server.Application.Maintenance;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -98,98 +99,121 @@ public class UpsertCampaignResultCommandHandler : IRequestHandler<UpsertCampaign
         }
 
         // ── Upsert + [BUG-D fix] concurrent-safe: see type doc. ──
+        // [AUDIT-LOG B5] Cả vòng upsert + ActionLog nằm trong CÙNG transaction, commit 1 lần.
+        // Vòng retry 23505 BẮT BUỘC dùng SAVEPOINT: trong Postgres một statement lỗi làm transaction
+        // "aborted" (mọi lệnh sau bị từ chối 25P02) — rollback về savepoint mới retry được.
         const int maxUpsertAttempts = 3;
         MaintenanceChecklistResult existing = null!;
         var isNew = false;
         string? oldMeasuredValue = null;
         bool? oldIsPass = null;
         string? oldNotes = null;
-        for (var attempt = 1; ; attempt++)
+        // Savepoint chỉ có nghĩa với provider quan hệ (Npgsql); InMemory (unit test) là no-op và không
+        // bao giờ đụng 23505 (không cưỡng chế unique index) nên bỏ qua an toàn.
+        var useSavepoints = _context.Database.IsRelational();
+        UpsertCampaignResultOutcome? conflictOutcome = null;
+
+        await DbTransaction.ExecuteAsync(_context, async tx =>
         {
-            existing = await _context.MaintenanceChecklistResults
-                .FirstOrDefaultAsync(r => r.CampaignId == id && r.DeviceSnapshotId == dto.DeviceSnapshotId && r.ChecklistItemId == dto.ChecklistItemId && r.StandardParamId == dto.StandardParamId, cancellationToken)
-                ?? null!;
-
-            isNew = false;
-            oldMeasuredValue = null;
-            oldIsPass = null;
-            oldNotes = null;
-            if (existing == null)
+            for (var attempt = 1; ; attempt++)
             {
-                isNew = true;
-                existing = new MaintenanceChecklistResult
+                var savepointName = $"upsert_attempt_{attempt}";
+                if (useSavepoints) await tx.CreateSavepointAsync(savepointName, cancellationToken);
+
+                existing = await _context.MaintenanceChecklistResults
+                    .FirstOrDefaultAsync(r => r.CampaignId == id && r.DeviceSnapshotId == dto.DeviceSnapshotId && r.ChecklistItemId == dto.ChecklistItemId && r.StandardParamId == dto.StandardParamId, cancellationToken)
+                    ?? null!;
+
+                isNew = false;
+                oldMeasuredValue = null;
+                oldIsPass = null;
+                oldNotes = null;
+                if (existing == null)
                 {
-                    CampaignId = id,
-                    DeviceSnapshotId = dto.DeviceSnapshotId,
-                    ChecklistItemId = dto.ChecklistItemId,
-                    StandardParamId = dto.StandardParamId,
-                    MeasuredValue = dto.MeasuredValue,
-                    IsPass = dto.IsPass ?? false,
-                    Notes = dto.Notes
-                };
-                _context.MaintenanceChecklistResults.Add(existing);
-            }
-            else
-            {
-                // Patch semantics (Task F/M1): absent field NEVER overwrites existing data.
-                oldMeasuredValue = existing.MeasuredValue;
-                oldIsPass = existing.IsPass;
-                oldNotes = existing.Notes;
-                if (dto.MeasuredValue is not null) existing.MeasuredValue = dto.MeasuredValue;
-                if (dto.IsPass.HasValue) existing.IsPass = dto.IsPass.Value;
-                if (dto.Notes is not null) existing.Notes = dto.Notes;
-            }
-
-            // [MC-10] Dòng gắn StandardParam → IsPass TỰ ĐỘNG = so sánh(MeasuredValue, Threshold) theo Operator.
-            // Không tin client gửi isPass (máy quyết định thay — đúng thiết kế đã chốt hướng a).
-            if (dto.StandardParamId.HasValue)
-            {
-                var param = await _context.MaintenanceStandardParams.AsNoTracking()
-                    .FirstAsync(p => p.Id == dto.StandardParamId.Value, cancellationToken);
-                existing.IsPass = MaintenanceChecklistRules.TryParseMeasured(existing.MeasuredValue, out var mv)
-                    ? MaintenanceChecklistRules.EvaluateThreshold(param.ThresholdOperator, param.ThresholdValue, mv)
-                    : false; // chưa có giá trị đo → chưa xác định (UI hiện "Chưa xác định" dựa trên MeasuredValue rỗng)
-            }
-
-            try
-            {
-                await _context.SaveChangesAsync(cancellationToken);
-                break; // ghi thành công (Create hoặc Update)
-            }
-            catch (DbUpdateException ex) when (isNew
-                && ex.InnerException is Npgsql.PostgresException pg
-                && pg.SqlState == Npgsql.PostgresErrorCodes.UniqueViolation)
-            {
-                // [BUG-D] Request khác vừa insert cùng key → detach bản ghi fail, retry:
-                // vòng kế tiếp re-read sẽ thấy row và merge (nhánh Update).
-                _context.Entry(existing).State = EntityState.Detached;
-                if (attempt >= maxUpsertAttempts)
-                    return new UpsertCampaignResultOutcome(false, "RESULT_CONCURRENT_WRITE", IsConflict: true);
-            }
-        }
-
-        // [BUG-B fix] ActionLog cho ghi/xóa kết quả checklist — cùng format LogCampaignAction
-        // (ItemType.MaintenanceCampaign + TargetSystemInfo) như Create/Complete ở trên.
-        // Auto-IsPass là giá trị máy tính (post-MC-10), đo được trong LogMeta để truy vết.
-        _actionLogService.Log(CampaignAccess.BuildLog(
-            isNew ? ActionType.Create : ActionType.Update, c, request.CurrentUserId,
-            isNew
-                ? $"Ghi kết quả checklist đợt \"{(c.SystemInfo?.Name ?? c.SystemInfoId.ToString())}\""
-                : $"Cập nhật kết quả checklist đợt \"{(c.SystemInfo?.Name ?? c.SystemInfoId.ToString())}\"",
-            new
-            {
-                campaignId = c.Id,
-                deviceSnapshotId = dto.DeviceSnapshotId,
-                checklistItemId = dto.ChecklistItemId,
-                standardParamId = dto.StandardParamId,
-                changes = new
-                {
-                    measuredValue = new { old = oldMeasuredValue, @new = existing.MeasuredValue },
-                    isPass = new { old = oldIsPass, @new = existing.IsPass },
-                    notes = new { old = oldNotes, @new = existing.Notes }
+                    isNew = true;
+                    existing = new MaintenanceChecklistResult
+                    {
+                        CampaignId = id,
+                        DeviceSnapshotId = dto.DeviceSnapshotId,
+                        ChecklistItemId = dto.ChecklistItemId,
+                        StandardParamId = dto.StandardParamId,
+                        MeasuredValue = dto.MeasuredValue,
+                        IsPass = dto.IsPass ?? false,
+                        Notes = dto.Notes
+                    };
+                    _context.MaintenanceChecklistResults.Add(existing);
                 }
-            }));
-        await _context.SaveChangesAsync(cancellationToken);
+                else
+                {
+                    // Patch semantics (Task F/M1): absent field NEVER overwrites existing data.
+                    oldMeasuredValue = existing.MeasuredValue;
+                    oldIsPass = existing.IsPass;
+                    oldNotes = existing.Notes;
+                    if (dto.MeasuredValue is not null) existing.MeasuredValue = dto.MeasuredValue;
+                    if (dto.IsPass.HasValue) existing.IsPass = dto.IsPass.Value;
+                    if (dto.Notes is not null) existing.Notes = dto.Notes;
+                }
+
+                // [MC-10] Dòng gắn StandardParam → IsPass TỰ ĐỘNG = so sánh(MeasuredValue, Threshold) theo Operator.
+                // Không tin client gửi isPass (máy quyết định thay — đúng thiết kế đã chốt hướng a).
+                if (dto.StandardParamId.HasValue)
+                {
+                    var param = await _context.MaintenanceStandardParams.AsNoTracking()
+                        .FirstAsync(p => p.Id == dto.StandardParamId.Value, cancellationToken);
+                    existing.IsPass = MaintenanceChecklistRules.TryParseMeasured(existing.MeasuredValue, out var mv)
+                        ? MaintenanceChecklistRules.EvaluateThreshold(param.ThresholdOperator, param.ThresholdValue, mv)
+                        : false; // chưa có giá trị đo → chưa xác định (UI hiện "Chưa xác định" dựa trên MeasuredValue rỗng)
+                }
+
+                try
+                {
+                    await _context.SaveChangesAsync(cancellationToken);
+                    break; // ghi thành công (Create hoặc Update)
+                }
+                catch (DbUpdateException ex) when (isNew
+                    && ex.InnerException is Npgsql.PostgresException pg
+                    && pg.SqlState == Npgsql.PostgresErrorCodes.UniqueViolation)
+                {
+                    // [BUG-D] Request khác vừa insert cùng key → rollback savepoint (đưa transaction về
+                    // trạng thái dùng được), detach bản ghi fail, retry: vòng kế tiếp re-read sẽ thấy row
+                    // (do request khác insert) và merge qua nhánh Update.
+                    if (useSavepoints) await tx.RollbackToSavepointAsync(savepointName, cancellationToken);
+                    _context.Entry(existing).State = EntityState.Detached;
+                    if (attempt >= maxUpsertAttempts)
+                    {
+                        conflictOutcome = new UpsertCampaignResultOutcome(false, "RESULT_CONCURRENT_WRITE", IsConflict: true);
+                        return;
+                    }
+                }
+            }
+
+            // [BUG-B fix] ActionLog cho ghi/xóa kết quả checklist — cùng format LogCampaignAction
+            // (ItemType.MaintenanceCampaign + TargetSystemInfo) như Create/Complete ở trên.
+            // Auto-IsPass là giá trị máy tính (post-MC-10), đo được trong LogMeta để truy vết.
+            // [AUDIT-LOG B5] log + dữ liệu cùng transaction ⇒ đổ ở bước log là rollback hết.
+            _actionLogService.Log(CampaignAccess.BuildLog(
+                isNew ? ActionType.Create : ActionType.Update, c, request.CurrentUserId,
+                isNew
+                    ? $"Ghi kết quả checklist đợt \"{(c.SystemInfo?.Name ?? c.SystemInfoId.ToString())}\""
+                    : $"Cập nhật kết quả checklist đợt \"{(c.SystemInfo?.Name ?? c.SystemInfoId.ToString())}\"",
+                new
+                {
+                    campaignId = c.Id,
+                    deviceSnapshotId = dto.DeviceSnapshotId,
+                    checklistItemId = dto.ChecklistItemId,
+                    standardParamId = dto.StandardParamId,
+                    changes = new
+                    {
+                        measuredValue = new { old = oldMeasuredValue, @new = existing.MeasuredValue },
+                        isPass = new { old = oldIsPass, @new = existing.IsPass },
+                        notes = new { old = oldNotes, @new = existing.Notes }
+                    }
+                }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
+
+        if (conflictOutcome != null)
+            return conflictOutcome;
 
         return new UpsertCampaignResultOutcome(true, IsCreate: isNew, Record: new UpsertCampaignResultRecord(
             existing.Id, existing.DeviceSnapshotId, existing.ChecklistItemId, existing.StandardParamId,
@@ -235,22 +259,24 @@ public class DeleteCampaignResultCommandHandler : IRequestHandler<DeleteCampaign
             return new DeleteCampaignResultOutcome(false, "RESULT_NOT_FOUND");
 
         _context.MaintenanceChecklistResults.Remove(result);
-        await _context.SaveChangesAsync(cancellationToken);
 
-        // [BUG-B fix] ActionLog cho xóa kết quả checklist — đủ dữ liệu truy vết bản ghi đã xóa.
-        _actionLogService.Log(CampaignAccess.BuildLog(
-            ActionType.Delete, c, request.CurrentUserId,
-            $"Xóa kết quả checklist đợt \"{(c.SystemInfo?.Name ?? c.SystemInfoId.ToString())}\"",
-            new
-            {
-                campaignId = c.Id,
-                deviceSnapshotId = dto.DeviceSnapshotId,
-                checklistItemId = dto.ChecklistItemId,
-                standardParamId = dto.StandardParamId,
-                deleted = new { measuredValue = result.MeasuredValue, isPass = result.IsPass, notes = result.Notes }
-            }));
-        await _context.SaveChangesAsync(cancellationToken);
-
+        // [AUDIT-LOG B5] xóa kết quả + ActionLog trong CÙNG transaction (commit 1 lần).
+        await DbTransaction.ExecuteAsync(_context, async _ =>
+        {
+            // [BUG-B fix] ActionLog cho xóa kết quả checklist — đủ dữ liệu truy vết bản ghi đã xóa.
+            _actionLogService.Log(CampaignAccess.BuildLog(
+                ActionType.Delete, c, request.CurrentUserId,
+                $"Xóa kết quả checklist đợt \"{(c.SystemInfo?.Name ?? c.SystemInfoId.ToString())}\"",
+                new
+                {
+                    campaignId = c.Id,
+                    deviceSnapshotId = dto.DeviceSnapshotId,
+                    checklistItemId = dto.ChecklistItemId,
+                    standardParamId = dto.StandardParamId,
+                    deleted = new { measuredValue = result.MeasuredValue, isPass = result.IsPass, notes = result.Notes }
+                }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
         return new DeleteCampaignResultOutcome(true);
     }
 }
