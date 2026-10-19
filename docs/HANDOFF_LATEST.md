@@ -3944,3 +3944,71 @@ Code là nguồn sự thật và code ĐÚNG; các chỗ lệch là **tài liệ
 - Nhóm ThrowawayDb: **719/719 PASS**.
 - DB tạm dùng container riêng `auditlog9-pg` (cổng 55449) — **đã xoá** sau khi xong; API/Vite tạm (nếu có)
   không dùng cổng dev 5428/5173.
+
+## 2026-10-19 — AUDIT-LOG GĐ2 (B7b: bánh cóc theo HÀNH VI + gộp `changes`) & GĐ3 (Note tiếng Việt)
+
+> **Đã xong GĐ2 và GĐ3 — AUDIT-LOG B2–B7 hoàn tất. B8 (auto-changes từ EF ChangeTracker) VẪN KHÔNG làm
+> (ngoài phạm vi được giao).** Commit: GĐ1 `6217612` + handoff `89241cf`, GĐ2+GĐ3 **`11fb471`**.
+
+### GĐ2.4 — Bánh cóc THEO HÀNH VI (thay heuristic tìm chữ trong file)
+- Thêm `aspire-react.Tests/ActionLogBehaviorRatchetTests.cs`: chạy THẬT **31 command** ghi dữ liệu
+  (Update/Upsert/Set + Close/Inspect/Reopen) với dữ liệu thật trên InMemory → đọc `action_logs.LogMeta`
+  → parse JSON → khẳng định `changes.<field>.old` là **giá trị CŨ thật** và `.new` là giá trị mới.
+- Bánh cóc 2 chiều: (1) spec chạy thật; (2) **phủ sóng** — mọi command trong phạm vi quét PHẢI có spec,
+  thêm command mới mà quên ⇒ FAIL. **Đã xoá `ActionLogMetaRatchetTests.cs`** (cách cũ) và **xoá nốt
+  ngoại lệ cuối `UpdateComponentUnitStatusCommand`** — hiện **không còn danh sách Exempt**.
+- **Probe âm đã chứng minh (2 chiều, rồi gỡ):**
+  - (a) `UpdateRatchetProbeCommand` có spec nhưng LogMeta `{"foo":1}` (thiếu wrapper) ⇒ FAIL
+    `UpdateRatchetProbeCommand: LogMeta thiếu wrapper 'changes' (meta={"foo":1})`.
+  - (b) giữ command nhưng bỏ spec ⇒ FAIL `Command ghi dữ liệu CHƯA có spec hành vi: UpdateRatchetProbeCommand`.
+  - Gỡ probe ⇒ **2/2 PASS**.
+- `TestHelpers.BuildMediator` đăng ký thêm `IPermissionLockoutGuard` (3 handler User/UserGroups/
+  GroupPermissions cần).
+
+### GĐ2.5 — Gộp 28 chỗ `changes` viết tay về `ActionLogChanges`
+Danh sách command đã chuyển: Update Department · Location · Category · Company · CustomField · Group ·
+GroupPermissions · UserGroups · Accessory · Asset · SystemInfo · SystemPosition · Model ·
+MaintenanceTemplate · StandardParam · TemplateVersion; Checkout/Checkin/Archive/Unarchive/Confirm/
+CorrectInstallation (Asset); Checkout/Checkin (Accessory); Complete + UpsertResult (Campaign);
+SetAssetTagFormat; SetPasskeysEnabled.
+
+**Khác biệt CÓ CHỦ ĐÍCH so với LogMeta cũ:** (i) tên field **snake_case**; (ii) field **không đổi bị bỏ**
+(hết noise `old == new`; PUT không đổi gì ⇒ `LogMeta = null`); (iii) DateTime **UTC có `Z`**; (iv) tập hợp
+(`permissions`, `group_ids`) coi như không đổi khi chỉ đổi thứ tự.
+
+**BUG-P phát hiện khi gộp — `CheckoutAssetCommand`:** khối `oldSnapshot` được chụp **SAU** khi gán
+`LocationId`/`SystemPositionId` ⇒ log ghi `old` = **giá trị MỚI** (mất dấu đổi vị trí trong audit). Đã dời
+snapshot lên **TRƯỚC** đoạn gán; old nay là giá trị cũ thật. Không đổi thứ tự guard/row-lock/nghiệp vụ.
+
+### GĐ2.6 — FE sau khi gộp
+- `ActionLogTable.CHANGE_LABELS` thêm ~48 nhãn tiếng Việt cho field snake_case mới (`name`, `asset_tag`,
+  `serial`, `status`, `purchase_cost`, `effective_from`, `param_name`, `measured_value`, `group_ids`, …).
+- **Verify UI THẬT** (DB tạm container riêng, API `127.0.0.1:5506`, Vite **5174** qua `npm run dev --
+  --port 5174` — BUG-R đã sửa ở GĐ1; **không** dùng cổng dev 5428/5173): trang chi tiết thiết bị → tab
+  "Lịch sử" hiển thị đúng `Tên: … → …`, `Trạng thái: Chờ cấp phát → Đã cấp phát`,
+  `Vị trí: Loc GD2`, `Đã cấp phát → Chờ cấp phát`. Ảnh 1440: `screenshots/gd2-audit-log-asset-1440.png`.
+- **LogMeta thật lấy từ DB tạm (command đã gộp):**
+  - Update asset: `{"changes":{"name":{"old":"Asset gd2-223906","new":"Asset gd2-223906 (renamed)"}}}`
+  - Checkout: `{"changes":{"current_assignment_id":{"old":null,"new":"…"},"status":{"old":"Pending","new":"Deployed"}}}`
+  - Checkin: `…"status":{"old":"Deployed","new":"Pending"},"location_id":{"old":null,"new":"…"}…`
+  - Archive: `{"changes":{"status":{"old":"Pending","new":"Archived"}}}`
+
+### GĐ3 — Note tiếng Anh → tiếng Việt (nhật ký CŨ trong DB giữ nguyên, không backfill)
+- **Group:** `Created/Updated/Deleted group` → `Tạo/Cập nhật/Xóa nhóm`; `Group updated.` → `Cập nhật nhóm`;
+  `Group permissions updated: X` → `Cập nhật quyền nhóm "X"`.
+- **Accessory:** `Created/Updated/Deleted accessory` → `Tạo/Cập nhật/Xóa phụ kiện` (giữ `(#ItemNo)`).
+- **Asset:** `Created/Updated/Deleted/Confirmed asset` → `Tạo/Cập nhật/Xóa/Xác nhận thiết bị`;
+  `Asset archived/unarchived` → `Lưu trữ thiết bị` / `Bỏ lưu trữ thiết bị`;
+  `Update blocked (confirmed asset)` → `Cập nhật bị từ chối (thiết bị đã xác nhận)`.
+- **User:** `Created/Updated/Deactivated user` → `Tạo/Cập nhật/Vô hiệu hoá người dùng`;
+  `User group assignments updated.` → `Cập nhật nhóm của người dùng`.
+- **Consumable:** `Created/Updated/Deleted/Confirmed consumable` → `Tạo/Cập nhật/Xóa/Đã xác nhận vật tư`.
+- Test assert note tiếng Anh đã cập nhật: `AccessoryTests` (`Cập nhật phụ kiện`), `GroupLockoutWireTests`
+  (`Cập nhật quyền nhóm "PermsReplace"`).
+
+### Gates & test (GĐ2+GĐ3)
+- `scripts/precommit-gates.ps1`: **PASS 6/6** (gồm Sweep 5 với luật mới của GĐ1).
+- Bộ test mặc định: **690 passed / 30 skipped / 0 failed** (720 total; +2 test mới, −1 test cũ bị thay).
+- Nhóm ThrowawayDb trên **DB TRẮNG** (container mới `auditlog11-pg`, cổng 55451, **không** khởi động API
+  trước): **720/720 PASS** (`logs/trx/gd23-throwaway.trx`) — xác nhận lại cơ chế migration-một-lần của GĐ1.
+- DB tạm container riêng, fixture tạo/dọn **qua API**; đã xoá container sau khi xong.
