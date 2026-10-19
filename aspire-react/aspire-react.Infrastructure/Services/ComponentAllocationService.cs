@@ -1,4 +1,5 @@
 using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -349,7 +350,9 @@ public class ComponentAllocationService : IComponentAllocationService
         if (userCompanyId.HasValue && unitCompanyId.HasValue && unitCompanyId.Value != userCompanyId.Value)
             return new ComponentOperationResult(false, "ComponentUnit not found.", "NOT_FOUND");
 
-        var before = unit.Status.ToString();
+        // [AUDIT-LOG B3] Chụp status CŨ TRƯỚC khi gán + LogMeta đúng schema {"changes":{...}}
+        // (trước đây là {"before","after","serialNo"} ⇒ timeline/formatLogDetail không đọc được).
+        var changes = new ActionLogChanges().Track("status", unit.Status);
         unit.Status = status;
         unit.UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
         // A unit that is damaged/disposed is no longer on any asset.
@@ -371,7 +374,7 @@ public class ComponentAllocationService : IComponentAllocationService
             CreatedBy = createdById,
             CompanyId = unit.Component?.CompanyId,
             Note = note,
-            LogMeta = JsonSerializer.Serialize(new { before, after = status.ToString(), serialNo = unit.SerialNo })
+            LogMeta = changes.Set("status", unit.Status).ToLogMeta()
         });
 
         await _context.SaveChangesAsync(ct);

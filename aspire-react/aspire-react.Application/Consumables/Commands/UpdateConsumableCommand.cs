@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -69,8 +69,11 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
                 return new ConsumableResult(false,
                     $"Không thể sửa các trường: {string.Join(", ", locked)}. Vật tư đã xác nhận — chỉ Vị trí và Ghi chú được phép sửa.",
                     "CONFIRMED_CONSUMABLE_LOCKED");
-            var oldLocationId = c.LocationId;
-            var oldNotes = c.Notes;
+            // [AUDIT-LOG B3] Vật tư ĐÃ XÁC NHẬN ⇒ chỉ Location + Notes sửa được, nên `changes`
+            // chỉ chứa đúng 2 field này (trước đây thiếu wrapper "changes" ⇒ timeline không đọc được).
+            var changes = new ActionLogChanges()
+                .Track("locationId", c.LocationId)
+                .Track("notes", c.Notes);
             if (request.LocationId is not null) c.LocationId = request.LocationId;
             if (request.Notes is not null) c.Notes = request.Notes;
             _actionLogService.LogAction(
@@ -79,11 +82,7 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
                 actionType: ActionType.Update,
                 loggedByUserId: request.CurrentUserId,
                 note: $"Updated consumable: {c.Name}",
-                logMeta: JsonSerializer.Serialize(new
-                {
-                    locationId = new { old = oldLocationId, @new = c.LocationId },
-                    notes = new { old = oldNotes, @new = c.Notes }
-                }),
+                logMeta: changes.Set("locationId", c.LocationId).Set("notes", c.Notes).ToLogMeta(),
                 companyId: c.CompanyId);
         }
         else
@@ -95,9 +94,26 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
                 && await _context.ConsumableCheckouts.AnyAsync(ch => ch.ConsumableId == request.Id, cancellationToken))
                 return new ConsumableResult(false, "Vật tư đã từng được cấp phát — không thể đổi công ty.", "FIELD_LOCKED");
 
+            // [AUDIT-LOG B3] Chụp giá trị CŨ của ĐỦ 15 field patch được TRƯỚC khi gán ⇒ LogMeta.changes.
+            // [BUG-P FIX] `minAmt` trước đây chụp sau khi gán nên old == new (mất thông tin).
+            var changes = new ActionLogChanges()
+                .Track("name", c.Name)
+                .Track("itemNo", c.ItemNo)
+                .Track("qty", c.Qty)
+                .Track("minAmt", c.MinAmt)
+                .Track("categoryId", c.CategoryId)
+                .Track("manufacturerId", c.ManufacturerId)
+                .Track("supplierId", c.SupplierId)
+                .Track("locationId", c.LocationId)
+                .Track("companyId", c.CompanyId)
+                .Track("modelNumber", c.ModelNumber)
+                .Track("orderNumber", c.OrderNumber)
+                .Track("purchaseCost", c.PurchaseCost)
+                .Track("purchaseDate", c.PurchaseDate)
+                .Track("notes", c.Notes)
+                .Track("image", c.Image);
+
             // ─── Patch semantics (Task M1, mirroring Task F Asset): only fields explicitly sent are applied.
-            var oldName = c.Name;
-            var oldQty = c.Qty;
             if (!string.IsNullOrWhiteSpace(request.Name)) c.Name = request.Name;
             if (request.ItemNo is not null) c.ItemNo = request.ItemNo;
             if (request.Qty.HasValue) c.Qty = request.Qty.Value;
@@ -120,12 +136,23 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
                 actionType: ActionType.Update,
                 loggedByUserId: request.CurrentUserId,
                 note: $"Updated consumable: {c.Name}",
-                logMeta: JsonSerializer.Serialize(new
-                {
-                    name = new { old = oldName, @new = c.Name },
-                    qty = new { old = oldQty, @new = c.Qty },
-                    minAmt = new { old = c.MinAmt, @new = c.MinAmt }
-                }),
+                logMeta: changes
+                    .Set("name", c.Name)
+                    .Set("itemNo", c.ItemNo)
+                    .Set("qty", c.Qty)
+                    .Set("minAmt", c.MinAmt)
+                    .Set("categoryId", c.CategoryId)
+                    .Set("manufacturerId", c.ManufacturerId)
+                    .Set("supplierId", c.SupplierId)
+                    .Set("locationId", c.LocationId)
+                    .Set("companyId", c.CompanyId)
+                    .Set("modelNumber", c.ModelNumber)
+                    .Set("orderNumber", c.OrderNumber)
+                    .Set("purchaseCost", c.PurchaseCost)
+                    .Set("purchaseDate", c.PurchaseDate)
+                    .Set("notes", c.Notes)
+                    .Set("image", c.Image)
+                    .ToLogMeta(),
                 companyId: c.CompanyId);
         }
         await _context.SaveChangesAsync(cancellationToken);

@@ -79,6 +79,8 @@
    - **Tiêu chí nghiệm thu:** bỏ 2 helper mà `AssetTimelineQueryTests` + phân trang cursor trên **DB thật**
      vẫn PASS, và mốc `occurredAt` trả ra vẫn có `Z` đúng như trước.
 4. **BUG-S — `UpdateMaintenanceCommand` ghi ActionLog Update nhưng KHÔNG có `LogMeta.changes`**
+   *(✅ RESOLVED 2026-10-19 — AUDIT-LOG **B2**, commit `921fc29`: handler dùng `ActionLogChanges`, `LogMeta`
+   gồm 7 field whitelist + **danh sách assignee old/new**; đã verify PUT thật trên DB tạm.)*
    (phát hiện 2026-10-19 khi verify MT-TZ Bước 3 trên DB tạm: dòng `action_logs` Update của bảo trì có
    `LogMeta = NULL` trong khi convention §3.2 yêu cầu `{ changes: { field: { old, new } } }` cho mọi Update).
    - **Hiện trạng:** `BuildLogEntry` (`Application/AssetMaintenances/Commands/UpdateMaintenanceCommand.cs`
@@ -90,6 +92,18 @@
    - **Tiêu chí nghiệm thu:** PUT bảo trì thật (đổi ≥1 field) ⇒ `LogMeta` có dạng
      `{"changes":{"title":{"old":…,"new":…}}}` với `old` **chụp TRƯỚC khi gán**; test unit chứng minh
      old ≠ new khi đổi thật; timeline hiện đúng field thay đổi.
+
+5. **Flaky lớp `WebAuthnCeremonyTests` khi chạy TOÀN BỘ suite song song** (phát hiện 2026-10-19 ở
+   AUDIT-LOG B2, tái diễn ở B3):
+   - **Hiện trạng (đo được):** trong `dotnet test … --filter "Category!=Concurrency"` đã có **2 lần FAIL
+     với 2 test KHÁC NHAU** trong cùng lớp — `Assertion_Discoverable_NoUsername_WorksWithUserHandle` (B2,
+     lần chạy ThrowawayDb đầu) và `Assertion_Ceremony_Verifies_And_Advances_Counter` (B3, gate 3). Chạy
+     RIÊNG lớp này: **7/7 PASS × 3 lần liên tiếp**; chạy lại cả bộ (cùng lệnh, cùng binary) ⇒ PASS
+     (669/669 ở B2; 666/666 và 678/678 ở B3). Không liên quan thay đổi đang làm (không chạm WebAuthn) —
+     kết luận: **state dùng chung giữa các test ceremony khi xUnit chạy song song với lớp khác**.
+   - **Việc cần làm:** tìm state dùng chung (challenge/counter/credential dùng lại — có thể là static hoặc
+     cùng tên InMemory DB) và cô lập (collection riêng / tắt song song cho lớp ceremony).
+   - **Tiêu chí nghiệm thu:** chạy TOÀN BỘ suite **10 lần liên tiếp ⇒ 0 FAIL** ở lớp này.
 
 ### 🧾 AUDIT-LOG — kế hoạch sửa `LogMeta.changes` (audit Bước 1 ngày 2026-10-19)
 
@@ -118,13 +132,22 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
    - **Tiêu chí nghiệm thu:** test đơn vị helper (14) + test 3 command (6: đổi 1 field ⇒ old là giá trị CŨ
      thật, không đổi ⇒ `LogMeta` null, serial không bị lộ) + ratchet xanh; PUT thật trên DB tạm cho cả 3
      command ra `LogMeta` đúng.
-2. **B3 — sửa schema sai**: `UpdateConsumableCommand` (cả 2 nhánh: thiếu wrapper `changes`, chỉ 3/15 field,
-   `minAmt` old==new) + `ComponentAllocationService.SetUnitStatus` (`{before, after}` → `changes`).
-   - **Tiêu chí nghiệm thu:** `LogMeta` parse được bởi `AssetTimelineQuery` (`changes`), có test; xóa 2 mục
-     khỏi `Exempt` của ratchet.
-3. **B4 — diệt BUG-P còn lại**: `UpdateManufacturerCommand`/`UpdateSupplierCommand` (chụp `before` khi
-   `code`/`name` đã bị gán ⇒ "old" = "new").
-   - **Tiêu chí nghiệm thu:** test: đổi code/name ⇒ `old` là giá trị cũ thật.
+2. **B3 — sửa schema sai** *(✅ XONG — commit local B3+B4, 2026-10-19)*: `UpdateConsumableCommand` cả 2
+   nhánh dùng `ActionLogChanges` (nhánh Confirmed: chỉ `location_id`/`notes`; nhánh Unconfirmed: **đủ 15
+   field**, `minAmt` chụp old TRƯỚC khi gán — hết BUG-P) + `ComponentAllocationService.SetUnitStatusAsync`
+   (`{before, after, serialNo}` → `{"changes":{"status":{"old":…,"new":…}}}`); **đã xóa cả 2 mục khỏi
+   `Exempt`**.
+   - **Ratchet mở rộng phạm vi** sang tiền tố `Update/Upsert/Set/Edit/Patch/Close/Inspect/Reopen` + thêm
+     canary chống thu hẹp phạm vi ⇒ **không lộ command vi phạm mới** (`SetAssetTagFormat`/
+     `SetPasskeysEnabled`/`UpsertCampaignResult` đều đã có `changes`).
+   - **Còn sót (⇒ B7):** `ComponentAllocationService` dòng ~130/~222 (Allocate/Return — action là
+     Checkout/Checkin, không phải Update) vẫn dùng `{before, after, serialNo}`.
+   - **Tiêu chí nghiệm thu:** test khẳng định `old` là giá trị cũ THẬT (đã có: 4 test Consumable + 1 unit
+     status); PUT/PATCH thật trên DB tạm ra `LogMeta` đúng.
+3. **B4 — diệt BUG-P còn lại** *(✅ XONG — commit local B3+B4, 2026-10-19)*:
+   `UpdateManufacturerCommand` (5 field) + `UpdateSupplierCommand` (12 field) — `Track()` chụp old TRƯỚC
+   mọi nhánh gán nên `code`/`name`/`url`/`city`… có old thật; gỡ cả mô tả "parity quirk" cũ trong file.
+   - **Tiêu chí nghiệm thu:** test: đổi code/name/url/city ⇒ `old` là giá trị cũ thật; PUT thật trên DB tạm.
 4. **B5 — log cùng transaction với dữ liệu**: MaintenanceTemplates (mọi handler) + MaintenanceCampaigns
    (Create/Complete/UpsertResult/DeleteResult) đang `SaveChanges` → log → `SaveChanges` KHÔNG bọc
    transaction ⇒ gói vào `CreateExecutionStrategy + BeginTransaction`, log trước khi commit
@@ -138,6 +161,11 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
    master data bằng `ActionLogChanges` để hết tình trạng "serialize cả field không đổi" (noise) và giữ 1
    đường duy nhất.
    - **Tiêu chí nghiệm thu:** grep không còn `new { changes` trong Application (ngoài helper); gates xanh.
+   - **[YÊU CẦU MỚI — 2026-10-19] Kiểm tra theo HÀNH VI thay vì tìm chữ `changes` trong file:** heuristic
+     của `ActionLogMetaRatchetTests` KHÔNG thấy được log viết trong SERVICE (không qua command) và không
+     kiểm được "đủ field / old có thật". B7 phải bổ sung test chạy command THẬT rồi soi
+     `action_logs.LogMeta` (parse JSON, so old/new) cho mọi command ghi dữ liệu — thay/bổ trợ phép quét chữ.
+   - **Sót cụ thể cần xử lý ở B7:** `ComponentAllocationService` dòng ~130/~222 (`{before, after, serialNo}`).
 7. **B8 (ĐỂ SAU) — lưới an toàn auto-changes trong `ActionLogBehavior`** từ EF `ChangeTracker`
    (`OriginalValue` vs `CurrentValue`) cho ~52 command `ILoggableCommand`: phủ 100% field kể cả khi thêm
    field mới, nhưng phải (a) map tên snake_case + cập nhật nhãn timeline, (b) denylist PII

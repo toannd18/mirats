@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
@@ -13,10 +13,10 @@ namespace aspire_react.Server.Application.Manufacturers.Commands;
 /// [Giai đoạn 2] PUT /api/v1/manufacturers/{id} (extracted from AdminController.UpdateManufacturer).
 /// Rule order + semantics verbatim (this section HAS dup-checks on Update — better than Category):
 /// Code (length re-check + dup `x.Id != id`) → Name (dup `x.Id != id`) → Url/SupportUrl/SupportEmail
-/// conditional. ⚠️ Parity quirk preserved: the `before` snapshot is captured AFTER Code/Name are
-/// assigned but BEFORE Url/SupportUrl/SupportEmail — so the Update LogMeta shows code/name
-/// old==new (they were already assigned) while url/supportUrl/supportEmail show true old→new.
-/// This is the pre-migration behavior, deliberately NOT corrected.
+/// conditional.
+/// [AUDIT-LOG B4 — BUG-P FIX] Old snapshot nay chụp TRƯỚC mọi nhánh gán (trước đây `before` chụp SAU
+/// khi Code/Name đã gán nên LogMeta ghi code/name old == new — mất giá trị cũ thật). Cả 5 field đi
+/// qua helper ActionLogChanges.
 /// Both behaviors opt-in: thin ActionLog + cache tag ref:manufacturers.
 /// </summary>
 public record UpdateManufacturerCommand(
@@ -62,6 +62,15 @@ public class UpdateManufacturerCommandHandler : IRequestHandler<UpdateManufactur
         if (m == null)
             return new ManufacturerResult(false, "Not found.", "NOT_FOUND");
 
+        // [AUDIT-LOG B4 — BUG-P FIX] Chụp giá trị CŨ của đủ 5 field TRƯỚC mọi nhánh gán.
+        // (Trước đây `before` chụp SAU khi Code/Name đã gán ⇒ LogMeta ghi code/name old == new.)
+        var changes = new ActionLogChanges()
+            .Track("code", m.Code)
+            .Track("name", m.Name)
+            .Track("url", m.Url)
+            .Track("supportUrl", m.SupportUrl)
+            .Track("supportEmail", m.SupportEmail);
+
         // Patch semantics + rules verbatim (order preserved).
         if (!string.IsNullOrWhiteSpace(request.Code))
         {
@@ -77,23 +86,18 @@ public class UpdateManufacturerCommandHandler : IRequestHandler<UpdateManufactur
                 return new ManufacturerResult(false, "Tên NSX đã tồn tại.");
             m.Name = request.Name;
         }
-        var before = new { m.Code, m.Name, m.Url, m.SupportUrl, m.SupportEmail };
         if (request.Url is not null) m.Url = request.Url;
         if (request.SupportUrl is not null) m.SupportUrl = request.SupportUrl;
         if (request.SupportEmail is not null) m.SupportEmail = request.SupportEmail;
         await _context.SaveChangesAsync(cancellationToken);
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                code = new { old = before.Code, @new = m.Code },
-                name = new { old = before.Name, @new = m.Name },
-                url = new { old = before.Url, @new = m.Url },
-                supportUrl = new { old = before.SupportUrl, @new = m.SupportUrl },
-                supportEmail = new { old = before.SupportEmail, @new = m.SupportEmail }
-            }
-        });
+        var logMeta = changes
+            .Set("code", m.Code)
+            .Set("name", m.Name)
+            .Set("url", m.Url)
+            .Set("supportUrl", m.SupportUrl)
+            .Set("supportEmail", m.SupportEmail)
+            .ToLogMeta();
 
         return new ManufacturerResult(
             true, "Updated.",

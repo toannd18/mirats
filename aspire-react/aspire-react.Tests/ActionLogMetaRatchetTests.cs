@@ -6,8 +6,9 @@ using Xunit;
 namespace aspire_react.Tests;
 
 /// <summary>
-/// [AUDIT-LOG B2] Test kiến trúc kiểu BÁNH CÓC cho `LogMeta.changes`:
-/// mọi command Update* (kể cả Close/Inspect/Reopen — nhóm chuyển trạng thái) phải có dấu hiệu ghi
+/// [AUDIT-LOG B2/B3] Test kiến trúc kiểu BÁNH CÓC cho `LogMeta.changes`:
+/// mọi request GHI DỮ LIỆU trong assembly Application — tên bắt đầu <c>Update/Upsert/Set/Edit/Patch</c>
+/// (field update) hoặc <c>Close/Inspect/Reopen</c> (chuyển trạng thái) — phải có dấu hiệu ghi
 /// `changes`, TRỪ danh sách ngoại lệ ghi tường minh dưới đây.
 ///
 /// <para>
@@ -18,10 +19,11 @@ namespace aspire_react.Tests;
 /// </para>
 ///
 /// <para>
-/// Phạm vi quét: các type request trong assembly Application có tên bắt đầu bằng Update/Close/Inspect/
-/// Reopen, rồi soi file khai báo tương ứng (heuristic cấp FILE: file chứa `ActionLogChanges` hoặc
-/// chuỗi `changes`). Heuristic này đủ để chặn hồi quy "quên LogMeta", nhưng nếu tách handler sang file
-/// khác thì phải cập nhật test này.
+/// <b>Hạn chế đã biết (⇒ backlog B7)</b>: phạm vi quét chỉ là các COMMAND, và phép kiểm là heuristic
+/// cấp FILE (file chứa `ActionLogChanges` hoặc chuỗi `changes`) — không kiểm được (a) log viết TRONG
+/// SERVICE (VD <c>ComponentAllocationService</c>) không qua command, (b) command ghi log nhưng thiếu
+/// field / sai giá trị old. B7 sẽ thay bằng kiểm tra theo HÀNH VI (chạy command thật rồi soi
+/// `action_logs`) thay vì tìm chữ "changes" trong file.
 /// </para>
 /// </summary>
 public class ActionLogMetaRatchetTests
@@ -32,9 +34,8 @@ public class ActionLogMetaRatchetTests
     /// </summary>
     private static readonly HashSet<string> Exempt = new(StringComparer.Ordinal)
     {
-        // [B3] UpdateConsumable: LogMeta đang SAI schema (thiếu wrapper "changes") + BUG-P minAmt.
-        "UpdateConsumableCommand",
-        // [B3] Log nằm trong ComponentAllocationService ({before, after}) — chưa bọc "changes".
+        // [B7] Command chỉ DELEGATE — log nằm trong ComponentAllocationService.SetUnitStatusAsync
+        // (đã bọc "changes" từ B3), file command không có dấu hiệu nào để soi.
         "UpdateComponentUnitStatusCommand",
         // Chuyển trạng thái (không phải field-update) — LogMeta không yêu cầu old/new.
         "CloseMaintenanceCommand",
@@ -42,7 +43,16 @@ public class ActionLogMetaRatchetTests
         "ReopenMaintenanceCommand",
     };
 
-    private static readonly string[] ScannedPrefixes = { "Update", "Close", "Inspect", "Reopen" };
+    /// <summary>Các tiền tố "ghi dữ liệu" được quét (mở rộng ở B3 — trước đó chỉ Update/Close/Inspect/Reopen).</summary>
+    private static readonly string[] ScannedPrefixes =
+        { "Update", "Upsert", "Set", "Edit", "Patch", "Close", "Inspect", "Reopen" };
+
+    /// <summary>Canary: nếu phạm vi quét bị thu hẹp/hỏng, các tên này phải còn xuất hiện.</summary>
+    private static readonly string[] ScopeCanaries =
+    {
+        "UpdateAssetCommand", "SetAssetTagFormatCommand", "SetPasskeysEnabledCommand",
+        "UpsertCampaignResultCommand", "CloseMaintenanceCommand"
+    };
 
     [Fact]
     public void EveryUpdateLikeCommand_HasLogMetaChanges_ExceptExplicitExemptions()
@@ -56,6 +66,9 @@ public class ActionLogMetaRatchetTests
             .ToList();
 
         Assert.NotEmpty(commands);
+        foreach (var canary in ScopeCanaries)
+            Assert.True(commands.Contains(canary),
+                $"Phạm vi quét bánh cóc thiếu '{canary}' — kiểm tra lại ScannedPrefixes/bộ lọc IBaseRequest.");
 
         var sources = LoadApplicationSources();
         var missing = new List<string>();
@@ -84,7 +97,7 @@ public class ActionLogMetaRatchetTests
         var unknownExemptions = Exempt.Where(e => !commands.Contains(e)).ToList();
 
         Assert.True(unknownExemptions.Count == 0,
-            "Ngoại lệ không còn là command Update*/Close/Inspect/Reopen (đã đổi tên/xóa?) — cập nhật danh sách Exempt: "
+            "Ngoại lệ không còn là command thuộc phạm vi quét (đã đổi tên/xóa?) — cập nhật danh sách Exempt: "
             + string.Join(", ", unknownExemptions));
 
         Assert.True(staleExemptions.Count == 0,
@@ -92,7 +105,7 @@ public class ActionLogMetaRatchetTests
             + string.Join(", ", staleExemptions));
 
         Assert.True(missing.Count == 0,
-            "Command Update* thiếu LogMeta.changes (dùng ActionLogChanges hoặc thêm vào Exempt kèm lý do): "
+            "Command ghi dữ liệu thiếu LogMeta.changes (dùng ActionLogChanges hoặc thêm vào Exempt kèm lý do): "
             + string.Join(", ", missing));
     }
 

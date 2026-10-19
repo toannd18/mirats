@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
@@ -13,8 +13,9 @@ namespace aspire_react.Server.Application.Suppliers.Commands;
 /// [Giai đoạn 2] PUT /api/v1/suppliers/{id} (extracted from AdminController.UpdateSupplier).
 /// Rule order + semantics verbatim (this section HAS dup-checks on Update): Code (length
 /// re-check + dup `x.Id != id`) → Name (dup `x.Id != id`) → 10 contact/address fields conditional.
-/// ⚠️ Parity quirk preserved (same as Manufacturer): the `before` snapshot is captured AFTER
-/// Code/Name are assigned but BEFORE the 10 fields — Update LogMeta shows code/name old==new.
+/// [AUDIT-LOG B4 — BUG-P FIX] Old snapshot nay chụp TRƯỚC mọi nhánh gán (trước đây `before` chụp SAU
+/// khi Code/Name đã gán nên LogMeta ghi code/name old == new — mất giá trị cũ thật). Cả 12 field đi
+/// qua helper ActionLogChanges.
 /// Both behaviors opt-in: thin ActionLog + cache tag ref:suppliers.
 /// </summary>
 public record UpdateSupplierCommand(
@@ -67,6 +68,22 @@ public class UpdateSupplierCommandHandler : IRequestHandler<UpdateSupplierComman
         if (s == null)
             return new SupplierResult(false, "Not found.", "NOT_FOUND");
 
+        // [AUDIT-LOG B4 — BUG-P FIX] Chụp giá trị CŨ của đủ 12 field TRƯỚC mọi nhánh gán.
+        // (Trước đây `before` chụp SAU khi Code/Name đã gán ⇒ LogMeta ghi code/name old == new.)
+        var changes = new ActionLogChanges()
+            .Track("code", s.Code)
+            .Track("name", s.Name)
+            .Track("url", s.Url)
+            .Track("address", s.Address)
+            .Track("city", s.City)
+            .Track("state", s.State)
+            .Track("country", s.Country)
+            .Track("zip", s.Zip)
+            .Track("phone", s.Phone)
+            .Track("fax", s.Fax)
+            .Track("contactName", s.ContactName)
+            .Track("contactEmail", s.ContactEmail);
+
         // Patch semantics + rules verbatim (order preserved).
         if (!string.IsNullOrWhiteSpace(request.Code))
         {
@@ -82,7 +99,6 @@ public class UpdateSupplierCommandHandler : IRequestHandler<UpdateSupplierComman
                 return new SupplierResult(false, "Tên NCC đã tồn tại.");
             s.Name = request.Name;
         }
-        var before = new { s.Code, s.Name, s.Url, s.Address, s.City, s.State, s.Country, s.Zip, s.Phone, s.Fax, s.ContactName, s.ContactEmail };
         if (request.Url is not null) s.Url = request.Url;
         if (request.Address is not null) s.Address = request.Address;
         if (request.City is not null) s.City = request.City;
@@ -95,24 +111,20 @@ public class UpdateSupplierCommandHandler : IRequestHandler<UpdateSupplierComman
         if (request.ContactEmail is not null) s.ContactEmail = request.ContactEmail;
         await _context.SaveChangesAsync(cancellationToken);
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                code = new { old = before.Code, @new = s.Code },
-                name = new { old = before.Name, @new = s.Name },
-                url = new { old = before.Url, @new = s.Url },
-                address = new { old = before.Address, @new = s.Address },
-                city = new { old = before.City, @new = s.City },
-                state = new { old = before.State, @new = s.State },
-                country = new { old = before.Country, @new = s.Country },
-                zip = new { old = before.Zip, @new = s.Zip },
-                phone = new { old = before.Phone, @new = s.Phone },
-                fax = new { old = before.Fax, @new = s.Fax },
-                contactName = new { old = before.ContactName, @new = s.ContactName },
-                contactEmail = new { old = before.ContactEmail, @new = s.ContactEmail }
-            }
-        });
+        var logMeta = changes
+            .Set("code", s.Code)
+            .Set("name", s.Name)
+            .Set("url", s.Url)
+            .Set("address", s.Address)
+            .Set("city", s.City)
+            .Set("state", s.State)
+            .Set("country", s.Country)
+            .Set("zip", s.Zip)
+            .Set("phone", s.Phone)
+            .Set("fax", s.Fax)
+            .Set("contactName", s.ContactName)
+            .Set("contactEmail", s.ContactEmail)
+            .ToLogMeta();
 
         return new SupplierResult(
             true, "Updated.",
