@@ -3899,19 +3899,48 @@ Code là nguồn sự thật và code ĐÚNG; các chỗ lệch là **tài liệ
   dòng Update của maintenance có `LogMeta` = NULL), trong khi convention dự án yêu cầu `LogMeta.changes` cho
   mọi Update (đối chiếu `UpdateUserCommand` có dựng `changes`). Các entity khác (User…) vẫn có `changes`.
 
+## 2026-10-19 — AUDIT-LOG GĐ1: Sweep 5 (chặn "commit rồi mới ghi log") · migration 1 lần cho DB tạm · BUG-R
 
+> **Đã xong GĐ1 — tiếp theo GĐ2 (B7b: ratchet theo HÀNH VI + gộp `changes` viết tay về helper + kiểm FE).**
+> Commit: **`9f48b21`** (B7a, đã push cùng) + **`6217612`** (GĐ1). Kế hoạch 3 giai đoạn do người dùng chốt:
+> GĐ1 = 3 sửa lỗi · GĐ2 = B7b · GĐ3 = câu Note tiếng Anh. **B8 vẫn KHÔNG làm.**
 
+### 1. Sweep 5 — thêm điều kiện "CommitAsync rồi mới ghi log"
+- `scripts/audit-sweeps.ps1`: mỗi HANDLER, `SaveChangesAsync > 1` lần PHẢI có transaction tường minh
+  (`DbTransaction.ExecuteAsync` hoặc cặp `BeginTransactionAsync` + `CommitAsync`); **thêm** luật mới: với
+  transaction viết tay, cấm mẫu **`CommitAsync` → ghi ActionLog → `SaveChangesAsync`** (dữ liệu đã commit,
+  nhật ký lưu sau — đúng lớp lỗi B5 của `CreateCampaign` cũ).
+- Luật chỉ soi phần SAU `CommitAsync` cuối cùng và đòi hỏi **cả** lệnh ghi log **lẫn** `SaveChangesAsync`
+  ⇒ `RefreshTokenCommandHandler` (private method `RotateAsync` có `SaveChangesAsync` ở đoạn sau, chạy
+  TRƯỚC commit) **không** bị báo nhầm.
+- **Bằng chứng:** code hiện tại **0 vi phạm**; probe `TmpSweep5CommitOrderProbeHandler` (Begin → Save →
+  Commit → Log → Save) ⇒ sweep báo **đúng 1 vi phạm** kèm `file:handler`; gỡ probe ⇒ về 0.
+- ⚠️ **Tự báo lỗi:** trong lúc sửa tôi dùng bulk `Get-Content | Set-Content` trên file .ps1 ⇒ PowerShell 5.1
+  đọc UTF-8 no-BOM bằng ANSI ⇒ phá 4 dấu `—` và 2 mũi tên `→` thành mojibake. Đã sửa về ASCII thuần bằng
+  .NET read/write tường minh + grep xác nhận **0 mojibake** (bài học: đúng như cảnh báo trong AGENTS.md).
 
+### 2. Nhóm ThrowawayDb chạy được trên DB TRẮNG (không cần API)
+- Thêm `ThrowawayDbMigrator.MigrateOnceAsync(db, connectionString)` (`aspire-react.Tests/ThrowawayDbGuard.cs`):
+  semaphore tĩnh theo connection string — luồng đầu migrate, các lớp chạy song song chờ rồi bỏ qua.
+  4 lớp `[ThrowawayDbFact]` đổi từ `db.Database.MigrateAsync()` sang guard này.
+- `NaiveDateTimeKindTests.Postgres_roundtrip_keeps_wall_clock_and_reads_back_as_Utc_with_Z` trước đây lấy
+  `SELECT … FROM assets/users LIMIT 1` (phụ thuộc dữ liệu có sẵn ⇒ DB trắng ném "Sequence contains no
+  elements") → nay **tự seed** user + asset và dọn ở `finally`.
+- **Nghiệm thu:** container Postgres MỚI (DB trắng), **không** khởi động API ⇒ nhóm ThrowawayDb
+  **719/719 PASS** (`logs/trx/gd1-blankdb2.trx`). Trước GĐ1.2 trên DB trắng: **9 FAIL** (8 do đụng migration
+  song song + 1 do phụ thuộc dữ liệu).
+- `docs/DEVELOPMENT_WORKFLOW.md` §3.17: bỏ cách đi vòng "khởi động API trước", mô tả guard + yêu cầu
+  test tự seed dữ liệu mẫu.
 
+### 3. BUG-R — `dev-server.mjs` bỏ qua `--port` (RESOLVED)
+- `frontend/scripts/dev-server.mjs`: forward tham số CLI xuống Vite —
+  `spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...process.argv.slice(2)], …)`.
+- **Verify thật:** `npm run dev -- --port 5174 --strictPort` ⇒ Vite `Local: https://localhost:5174/`;
+  `5174` = **1 listener**, `5173` = **0**; `curl -k https://localhost:5174` = **200**. BACKLOG BUG-R → RESOLVED.
 
-
-
-
-
-
-
-
-
-
-
-
+### 4. Gates & test (GĐ1)
+- `scripts/precommit-gates.ps1`: **PASS 6/6** (gồm Sweep 5 mới).
+- Bộ test mặc định: **689 passed / 30 skipped / 0 failed**.
+- Nhóm ThrowawayDb: **719/719 PASS**.
+- DB tạm dùng container riêng `auditlog9-pg` (cổng 55449) — **đã xoá** sau khi xong; API/Vite tạm (nếu có)
+  không dùng cổng dev 5428/5173.
