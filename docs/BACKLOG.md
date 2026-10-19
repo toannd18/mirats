@@ -117,15 +117,19 @@
    - **Nghiệm thu:** **10 lần liên tiếp chạy toàn bộ suite ⇒ 672/672 PASS ×10**
      (`logs/trx/wa-fixed/fixed-1..10.trx`).
 
-6. **FE: nhãn tiếng Việt cho `ComponentUnitStatus`** (thấp — phát hiện 2026-10-19 khi B3 đổi log unit
-   status sang schema `changes`):
-   - **Hiện trạng:** `formatLogDetail` (`frontend/src/shared/components/ActionLogTable.tsx`) map nhãn cho
-     key `status` chỉ có status của ASSET (`Pending/Deployed/Archived`); với log của linh kiện serial, giá
-     trị `InStock/Allocated/Damaged/Disposed` hiện **nguyên tiếng Anh** ở cột "Chi tiết".
-   - **Việc cần làm:** thêm nhãn cho 4 giá trị `ComponentUnitStatus` (phân biệt theo `ItemType` hoặc nhãn
-     dự phòng) — sửa FE ⇒ phải verify UI thật (playwright) ở 375/768/1440px.
-   - **Tiêu chí nghiệm thu:** log unit status hiện nhãn tiếng Việt (VD "Trong kho → Hỏng"), không còn chuỗi
-     tiếng Anh thô; lint/build xanh.
+6. ~~**FE: nhãn tiếng Việt cho `ComponentUnitStatus`**~~ **(✅ RESOLVED 2026-10-19 — AUDIT-LOG B7a:**
+   `formatLogDetail` map thêm `InStock: 'Trong kho'`, `Allocated: 'Đang cấp phát'`, `Damaged: 'Hỏng'`,
+   `Disposed: 'Đã loại bỏ'` cho key `status` (tập giá trị không trùng với AssetStatus). Log cấp phát/thu hồi
+   serial + đổi trạng thái unit nay hiển thị tiếng Việt; drawer "Lịch sử serial" dùng chung `ActionLogTable`.)*
+7. **FE: câu Note tiếng Anh lẫn trong UI tiếng Việt** (thấp — phát hiện 2026-10-19 khi verify nhật ký User):
+   - **Hiện trạng:** nhiều câu `Note` do backend sinh vẫn là tiếng Anh và hiển thị nguyên văn ở cột "Chi tiết"
+     của nhật ký, ví dụ `ActionLogNote` của User: **"Created user: <username> (<email>)"**,
+     **"Updated user: <username> (<email>)"**, **"Deactivated user: …"** (`CreateUserCommand` /
+     `UpdateUserCommand` / `DeleteUserCommand`), một số delete khác: `"Deleted group: …"`,
+     `"Group deleted successfully."`.
+   - **Việc cần làm:** chuẩn hoá các `Note` này sang tiếng Việt (giữ nguyên dữ liệu định danh), rà toàn bộ
+     `Note = $"..."` trong Application để tìm câu tiếng Anh còn sót.
+   - **Tiêu chí nghiệm thu:** nhật ký trên UI tiếng Việt không còn câu Note tiếng Anh; test hiện có vẫn xanh.
 
 ### 🧾 AUDIT-LOG — kế hoạch sửa `LogMeta.changes` (audit Bước 1 ngày 2026-10-19)
 

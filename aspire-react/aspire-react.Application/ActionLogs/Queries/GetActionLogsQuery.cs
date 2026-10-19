@@ -51,6 +51,13 @@ public class GetActionLogsQueryHandler : IRequestHandler<GetActionLogsQuery, IRe
 
     public async Task<IReadOnlyList<ActionLogEntryDto>?> Handle(GetActionLogsQuery request, CancellationToken cancellationToken)
     {
+        // [AUDIT-LOG B7a] Nhật ký NGƯỜI DÙNG (ItemType.User) chỉ dành cho SUPERUSER. Kiểm tra TƯỜNG MINH
+        // trước mọi nhánh khác: (a) không phụ thuộc nhánh `_ => false` của IsItemVisibleAsync (ai đó thêm
+        // ItemType.User vào switch là mở toang), (b) chặn cả trường hợp scope trả null (floater) vốn được
+        // coi là "thấy tất cả" ở các item khác. Nhật ký user là dữ liệu quản trị, không theo công ty.
+        if (request.ItemType == ItemType.User && !_companyScope.IsSuperUser())
+            return null;
+
         // Company scoping: a regular user may only view action-logs of items in their company.
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
         if (!await IsItemVisibleAsync(request.ItemType, request.ItemId, userCompanyId, cancellationToken))

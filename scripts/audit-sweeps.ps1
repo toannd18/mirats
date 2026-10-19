@@ -13,6 +13,11 @@ Static, dependency-free checks implemented in PowerShell Core (cross-platform: W
   Sweep 3 - ActionLog:   LogAction( call sites that do not pass companyId: (mandatory per the
                          project convention "ActionLog bat buoc kem CompanyId").
   Sweep 4 - Table scroll: frontend <Table>/<ProTable> without a scroll= prop (responsive tables).
+  Sweep 5 - Transactions: a handler calling SaveChangesAsync MORE THAN ONCE must run inside an
+                         explicit transaction — preferably DbTransaction.ExecuteAsync (shared
+                         helper), or a manual BeginTransactionAsync + CommitAsync pair. Otherwise
+                         data commits before the ActionLog (the B5 failure class: data without an
+                         audit row).
 
 Exit code: 0 = CLEAN, 1 = violations found (file:line details are printed).
 
@@ -188,6 +193,50 @@ foreach ($f in $frontFiles) {
 $script:stats['Sweep 4 (Table scroll)'] = "$s4Count violation(s) / $($frontFiles.Count) frontend files"
 
 # ------------------------------------------------------------
+# Sweep 5 - Handlers with >1 SaveChangesAsync must use DbTransaction.ExecuteAsync
+# ------------------------------------------------------------
+# Known-error class (AUDIT-LOG B5): a handler that saves DATA and then saves the ActionLog in a
+# SECOND SaveChanges WITHOUT an explicit transaction commits the data first — if the log step fails
+# (or the process dies in between) the change exists with NO audit row. The shared helper
+# Application/Common/Persistence/DbTransaction.ExecuteAsync wraps CreateExecutionStrategy +
+# BeginTransaction + single commit, so "data + ActionLog" commit together.
+# Rule: per HANDLER class body, count SaveChangesAsync; >1 AND no explicit transaction ⇒ violation.
+# "Explicit transaction" = DbTransaction.ExecuteAsync (chuẩn dùng chung) HOẶC cặp
+# BeginTransactionAsync + CommitAsync viết tay (cùng bảo đảm nguyên tử; các handler concurrency
+# critical như Checkout/RefreshToken/Publish dùng FOR UPDATE + transaction thủ công). Handler nhiều
+# SaveChanges mà KHÔNG có transaction nào ⇒ dữ liệu commit trước, nhật ký commit sau = lớp lỗi B5.
+$appRoot = Join-Path $RepoRoot 'aspire-react/aspire-react.Application'
+$s5Count = 0
+if (Test-Path -LiteralPath $appRoot) {
+    $appCsFiles = @(Get-ChildItem -LiteralPath $appRoot -Recurse -File -Filter *.cs |
+        Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' })
+    $handlerStart = [regex]'public\s+(?:sealed\s+)?class\s+(?<name>\w+Handler)\b'
+    foreach ($f in $appCsFiles) {
+        $content = Get-Content -LiteralPath $f.FullName -Raw
+        if ($content -notmatch 'SaveChangesAsync') { continue }
+
+        $matches = $handlerStart.Matches($content)
+        for ($h = 0; $h -lt $matches.Count; $h++) {
+            $start = $matches[$h].Index
+            $end = if ($h + 1 -lt $matches.Count) { $matches[$h + 1].Index } else { $content.Length }
+            $body = $content.Substring($start, $end - $start)
+            $saveCount = ([regex]::Matches($body, 'SaveChangesAsync')).Count
+            $hasExplicitTransaction = ($body -match 'DbTransaction\.ExecuteAsync') -or
+                                      ($body -match 'BeginTransactionAsync' -and $body -match 'CommitAsync')
+            if ($saveCount -gt 1 -and -not $hasExplicitTransaction) {
+                Add-Violation 'S5' ("{0}: handler {1} calls SaveChangesAsync {2} times WITHOUT an explicit transaction (DbTransaction.ExecuteAsync or BeginTransactionAsync+CommitAsync)" -f (Normalize $f.FullName), $matches[$h].Groups['name'].Value, $saveCount)
+                $s5Count++
+            }
+        }
+    }
+    $script:stats['Sweep 5 (Transactions)'] = "$s5Count violation(s) / $($appCsFiles.Count) application files"
+} else {
+    Add-Violation 'S5' ("Application directory not found: {0}" -f (Normalize $appRoot))
+    $s5Count++
+    $script:stats['Sweep 5 (Transactions)'] = "$s5Count violation(s) / 0 files"
+}
+
+# ------------------------------------------------------------
 # Report + exit code
 # ------------------------------------------------------------
 Write-Host ''
@@ -195,6 +244,7 @@ Write-Host (' {0,-34} {1}' -f 'Sweep 1 (Claims):', $script:stats['Sweep 1 (Claim
 Write-Host (' {0,-34} {1}' -f 'Sweep 2 (Enum string):', $script:stats['Sweep 2 (Enum string)'])
 Write-Host (' {0,-34} {1}' -f 'Sweep 3 (ActionLog companyId):', $script:stats['Sweep 3 (ActionLog companyId)'])
 Write-Host (' {0,-34} {1}' -f 'Sweep 4 (Table scroll):', $script:stats['Sweep 4 (Table scroll)'])
+Write-Host (' {0,-34} {1}' -f 'Sweep 5 (Transactions):', $script:stats['Sweep 5 (Transactions)'])
 Write-Host '------------------------------------------------------------'
 Write-Host (' {0,-34} {1}' -f 'TOTAL:', "$($script:violations.Count) violation(s)")
 Write-Host ''

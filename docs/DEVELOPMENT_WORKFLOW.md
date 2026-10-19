@@ -272,6 +272,10 @@ curl -s "https://api.github.com/repos/toannd18/mirats/actions/runs/<run-id>/jobs
   (trừ thay đổi thuần hiển thị/文案 đã có test `[Fact]` bao phủ).
 - **Bắt buộc:** chạy nhóm test `[ThrowawayDbFact]` trên **Postgres THẬT** (DB tạm trong **container riêng**, §3.16)
   **TRƯỚC KHI PUSH** — không được chỉ dựa vào `dotnet test` mặc định (InMemory).
+  - ⚠️ **DB tạm PHẢI được migrate TRƯỚC khi chạy nhóm này.** Nếu DB còn trắng, nhiều lớp test gọi
+    `MigrateAsync()` **song song** ⇒ đụng nhau (tạo trùng table/type) và hàng loạt test FAIL giả. Cách làm
+    đúng: khởi động API một lần trên DB tạm (seeder tự `Migrate()`), rồi mới `dotnet test`. Bằng chứng thật
+    (2026-10-19): DB trắng ⇒ 9 FAIL; sau khi API chạy 1 lần ⇒ 719/719 PASS.
   - Bật cờ + truyền connection string: `MIRATS_TEST_THROWAWAY_DB=1`, `MIRATS_TEST_POSTGRES=<conn string DB tạm>`
     rồi `dotnet test aspire-react.Tests --filter "FullyQualifiedName~<nhóm test>"`.
 - **Vì sao:** InMemory KHÔNG có (đã gặp thật): exclusion constraint `EX_asset_installations_no_overlap` (**23P01**),
@@ -280,6 +284,19 @@ curl -s "https://api.github.com/repos/toannd18/mirats/actions/runs/<run-id>/jobs
 - **Báo cáo PHẢI ghi:** nhóm test đã chạy, **số pass/skip**, DB tạm nằm ở container nào, và đã dọn container chưa.
 - **Nhóm test hiện có:** `InstallationCorrectionTests` (LL-5, 6 ca), `AssetDetailAssignmentTests` (BUG-Q, 1 ca).
   Khi thêm hành vi lý lịch mới ⇒ thêm ca vào nhóm này, không chỉ viết test InMemory.
+
+### 3.18. API/Vite tạm cho verify UI: KHÔNG dùng cổng dev (quy tắc cứng, từ 2026-10-19)
+- Stack dev (AppHost) sở hữu **API `5428`** và **FE `https://localhost:5173`**. Mọi instance API/Vite **tạm**
+  (verify UI trên DB tạm, chụp màn hình, replay) **TUYỆT ĐỐI KHÔNG bind 5428/5173** — dùng cổng riêng
+  (VD API `5504`, Vite `5174`) và cho proxy của Vite trỏ về cổng API tạm đó.
+- **Lý do:** trùng cổng sẽ đè/đánh lừa stack dev đang chạy (browser/Playwright có thể trúng instance tạm thay vì
+  stack dev; `Stop-Process` theo cổng có thể giết nhầm API dev), và instance tạm có thể bị trỏ nhầm vào DB dev (§3.16).
+- **Cách dựng FE tạm (không cần AppHost):** export dev-cert ra thư mục **tạm** (`dotnet dev-certs https -ep
+  <tmp>/localhost.pem --format Pem --no-password`), đặt `AUTH_DEV_CERTS=<tmp>`,
+  `services__server__https__0=<URL API tạm>` (Vite đọc biến này cho proxy — KHÔNG đặt `VITE_API_BASE_URL` vì FE
+  sẽ gọi thẳng API và vướng CORS), rồi `npm run dev -- --port 5174`.
+- **Dọn dẹp:** dừng tiến trình tạm, **xoá thư mục PEM tạm** (chứa private key — không commit), xoá container/DB tạm
+  (§3.16), và xác nhận 5428/5173 không còn listener lạ.
 
 ---
 

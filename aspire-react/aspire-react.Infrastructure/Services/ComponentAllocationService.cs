@@ -113,7 +113,9 @@ public class ComponentAllocationService : IComponentAllocationService
                     return new ComponentOperationResult(false, "Không còn linh kiện (serial) trong kho.", "INSUFFICIENT_STOCK");
             }
 
-            var before = unit.Status.ToString();
+            // [AUDIT-LOG B7a] Schema chuẩn {"changes":{status:{old,new}}} — serialNo là NGỮ CẢNH định
+            // danh (không đổi) nên không nằm trong changes (unit đã được định danh bằng ItemId).
+            var changes = new ActionLogChanges().Track("status", unit.Status);
             unit.Status = ComponentUnitStatus.Allocated;
             unit.CurrentAssetId = assetId;
             unit.UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
@@ -128,7 +130,7 @@ public class ComponentAllocationService : IComponentAllocationService
                 CreatedBy = createdById,
                 CompanyId = component.CompanyId,
                 Note = note,
-                LogMeta = JsonSerializer.Serialize(new { before, after = unit.Status.ToString(), serialNo = unit.SerialNo })
+                LogMeta = changes.Set("status", unit.Status).ToLogMeta()
             });
         }
         else
@@ -201,7 +203,8 @@ public class ComponentAllocationService : IComponentAllocationService
                 return new ComponentOperationResult(false, "Cần serialNo hoặc assetId để thu hồi linh kiện Serial.", "MISSING_TARGET");
             }
 
-            var before = unit.Status.ToString();
+            // [AUDIT-LOG B7a] Schema chuẩn {"changes":{status:{old,new}}} (thu hồi: Allocated → InStock).
+            var changes = new ActionLogChanges().Track("status", unit.Status);
             // Task N: capture the real asset id BEFORE nulling it — when checking in via serialNo,
             // the request assetId is null, so TargetId must come from the unit's current asset (not
             // the request param), otherwise the audit trail loses which asset this serial was returned from.
@@ -220,7 +223,7 @@ public class ComponentAllocationService : IComponentAllocationService
                 CreatedBy = createdById,
                 CompanyId = component.CompanyId,
                 Note = note,
-                LogMeta = JsonSerializer.Serialize(new { before, after = unit.Status.ToString(), serialNo = unit.SerialNo })
+                LogMeta = changes.Set("status", unit.Status).ToLogMeta()
             });
         }
         else

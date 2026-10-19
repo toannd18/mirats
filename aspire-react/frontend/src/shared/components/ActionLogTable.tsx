@@ -70,6 +70,9 @@ const CHANGE_LABELS: Record<string, string> = {
   email: 'Email',
   employeeNumber: 'Mã nhân viên',
   employee_number: 'Mã nhân viên',
+  // [AUDIT-LOG B7a] log nhập kho serial: meta phẳng { serialNo, trackingType }
+  serialNo: 'Serial',
+  trackingType: 'Kiểu quản lý',
   jobTitle: 'Chức danh',
   job_title: 'Chức danh',
   isActive: 'Đang hoạt động',
@@ -104,7 +107,13 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
           if (k === 'current_assignment_id' || k === 'system_position_id' || k === 'location_id') continue;
           const fmt = (val: unknown) => {
             if (val === null || val === undefined || val === '') return '—';
-            if (k === 'status') return ({ Pending: 'Chờ cấp phát', Deployed: 'Đã cấp phát', Archived: 'Đã lưu trữ' })[String(val)] ?? String(val);
+            // [AUDIT-LOG B7a] `status` dùng chung cho NHIỀU enum khác nhau: AssetStatus
+            // (Pending/Deployed/Archived) và ComponentUnitStatus (InStock/Allocated/Damaged/Disposed —
+            // log cấp phát/thu hồi serial + đổi trạng thái unit). Hai tập giá trị không trùng nhau.
+            if (k === 'status') return ({
+              Pending: 'Chờ cấp phát', Deployed: 'Đã cấp phát', Archived: 'Đã lưu trữ',
+              InStock: 'Trong kho', Allocated: 'Đang cấp phát', Damaged: 'Hỏng', Disposed: 'Đã loại bỏ',
+            })[String(val)] ?? String(val);
             if (k === 'isConfirmed') return /true/i.test(String(val)) ? 'Đã xác nhận' : 'Chưa xác nhận';
             if (k === 'checkout_type') return CHECKOUT_TYPE_LABELS[String(val)] ?? String(val);
             // [AUDIT-LOG B6a] Cờ boolean (is_active / is_super_user / isActive / isSuperUser…) hiển thị
