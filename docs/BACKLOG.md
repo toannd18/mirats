@@ -93,17 +93,29 @@
      `{"changes":{"title":{"old":…,"new":…}}}` với `old` **chụp TRƯỚC khi gán**; test unit chứng minh
      old ≠ new khi đổi thật; timeline hiện đúng field thay đổi.
 
-5. **Flaky lớp `WebAuthnCeremonyTests` khi chạy TOÀN BỘ suite song song** — **🔴 ƯU TIÊN CAO: làm NGAY
-   SAU B5** (yêu cầu 2026-10-19), trước B6/B7. (phát hiện 2026-10-19 ở AUDIT-LOG B2, tái diễn ở B3 và B5):
-   - **Hiện trạng (đo được):** trong `dotnet test … --filter "Category!=Concurrency"` đã có **3 lần FAIL
-     với 2 test KHÁC NHAU** trong cùng lớp — `Assertion_Discoverable_NoUsername_WorksWithUserHandle` (B2,
-     lần chạy ThrowawayDb đầu) và `Assertion_Ceremony_Verifies_And_Advances_Counter` (B3 + B5, các lần chạy
-     toàn bộ suite). Chạy RIÊNG lớp này: **7/7 PASS × 3 lần liên tiếp**; chạy lại cả bộ (cùng lệnh, cùng
-     binary) ⇒ PASS (666/666 ×2 ở B5). Không liên quan thay đổi đang làm (không chạm WebAuthn) — kết luận:
-     **state dùng chung giữa các test ceremony khi xUnit chạy song song với lớp khác**.
-   - **Việc cần làm:** tìm state dùng chung (challenge/counter/credential dùng lại — có thể là static hoặc
-     cùng tên InMemory DB) và cô lập (collection riêng / tắt song song cho lớp ceremony).
-   - **Tiêu chí nghiệm thu:** chạy TOÀN BỘ suite **10 lần liên tiếp ⇒ 0 FAIL** ở lớp này.
+5. ~~Flaky lớp `WebAuthnCeremonyTests` khi chạy toàn bộ suite~~ **✅ RESOLVED 2026-10-19 — nguyên nhân
+   KHÔNG phải state dùng chung (giả thuyết ban đầu sai), mà là input XÁC SUẤT trong code test:**
+   - **Nguyên nhân gốc:** `TestAuthenticator.AssertionResponse` (`Tests/WebAuthn/TestAuthenticator.cs:94`)
+     gọi `AsnWriter.WriteIntegerUnsigned` thẳng trên 32 byte P-1363 thô. DER INTEGER yêu cầu big-endian
+     **tối giản**: khi byte cao nhất của r (hoặc s) = `0x00` thì 9 bit đầu đều là 0 ⇒
+     `ArgumentException: The first 9 bits of the integer value all have the same value …`. r/s là ngẫu
+     nhiên ⇒ ~1/256 mỗi số (~1/128 mỗi chữ ký); lớp có 5 chữ ký/lần chạy ⇒ ~4%/run — **không phải race**.
+   - **Bằng chứng tái hiện:** loop 30 lần chạy toàn bộ suite ⇒ FAIL đúng **run 20**, TRX
+     `logs/trx/wa4/loop-20.trx` chỉ `TestAuthenticator.cs:94`; 21 run trước đó xanh (đúng bản chất
+     xác suất). Trước khi tái hiện, đã kiểm tra các nguồn state dùng chung và loại trừ có dẫn chứng:
+     `WebAuthnCeremonyTests.NewService` tạo `MemoryCache` + InMemory DB **mới mỗi test**
+     (`wa-{Guid}`), `TestAuthenticator` không có field static (chỉ `const`), `Fido2Service` key cache
+     theo `user.Id`/challenge; `AuthAttemptService.IpFailures` static (`AuthAttemptService.cs:24-25`)
+     KHÔNG nằm trên đường đi của ceremony.
+   - **Lỗi nằm ở CODE TEST, không phải code thật:** `WriteIntegerUnsigned` chỉ xuất hiện trong
+     `TestAuthenticator` (grep toàn repo: 4 match, tất cả ở file test); production chỉ *verify* chữ ký.
+   - **Fix:** thêm `TestAuthenticator.EncodeEcdsaSignatureForDer` — cắt byte `0x00` thừa (giữ 1 byte nếu
+     giá trị = 0), `WriteIntegerUnsigned` tự thêm `0x00` khi bit dấu bật ⇒ giá trị r/s KHÔNG đổi, chỉ
+     thành encoding DER chuẩn. **Không** tắt song song, không retry, không tăng timeout, không Skip.
+   - **Test tất định:** `TestAuthenticatorDerTests` (6 test) — tái hiện đúng exception của code cũ + khoá
+     hợp đồng encode (leading-zero r, high-bit r, r = 0, quét 256 tổ hợp byte cao, 200 chữ ký thật).
+   - **Nghiệm thu:** **10 lần liên tiếp chạy toàn bộ suite ⇒ 672/672 PASS ×10**
+     (`logs/trx/wa-fixed/fixed-1..10.trx`).
 
 6. **FE: nhãn tiếng Việt cho `ComponentUnitStatus`** (thấp — phát hiện 2026-10-19 khi B3 đổi log unit
    status sang schema `changes`):
@@ -187,6 +199,12 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
      kiểm được "đủ field / old có thật". B7 phải bổ sung test chạy command THẬT rồi soi
      `action_logs.LogMeta` (parse JSON, so old/new) cho mọi command ghi dữ liệu — thay/bổ trợ phép quét chữ.
    - **Sót cụ thể cần xử lý ở B7:** `ComponentAllocationService` dòng ~130/~222 (`{before, after, serialNo}`).
+   - **[YÊU CẦU MỚI — duyệt cùng B5, 2026-10-19] Thêm LUẬT vào `scripts/audit-sweeps.ps1`:**
+     handler nào gọi `SaveChangesAsync` **> 1 lần** mà **không nằm trong `DbTransaction.ExecuteAsync`**
+     ⇒ **vi phạm** (bắt đúng lớp lỗi B5: dữ liệu commit trước, nhật ký commit sau / mất nhật ký).
+     Miễn trừ hợp lệ phải là khối lệnh **nằm trong** `DbTransaction.ExecuteAsync` (VD `Publish` có 2
+     SaveChanges vì unique index `IsCurrent`, `Upsert` có vòng retry savepoint) — luật phải nhận biết
+     bằng ngữ cảnh khối lệnh, không chỉ đếm số lần gọi.
 7. **B8 (ĐỂ SAU) — lưới an toàn auto-changes trong `ActionLogBehavior`** từ EF `ChangeTracker`
    (`OriginalValue` vs `CurrentValue`) cho ~52 command `ILoggableCommand`: phủ 100% field kể cả khi thêm
    field mới, nhưng phải (a) map tên snake_case + cập nhật nhãn timeline, (b) denylist PII

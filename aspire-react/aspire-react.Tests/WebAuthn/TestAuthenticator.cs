@@ -87,13 +87,7 @@ public static class TestAuthenticator
         // NOTE: .NET 10 ECDsa.SignData returns RAW P-1363 (r||s, 64 bytes) — WebAuthn/fido2
         // expects ASN.1 DER → wrap with AsnWriter (verified empirically in Phase 3).
         var p1363 = cred.PrivateKey.SignData(signed, HashAlgorithmName.SHA256);
-        var asn = new System.Formats.Asn1.AsnWriter(System.Formats.Asn1.AsnEncodingRules.DER);
-        using (asn.PushSequence())
-        {
-            asn.WriteIntegerUnsigned(p1363[..32]);
-            asn.WriteIntegerUnsigned(p1363[32..]);
-        }
-        var signature = asn.Encode();
+        var signature = EncodeEcdsaSignatureForDer(p1363);
 
         var idB64 = ToB64Url(cred.CredentialId);
         return "{\"id\":\"" + idB64 + "\",\"rawId\":\"" + idB64 + "\",\"type\":\"public-key\",\"response\":{"
@@ -109,6 +103,45 @@ public static class TestAuthenticator
         using var doc = JsonDocument.Parse(optionsJson);
         var challenge = doc.RootElement.GetProperty("challenge").GetString()!;
         return new CredentialFixture(challenge, optionsJson);
+    }
+
+    // ---------- DER (ASN.1) ----------
+
+    /// <summary>
+    /// [BUG-FLAKY-WA FIX] Chuyển chữ ký ECDSA dạng RAW **P-1363** (r||s, mỗi nửa 32 byte big-endian)
+    /// sang DER SEQUENCE(INTEGER r, INTEGER s) — đúng định dạng WebAuthn/fido2 yêu cầu.
+    ///
+    /// <para>
+    /// Vì sao phải cắt byte 0: DER INTEGER yêu cầu **big-endian TỐI GIẢN**. Nếu byte cao nhất của r
+    /// (hoặc s) bằng 0x00 thì 9 bit đầu đều là 0 ⇒ <c>AsnWriter.WriteIntegerUnsigned</c> NÉM
+    /// <c>ArgumentException</c> ("The first 9 bits of the integer value all have the same value … all
+    /// redundant leading bytes have been removed"). r/s là ngẫu nhiên nên lỗi chỉ xuất hiện ~1/256
+    /// lần ký mỗi số (≈1/128 mỗi chữ ký) — đây chính là "flaky" từng thấy, KHÔNG phải race/state.
+    /// Sau khi cắt, <c>WriteIntegerUnsigned</c> tự thêm 0x00 khi bit dấu bật (giá trị dương) nên
+    /// r/s không đổi giá trị, chỉ thành encoding chuẩn.
+    /// </para>
+    /// </summary>
+    public static byte[] EncodeEcdsaSignatureForDer(ReadOnlySpan<byte> p1363)
+    {
+        if (p1363.Length != 64)
+            throw new ArgumentException("Chữ ký P-1363 phải là 64 byte (r||s, P-256).", nameof(p1363));
+
+        var asn = new System.Formats.Asn1.AsnWriter(System.Formats.Asn1.AsnEncodingRules.DER);
+        using (asn.PushSequence())
+        {
+            asn.WriteIntegerUnsigned(TrimLeadingZeros(p1363[..32]));
+            asn.WriteIntegerUnsigned(TrimLeadingZeros(p1363[32..]));
+        }
+        return asn.Encode();
+    }
+
+    /// <summary>Bỏ các byte 0x00 ở đầu (giữ 1 byte nếu giá trị = 0) — big-endian tối giản cho DER INTEGER.</summary>
+    private static ReadOnlySpan<byte> TrimLeadingZeros(ReadOnlySpan<byte> value)
+    {
+        var i = 0;
+        while (i < value.Length - 1 && value[i] == 0)
+            i++;
+        return value[i..];
     }
 
     public sealed record CredentialFixture(string Challenge, string RawJson);
