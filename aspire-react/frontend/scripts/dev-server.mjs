@@ -48,7 +48,7 @@ if (!fs.existsSync(certFile)) {
 // --- Launch Vite with the dev cert trusted by Node ---
 process.env.NODE_EXTRA_CA_CERTS = certFile;
 
-const vite = spawn(process.execPath, ['node_modules/vite/bin/vite.js'], {
+const vite = spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...process.argv.slice(2)], {
   cwd: frontendDir,
   stdio: 'inherit',
   env: process.env,

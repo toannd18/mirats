@@ -1016,20 +1016,19 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
 
 ---
 
-## BUG-R — `frontend/scripts/dev-server.mjs` bỏ qua `--port` (LOW, OPEN)
+## BUG-R — `frontend/scripts/dev-server.mjs` bỏ qua `--port` (LOW, ✅ RESOLVED 2026-10-19 — GĐ1.3)
 
-- **Trạng thái: OPEN** (phát hiện khi verify LL-4 và LL-4b, 2026-10-18; **chưa sửa** — mức thấp, ngoài phạm vi).
-- **Vị trí:** `aspire-react/frontend/scripts/dev-server.mjs` — wrapper dev của Vite (package.json: `node scripts/dev-server.mjs ...`).
-- **Hành vi (đã quan sát 2 lần, không suy đoán):** chạy `npm run dev -- --port 5174 --strictPort` nhưng log Vite vẫn báo
+- **Trạng thái: RESOLVED.** Sửa: `dev-server.mjs` forward tham số CLI xuống Vite —
+  `spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...process.argv.slice(2)], …)`.
+- **Bằng chứng (đo thật 2026-10-19):** `npm run dev -- --port 5174 --strictPort` ⇒ log Vite hiện
+  `Local: https://localhost:5174/`; `Get-NetTCPConnection -LocalPort 5174 -State Listen` = **1 listener**,
+  `5173` = **0**; `curl -k https://localhost:5174` = **200**.
+- **Vị trí (gốc):** `aspire-react/frontend/scripts/dev-server.mjs` — wrapper dev của Vite (package.json: `node scripts/dev-server.mjs ...`).
+- **Hành vi cũ (đã quan sát 3 lần):** chạy `npm run dev -- --port 5174 --strictPort` nhưng log Vite vẫn báo
   `ready` + `Local: https://localhost:5173/`; `Get-NetTCPConnection -LocalPort 5174` **không** có listener. Tức tham số
   cổng không được chuyển xuống Vite qua wrapper.
-- **Ảnh hưởng:** chỉ môi trường dev/verify (không ảnh hưởng production). Hệ quả: không thể dựng dev server PHỤ ở cổng khác
-  bằng CLI ⇒ các phiên verify song song (VD FE phụ trỏ API tạm) buộc phải dùng 5173, dễ tranh chấp; mọi hướng dẫn ghi
-  `--port <khác>` sẽ sai và gây mất thời gian dò lỗi.
-- **Gợi ý xử lý (chưa làm):** forward `process.argv`/`process.env.PORT` xuống tiến trình Vite trong `dev-server.mjs`
-  (hoặc hỗ trợ `--port=n`), rồi ghi chú trong chính script.
-- **Verify khi làm:** `npm run dev -- --port 5174` ⇒ log Vite hiện `https://localhost:5174/` và
-  `Get-NetTCPConnection -LocalPort 5174 -State Listen` có listener; đồng thời 5173 không bị chiếm.
+- **Ảnh hưởng (nay đã hết):** không thể dựng dev server PHỤ ở cổng khác bằng CLI ⇒ các phiên verify song song
+  (VD FE phụ trỏ API tạm) buộc phải dùng 5173, dễ tranh chấp; mọi hướng dẫn ghi `--port <khác>` đều sai.
 
 ---
 

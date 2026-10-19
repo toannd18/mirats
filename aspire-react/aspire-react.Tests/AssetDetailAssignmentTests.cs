@@ -98,7 +98,7 @@ public class AssetDetailAssignmentTests
             .UseNpgsql(connectionString, npgsql => npgsql.MigrationsAssembly("aspire-react.Server"))
             .Options;
         await using var db = new AppDbContext(options, new TestHelpers.SuperUserScope());
-        await db.Database.MigrateAsync();
+        await ThrowawayDbMigrator.MigrateOnceAsync(db, connectionString);
 
         var tag = "BUGQ" + Guid.NewGuid().ToString("N")[..8];
         var codeNumber = Math.Abs(Guid.NewGuid().GetHashCode()) % 900 + 100;

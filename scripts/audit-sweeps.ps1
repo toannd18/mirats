@@ -14,7 +14,7 @@ Static, dependency-free checks implemented in PowerShell Core (cross-platform: W
                          project convention "ActionLog bat buoc kem CompanyId").
   Sweep 4 - Table scroll: frontend <Table>/<ProTable> without a scroll= prop (responsive tables).
   Sweep 5 - Transactions: a handler calling SaveChangesAsync MORE THAN ONCE must run inside an
-                         explicit transaction — preferably DbTransaction.ExecuteAsync (shared
+                         explicit transaction -- preferably DbTransaction.ExecuteAsync (shared
                          helper), or a manual BeginTransactionAsync + CommitAsync pair. Otherwise
                          data commits before the ActionLog (the B5 failure class: data without an
                          audit row).
@@ -107,8 +107,8 @@ $script:stats['Sweep 2 (Enum string)'] = "$s2Count violation(s) / $($frontFiles.
 # Sweep 3 - ActionLog call sites missing companyId
 # ------------------------------------------------------------
 # Matches BOTH log-writing patterns so neither can be a blind spot:
-#   1) _actionLogService.LogAction( ... companyId: ... )            → checks `companyId:`
-#   2) _context.ActionLogs.Add(new ActionLog { ... CompanyId = ... }) → checks `CompanyId =`
+#   1) _actionLogService.LogAction( ... companyId: ... )            -> checks `companyId:`
+#   2) _context.ActionLogs.Add(new ActionLog { ... CompanyId = ... }) -> checks `CompanyId =`
 function Get-ParenBlocks([string]$content, [string]$needle) {
     $blocks = [System.Collections.Generic.List[string]]::new()
     $idx = 0
@@ -146,7 +146,7 @@ foreach ($f in $csFiles) {
     }
 
     # Pattern 2: _context.ActionLogs.Add(new ActionLog { ... }) call sites.
-    # Company-independent master data (no CompanyId column on the entity) legitimately omit it —
+    # Company-independent master data (no CompanyId column on the entity) legitimately omit it --
     # these are NOT flagged (avoids false positives).
     $companyIndependent = 'ItemType\s*=\s*ItemType\.(Category|Model|Manufacturer|Supplier|Company|CustomField)\b'
     if ($content -match 'ActionLogs\.Add\(') {
@@ -162,7 +162,7 @@ foreach ($f in $csFiles) {
     # Pattern 3 (Task S2a): typed helper _actionLogService.Log(new ActionLogEntry { ... }).
     # This is compiler-ENFORCED safe: ActionLogEntry declares ItemType/ItemId/ActionType/CreatedBy/
     # CompanyId as `required` (C# 11), so a call site that omits CompanyId fails to compile. Sweep 3
-    # does NOT need to inspect inside the entry — treat these as automatically safe (no false
+    # does NOT need to inspect inside the entry -- treat these as automatically safe (no false
     # positive, no blind spot). Only flag if a `Log(` call is NOT followed by a `new ActionLogEntry`
     # (i.e. someone passed an ActionLog directly, bypassing the typed guard).
     if ($content -match '\bLog\(new\s+ActionLog\b') {
@@ -196,15 +196,20 @@ $script:stats['Sweep 4 (Table scroll)'] = "$s4Count violation(s) / $($frontFiles
 # Sweep 5 - Handlers with >1 SaveChangesAsync must use DbTransaction.ExecuteAsync
 # ------------------------------------------------------------
 # Known-error class (AUDIT-LOG B5): a handler that saves DATA and then saves the ActionLog in a
-# SECOND SaveChanges WITHOUT an explicit transaction commits the data first — if the log step fails
+# SECOND SaveChanges WITHOUT an explicit transaction commits the data first -- if the log step fails
 # (or the process dies in between) the change exists with NO audit row. The shared helper
 # Application/Common/Persistence/DbTransaction.ExecuteAsync wraps CreateExecutionStrategy +
 # BeginTransaction + single commit, so "data + ActionLog" commit together.
-# Rule: per HANDLER class body, count SaveChangesAsync; >1 AND no explicit transaction ⇒ violation.
-# "Explicit transaction" = DbTransaction.ExecuteAsync (chuẩn dùng chung) HOẶC cặp
-# BeginTransactionAsync + CommitAsync viết tay (cùng bảo đảm nguyên tử; các handler concurrency
-# critical như Checkout/RefreshToken/Publish dùng FOR UPDATE + transaction thủ công). Handler nhiều
-# SaveChanges mà KHÔNG có transaction nào ⇒ dữ liệu commit trước, nhật ký commit sau = lớp lỗi B5.
+# Rule: for each HANDLER class body, count SaveChangesAsync. More than one save requires an EXPLICIT
+# transaction: DbTransaction.ExecuteAsync (shared helper) OR a manual BeginTransactionAsync +
+# CommitAsync pair (Checkout/RefreshToken/Publish and other concurrency-critical handlers use
+# FOR UPDATE with a manual transaction). Two failure shapes are reported:
+#   1) >1 SaveChangesAsync with NO explicit transaction -> data commits before the ActionLog (B5).
+#   2) CommitAsync FOLLOWED BY both an ActionLog write and a SaveChangesAsync -> the log is saved
+#      outside the transaction (the old CreateCampaign shape).
+# The "after commit" check only inspects the text AFTER the last CommitAsync and requires BOTH an
+# ActionLog write and a save, so handlers whose private helper methods SaveChanges later in the file
+# (e.g. RefreshTokenCommandHandler -> RotateAsync, called BEFORE the commit) are not false positives.
 $appRoot = Join-Path $RepoRoot 'aspire-react/aspire-react.Application'
 $s5Count = 0
 if (Test-Path -LiteralPath $appRoot) {
@@ -215,16 +220,26 @@ if (Test-Path -LiteralPath $appRoot) {
         $content = Get-Content -LiteralPath $f.FullName -Raw
         if ($content -notmatch 'SaveChangesAsync') { continue }
 
-        $matches = $handlerStart.Matches($content)
-        for ($h = 0; $h -lt $matches.Count; $h++) {
-            $start = $matches[$h].Index
-            $end = if ($h + 1 -lt $matches.Count) { $matches[$h + 1].Index } else { $content.Length }
+        $handlerMatches = $handlerStart.Matches($content)
+        for ($h = 0; $h -lt $handlerMatches.Count; $h++) {
+            $start = $handlerMatches[$h].Index
+            $end = if ($h + 1 -lt $handlerMatches.Count) { $handlerMatches[$h + 1].Index } else { $content.Length }
             $body = $content.Substring($start, $end - $start)
             $saveCount = ([regex]::Matches($body, 'SaveChangesAsync')).Count
             $hasExplicitTransaction = ($body -match 'DbTransaction\.ExecuteAsync') -or
                                       ($body -match 'BeginTransactionAsync' -and $body -match 'CommitAsync')
-            if ($saveCount -gt 1 -and -not $hasExplicitTransaction) {
-                Add-Violation 'S5' ("{0}: handler {1} calls SaveChangesAsync {2} times WITHOUT an explicit transaction (DbTransaction.ExecuteAsync or BeginTransactionAsync+CommitAsync)" -f (Normalize $f.FullName), $matches[$h].Groups['name'].Value, $saveCount)
+
+            $lastCommit = $body.LastIndexOf('CommitAsync', [System.StringComparison]::Ordinal)
+            $tail = if ($lastCommit -ge 0) { $body.Substring($lastCommit) } else { '' }
+            $logAfterCommit = $tail -match '_actionLogService\.Log\(|LogAction\(|ActionLogs\.Add\('
+            $saveAfterCommit = $tail -match 'SaveChangesAsync'
+
+            if ($logAfterCommit -and $saveAfterCommit) {
+                Add-Violation 'S5' ("{0}: handler {1} calls CommitAsync BEFORE writing the ActionLog + SaveChangesAsync (log saved outside the transaction)" -f (Normalize $f.FullName), $handlerMatches[$h].Groups['name'].Value)
+                $s5Count++
+            }
+            elseif ($saveCount -gt 1 -and -not $hasExplicitTransaction) {
+                Add-Violation 'S5' ("{0}: handler {1} calls SaveChangesAsync {2} times WITHOUT an explicit transaction (DbTransaction.ExecuteAsync or BeginTransactionAsync+CommitAsync)" -f (Normalize $f.FullName), $handlerMatches[$h].Groups['name'].Value, $saveCount)
                 $s5Count++
             }
         }
@@ -257,4 +272,5 @@ if ($script:violations.Count -gt 0) {
 
 Write-Host ' PASS - repository is CLEAN (0 violations).' -ForegroundColor Green
 exit 0
+
 

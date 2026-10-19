@@ -549,7 +549,7 @@ public class InstallationCorrectionTests
             .Options;
 
         var db = new AppDbContext(options, new TestHelpers.SuperUserScope());
-        await db.Database.MigrateAsync();
+        await ThrowawayDbMigrator.MigrateOnceAsync(db, connectionString);
         return db;
     }
 

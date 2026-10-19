@@ -272,10 +272,13 @@ curl -s "https://api.github.com/repos/toannd18/mirats/actions/runs/<run-id>/jobs
   (trừ thay đổi thuần hiển thị/文案 đã có test `[Fact]` bao phủ).
 - **Bắt buộc:** chạy nhóm test `[ThrowawayDbFact]` trên **Postgres THẬT** (DB tạm trong **container riêng**, §3.16)
   **TRƯỚC KHI PUSH** — không được chỉ dựa vào `dotnet test` mặc định (InMemory).
-  - ⚠️ **DB tạm PHẢI được migrate TRƯỚC khi chạy nhóm này.** Nếu DB còn trắng, nhiều lớp test gọi
-    `MigrateAsync()` **song song** ⇒ đụng nhau (tạo trùng table/type) và hàng loạt test FAIL giả. Cách làm
-    đúng: khởi động API một lần trên DB tạm (seeder tự `Migrate()`), rồi mới `dotnet test`. Bằng chứng thật
-    (2026-10-19): DB trắng ⇒ 9 FAIL; sau khi API chạy 1 lần ⇒ 719/719 PASS.
+  - **DB tạm TRẮNG chạy được trực tiếp — KHÔNG cần khởi động API trước.** Mọi lớp `[ThrowawayDbFact]`
+    migrate qua guard dùng chung `ThrowawayDbMigrator.MigrateOnceAsync(db, connectionString)`
+    (`aspire-react.Tests/ThrowawayDbGuard.cs`): luồng đầu tiên migrate, các luồng/lớp sau chờ rồi bỏ qua
+    (semaphore tĩnh theo connection string). Trước GĐ1.2 mỗi lớp tự `MigrateAsync()` **song song** ⇒ đụng
+    nhau (tạo trùng table/type) ⇒ FAIL giả: đo thật **9 FAIL** trên DB trắng; sau khi có guard ⇒
+    **719/719 PASS trên DB trắng, không cần API**. Hệ quả bắt buộc: test nào cần dữ liệu mẫu phải **TỰ SEED**
+    (VD `NaiveDateTimeKindTests` tự tạo user + asset thay vì `SELECT ... LIMIT 1`).
   - Bật cờ + truyền connection string: `MIRATS_TEST_THROWAWAY_DB=1`, `MIRATS_TEST_POSTGRES=<conn string DB tạm>`
     rồi `dotnet test aspire-react.Tests --filter "FullyQualifiedName~<nhóm test>"`.
 - **Vì sao:** InMemory KHÔNG có (đã gặp thật): exclusion constraint `EX_asset_installations_no_overlap` (**23P01**),

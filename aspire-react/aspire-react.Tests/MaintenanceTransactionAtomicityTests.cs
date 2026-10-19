@@ -73,7 +73,7 @@ public class MaintenanceTransactionAtomicityTests
             builder.AddInterceptors(new ActionLogBombInterceptor());
 
         var db = new AppDbContext(builder.Options, new TestHelpers.SuperUserScope());
-        await db.Database.MigrateAsync();
+        await ThrowawayDbMigrator.MigrateOnceAsync(db, connectionString);
         return db;
     }
 

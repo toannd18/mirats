@@ -75,7 +75,31 @@ public class NaiveDateTimeKindTests
         await using var db = await CreatePostgresContextAsync();
 
         var id = Guid.NewGuid();
-        var assetId = await db.Database.SqlQueryRaw<Guid>("SELECT \"Id\" AS \"Value\" FROM assets LIMIT 1").FirstAsync();
+        // [GĐ1.2] Fixture TỰ TẠO — trước đây test lấy `SELECT ... FROM assets LIMIT 1` / `users LIMIT 1`
+        // nên chỉ chạy được khi DB đã có sẵn dữ liệu (API seeder/fixture); trên DB TRẮNG sẽ ném
+        // "Sequence contains no elements". Nay tự seed user + asset rồi dọn ở finally.
+        var assetId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+        var tag = "MTTZ-" + Guid.NewGuid().ToString("N")[..8];
+        await using (var seed = await CreatePostgresContextAsync())
+        {
+            seed.Users.Add(new aspire_react.Server.Domain.Entities.User
+            {
+                Id = actorId,
+                Username = tag.ToLowerInvariant(),
+                Email = $"{tag}@test.local",
+                FirstName = "MT-TZ",
+                LastName = "Probe",
+                IsActive = true
+            });
+            seed.Assets.Add(new aspire_react.Server.Domain.Entities.Asset
+            {
+                Id = assetId,
+                AssetTag = tag,
+                Name = "MT-TZ probe asset"
+            });
+            await seed.SaveChangesAsync();
+        }
 
         // Ghi ĐÚNG payload FE (MaintenanceListPage: dayjs(...).toISOString()) cho ngày 10/11/2026 giờ VN
         // = 2026-11-09T17:00:00Z — tức wall-clock naive 2026-11-09 17:00:00.
@@ -92,7 +116,7 @@ public class NaiveDateTimeKindTests
                 CompletionDate = new DateTime(2026, 11, 10, 2, 30, 0, DateTimeKind.Utc),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
-                CreatedById = await db.Database.SqlQueryRaw<Guid>("SELECT \"Id\" AS \"Value\" FROM users LIMIT 1").FirstAsync()
+                CreatedById = actorId
             });
             await write.SaveChangesAsync();
         }
@@ -129,6 +153,8 @@ public class NaiveDateTimeKindTests
         finally
         {
             await db.Database.ExecuteSqlRawAsync("DELETE FROM asset_maintenances WHERE \"Id\" = {0}", id);
+            await db.Database.ExecuteSqlRawAsync("DELETE FROM assets WHERE \"Id\" = {0}", assetId);
+            await db.Database.ExecuteSqlRawAsync("DELETE FROM users WHERE \"Id\" = {0}", actorId);
         }
     }
 
@@ -181,7 +207,7 @@ public class NaiveDateTimeKindTests
             .Options;
 
         var db = new AppDbContext(options, new TestHelpers.SuperUserScope());
-        await db.Database.MigrateAsync();
+        await ThrowawayDbMigrator.MigrateOnceAsync(db, connectionString);
         return db;
     }
 }

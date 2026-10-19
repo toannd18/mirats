@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace aspire_react.Tests;
@@ -38,5 +39,49 @@ public sealed class ThrowawayDbFactAttribute : FactAttribute
     {
         if (!ThrowawayDbGuard.IsConfirmed)
             Skip = ThrowawayDbGuard.SkipReason;
+    }
+}
+
+/// <summary>
+/// [GĐ1.2] Migration CHẠY ĐÚNG MỘT LẦN cho DB tạm.
+/// <para>
+/// Trước đây mỗi lớp test <c>[ThrowawayDbFact]</c> tự gọi <c>MigrateAsync()</c>. Trên DB TRẮNG, các lớp
+/// chạy SONG SONG (xUnit) cùng tạo table/type ⇒ đụng nhau và FAIL giả — đo thật 2026-10-19: 9 FAIL khi
+/// DB trắng, 0 FAIL sau khi migrate trước. Guard tĩnh theo connection string: luồng đầu migrate, các
+/// luồng sau chờ rồi bỏ qua. Nhờ vậy nhóm ThrowawayDb chạy được trên DB trắng mà KHÔNG cần khởi động API.
+/// </para>
+/// </summary>
+public static class ThrowawayDbMigrator
+{
+    private static readonly SemaphoreSlim Gate = new(1, 1);
+    private static readonly HashSet<string> Migrated = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Migrate một lần cho <paramref name="connectionString"/> (idempotent, thread-safe).</summary>
+    public static async Task MigrateOnceAsync(
+        aspire_react.Server.Infrastructure.Persistence.AppDbContext db, string connectionString, CancellationToken cancellationToken = default)
+    {
+        lock (Migrated)
+        {
+            if (Migrated.Contains(connectionString)) return;
+        }
+
+        await Gate.WaitAsync(cancellationToken);
+        try
+        {
+            lock (Migrated)
+            {
+                if (Migrated.Contains(connectionString)) return;
+            }
+
+            await db.Database.MigrateAsync(cancellationToken);
+            lock (Migrated)
+            {
+                Migrated.Add(connectionString);
+            }
+        }
+        finally
+        {
+            Gate.Release();
+        }
     }
 }
