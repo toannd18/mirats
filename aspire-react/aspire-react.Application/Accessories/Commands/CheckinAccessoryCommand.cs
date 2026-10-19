@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -68,6 +68,10 @@ public class CheckinAccessoryCommandHandler : IRequestHandler<CheckinAccessoryCo
             // Map AccessoryCheckoutType to AssignmentTargetType for ActionLog
             var targetType = MapCheckoutTypeToTargetType(co.CheckoutType);
 
+            var changes = new ActionLogChanges()
+                .Track("returnQty", (int?)null)
+                .Track("quantity", remainingOut + request.ReturnQty);
+
             // Log via centralized service
             _actionLogService.LogAction(
                 itemType: ItemType.Accessory,
@@ -78,14 +82,10 @@ public class CheckinAccessoryCommandHandler : IRequestHandler<CheckinAccessoryCo
                 targetId: co.TargetId,
                 companyId: co.Accessory?.CompanyId,
                 note: request.Note,
-                logMeta: JsonSerializer.Serialize(new
-                {
-                    changes = new Dictionary<string, object?>
-                    {
-                        ["return_qty"] = new { old = (int?)null, @new = request.ReturnQty },
-                        ["quantity"] = new { old = remainingOut + request.ReturnQty, @new = remainingOut }
-                    }
-                }));
+                logMeta: changes
+                    .Set("returnQty", request.ReturnQty)
+                    .Set("quantity", remainingOut)
+                    .ToLogMeta());
 
             await _context.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync(cancellationToken);

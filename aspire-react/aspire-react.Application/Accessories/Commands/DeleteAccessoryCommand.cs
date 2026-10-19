@@ -58,7 +58,7 @@ public class DeleteAccessoryCommandHandler : IRequestHandler<DeleteAccessoryComm
             actionType: ActionType.Delete,
             loggedByUserId: request.CurrentUserId,
             companyId: accessory.CompanyId,
-            note: $"Deleted accessory: {accessoryName}" + (accessoryItemNo != null ? $" (#{accessoryItemNo})" : ""),
+            note: $"Xóa phụ kiện: {accessoryName}" + (accessoryItemNo != null ? $" (#{accessoryItemNo})" : ""),
             logMeta: JsonSerializer.Serialize(new { name = accessoryName, itemNo = accessoryItemNo, qty = accessory.Qty }));
 
         _context.Accessories.Remove(accessory);

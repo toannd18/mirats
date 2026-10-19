@@ -52,7 +52,7 @@ public class DeleteConsumableCommandHandler : IRequestHandler<DeleteConsumableCo
             itemId: request.Id,
             actionType: ActionType.Delete,
             loggedByUserId: request.CurrentUserId,
-            note: $"Deleted consumable: {c.Name}",
+            note: $"Xóa vật tư: {c.Name}",
             companyId: c.CompanyId);
         await _context.SaveChangesAsync(cancellationToken);
         return new ConsumableResult(true, "Consumable deleted.");

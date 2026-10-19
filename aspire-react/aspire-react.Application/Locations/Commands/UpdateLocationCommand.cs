@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -70,6 +70,17 @@ public class UpdateLocationCommandHandler : IRequestHandler<UpdateLocationComman
 
         // Patch semantics (Task M2): only fields explicitly sent are applied (absent → keep current).
         var before = new { l.Name, l.ParentId, l.CompanyId, l.ManagerId, l.Address, l.City, l.State, l.Country, l.Zip };
+        // [AUDIT-LOG B6a] helper dùng chung: tên field snake_case, CHỈ field thực sự đổi.
+        var changes = new ActionLogChanges()
+            .Track("name", before.Name)
+            .Track("parentId", before.ParentId)
+            .Track("companyId", before.CompanyId)
+            .Track("managerId", before.ManagerId)
+            .Track("address", before.Address)
+            .Track("city", before.City)
+            .Track("state", before.State)
+            .Track("country", before.Country)
+            .Track("zip", before.Zip);
         if (!string.IsNullOrWhiteSpace(request.Name)) l.Name = request.Name;
         if (request.ParentId is not null) l.ParentId = request.ParentId;
         if (request.CompanyId is not null) l.CompanyId = request.CompanyId;
@@ -81,21 +92,17 @@ public class UpdateLocationCommandHandler : IRequestHandler<UpdateLocationComman
         if (request.Zip is not null) l.Zip = request.Zip;
         await _context.SaveChangesAsync(cancellationToken);
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                name = new { old = before.Name, @new = l.Name },
-                parentId = new { old = before.ParentId, @new = l.ParentId },
-                companyId = new { old = before.CompanyId, @new = l.CompanyId },
-                managerId = new { old = before.ManagerId, @new = l.ManagerId },
-                address = new { old = before.Address, @new = l.Address },
-                city = new { old = before.City, @new = l.City },
-                state = new { old = before.State, @new = l.State },
-                country = new { old = before.Country, @new = l.Country },
-                zip = new { old = before.Zip, @new = l.Zip }
-            }
-        });
+        var logMeta = changes
+            .Set("name", l.Name)
+            .Set("parentId", l.ParentId)
+            .Set("companyId", l.CompanyId)
+            .Set("managerId", l.ManagerId)
+            .Set("address", l.Address)
+            .Set("city", l.City)
+            .Set("state", l.State)
+            .Set("country", l.Country)
+            .Set("zip", l.Zip)
+            .ToLogMeta();
 
         return new LocationResult(
             true, "Updated.",

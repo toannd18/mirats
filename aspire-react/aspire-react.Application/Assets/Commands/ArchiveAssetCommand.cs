@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -43,6 +43,9 @@ public class ArchiveAssetCommandHandler : IRequestHandler<ArchiveAssetCommand, A
 
             var oldStatus = asset.Status;
             var oldLocationId = asset.LocationId;
+            var changes = new ActionLogChanges()
+                .Track("status", oldStatus.ToString())
+                .Track("locationId", oldLocationId?.ToString());
 
             var endedAt = DateTime.UtcNow;
 
@@ -70,15 +73,11 @@ public class ArchiveAssetCommandHandler : IRequestHandler<ArchiveAssetCommand, A
                 loggedByUserId: request.CurrentUserId,
                 locationId: request.LocationId,
                 companyId: asset.CompanyId,
-                note: request.Note ?? "Asset archived",
-                logMeta: JsonSerializer.Serialize(new
-                {
-                    changes = new Dictionary<string, object?>
-                    {
-                        ["status"] = new { old = oldStatus.ToString(), @new = AssetStatus.Archived.ToString() },
-                        ["locationId"] = new { old = oldLocationId?.ToString(), @new = request.LocationId.ToString() }
-                    }
-                }));
+                note: request.Note ?? "Lưu trữ thiết bị",
+                logMeta: changes
+                    .Set("status", AssetStatus.Archived.ToString())
+                    .Set("locationId", request.LocationId.ToString())
+                    .ToLogMeta());
 
             try
             {

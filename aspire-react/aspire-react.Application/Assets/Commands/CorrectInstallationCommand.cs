@@ -1,4 +1,5 @@
 using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -146,28 +147,26 @@ public class CorrectInstallationCommandHandler : IRequestHandler<CorrectInstalla
                 ?? (entry.Source == AssetInstallationSource.Backfill ? null : entry.Note);
             var newPositionId = isOpen ? entry.SystemPositionId : (request.SystemPositionId ?? entry.SystemPositionId);
 
-            var changes = new Dictionary<string, object?>();
-            if (newStartedAt != entry.StartedAt)
-                changes["started_at"] = new { old = entry.StartedAt, @new = newStartedAt };
-            if (!isOpen && newEndedAt != entry.EndedAt)
-                changes["ended_at"] = new { old = entry.EndedAt, @new = newEndedAt };
-            if (newPositionId != entry.SystemPositionId)
-                changes["system_position_id"] = new { old = entry.SystemPositionId?.ToString(), @new = newPositionId?.ToString() };
-            if (!string.Equals(newNote, entry.Note, StringComparison.Ordinal))
-                changes["note"] = new { old = entry.Note, @new = newNote };
+            var changes = new ActionLogChanges()
+                .Track("startedAt", entry.StartedAt)
+                .Track("endedAt", entry.EndedAt)
+                .Track("systemPositionId", entry.SystemPositionId)
+                .Track("note", entry.Note)
+                .Track("source", entry.Source.ToString());
 
+            changes.Set("startedAt", newStartedAt);
+            if (!isOpen)
+                changes.Set("endedAt", newEndedAt);
+            changes.Set("systemPositionId", newPositionId);
+            changes.Set("note", newNote);
             // [LL-5 Bước 7] Ngoại lệ "CHỈ XÁC NHẬN MỐC" của dòng Backfill: chuyển Backfill → Correction LUÔN là
             // một thay đổi nghiệp vụ thật (bản mới KHÔNG còn nhãn "Thời điểm ước tính"), nên đính chính chỉ gửi
             // `reason` (không đổi trường nào khác) vẫn HỢP LỆ — kể cả khi note kỹ thuật rỗng (không có thay đổi
             // `note` nào để "đỡ"). Nguồn KHÁC không đổi gì ⇒ giữ nguyên 400 CORRECTION_NO_CHANGES.
             if (entry.Source == AssetInstallationSource.Backfill)
-                changes["source"] = new
-                {
-                    old = nameof(AssetInstallationSource.Backfill),
-                    @new = nameof(AssetInstallationSource.Correction)
-                };
+                changes.Set("source", nameof(AssetInstallationSource.Correction));
 
-            if (changes.Count == 0)
+            if (!changes.HasChanges)
                 return new CorrectionResult(false, "Không có thay đổi nào so với bản ghi hiện tại.",
                     ErrorCode: "CORRECTION_NO_CHANGES");
 
@@ -233,7 +232,7 @@ public class CorrectInstallationCommandHandler : IRequestHandler<CorrectInstalla
                     superseded_entry_id = entry.Id,
                     corrects_entry_id = entry.Id,
                     new_entry_id = newEntry.Id,
-                    changes
+                    changes = changes.ToChangesMap()
                 }));
 
             try

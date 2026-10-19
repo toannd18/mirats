@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.SystemInfos;
 using aspire_react.Server.Domain.Entities;
@@ -84,23 +84,24 @@ public class UpdateSystemInfoCommandHandler : IRequestHandler<UpdateSystemInfoCo
                 "FIELD_LOCKED");
 
         // ─── Patch semantics (Task F/M1 pattern): only fields explicitly sent are applied. ───
-        var before = new { s.Code, s.Name, s.Description, s.CompanyId };
+        // [AUDIT-LOG B6a] helper dùng chung: Track TRƯỚC khi gán (giá trị cũ), Set SAU (giá trị mới).
+        var changes = new ActionLogChanges()
+            .Track("code", s.Code)
+            .Track("name", s.Name)
+            .Track("description", s.Description)
+            .Track("companyId", s.CompanyId);
         if (normalizedCode != null) s.Code = normalizedCode.ToUpper();
         if (!string.IsNullOrWhiteSpace(request.Name)) s.Name = request.Name;
         if (request.Description is not null) s.Description = request.Description;
         if (request.CompanyId.HasValue) s.CompanyId = request.CompanyId;
         await _context.SaveChangesAsync(cancellationToken);
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                code = new { old = before.Code, @new = s.Code },
-                name = new { old = before.Name, @new = s.Name },
-                description = new { old = before.Description, @new = s.Description },
-                companyId = new { old = before.CompanyId, @new = s.CompanyId }
-            }
-        });
+        var logMeta = changes
+            .Set("code", s.Code)
+            .Set("name", s.Name)
+            .Set("description", s.Description)
+            .Set("companyId", s.CompanyId)
+            .ToLogMeta();
 
         return new SystemInfoResult(true, "Updated.",
             Id: s.Id, Name: s.Name, CompanyId: s.CompanyId,

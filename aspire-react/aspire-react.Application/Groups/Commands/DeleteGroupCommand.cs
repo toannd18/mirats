@@ -35,7 +35,7 @@ public record DeleteGroupCommand(Guid Id, Guid CurrentUserId, bool ActorIsRealmS
             CompanyId = null, // PermissionGroup has no CompanyId — company-independent log
             // [AUDIT-LOG B6b] Snapshot TỐI THIỂU cho xóa cứng (id + tên) — không dữ liệu nhạy cảm.
             LogMeta = JsonSerializer.Serialize(new { id = response.GroupId ?? Id, name = response.Name }),
-            Note = $"Deleted group: {response.Name}"
+            Note = $"Xóa nhóm: {response.Name}"
         };
     }
 }

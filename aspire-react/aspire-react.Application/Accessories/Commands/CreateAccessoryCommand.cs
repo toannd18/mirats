@@ -50,7 +50,7 @@ public record CreateAccessoryCommand : IRequest<AccessoryResult>, ILoggableComma
             ActionType = ActionType.Create,
             CreatedBy = CurrentUserId,
             CompanyId = CompanyId,
-            Note = $"Created accessory: {Name}" + (ItemNo != null ? $" (#{ItemNo})" : ""),
+            Note = $"Tạo phụ kiện: {Name}" + (ItemNo != null ? $" (#{ItemNo})" : ""),
             LogMeta = JsonSerializer.Serialize(new { name = Name, qty = Qty, minAmt = MinAmt })
         };
     }

@@ -1,8 +1,8 @@
-using System.Text.Json;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Domain.SystemConfig;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -111,7 +111,10 @@ public class SetAssetTagFormatCommandHandler : IRequestHandler<SetAssetTagFormat
             true,
             ItemId: setting.Id,
             Note: $"Cập nhật format tự sinh Mã tài sản (Asset Tag): \"{oldValue}\" → \"{trimmed}\"",
-            LogMeta: JsonSerializer.Serialize(new { changes = new { format = new { old = oldValue, @new = trimmed } } }));
+            LogMeta: new ActionLogChanges()
+                .Track("format", oldValue)
+                .Set("format", trimmed)
+                .ToLogMeta());
     }
 }
 
@@ -187,6 +190,9 @@ public class SetPasskeysEnabledCommandHandler : IRequestHandler<SetPasskeysEnabl
             true,
             ItemId: setting.Id,
             Note: $"Bật đăng nhập bằng Passkey: {oldValue} → {newValue}",
-            LogMeta: JsonSerializer.Serialize(new { changes = new { enabled = new { old = oldValue, @new = newValue } } }));
+            LogMeta: new ActionLogChanges()
+                .Track("enabled", oldValue)
+                .Set("enabled", newValue)
+                .ToLogMeta());
     }
 }

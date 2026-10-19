@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Persistence;
 using aspire_react.Server.Application.Maintenance;
@@ -191,6 +192,13 @@ public class UpsertCampaignResultCommandHandler : IRequestHandler<UpsertCampaign
             // (ItemType.MaintenanceCampaign + TargetSystemInfo) như Create/Complete ở trên.
             // Auto-IsPass là giá trị máy tính (post-MC-10), đo được trong LogMeta để truy vết.
             // [AUDIT-LOG B5] log + dữ liệu cùng transaction ⇒ đổ ở bước log là rollback hết.
+            var changes = new ActionLogChanges()
+                .Track("measuredValue", oldMeasuredValue)
+                .Track("isPass", oldIsPass)
+                .Track("notes", oldNotes)
+                .Set("measuredValue", existing.MeasuredValue)
+                .Set("isPass", existing.IsPass)
+                .Set("notes", existing.Notes);
             _actionLogService.Log(CampaignAccess.BuildLog(
                 isNew ? ActionType.Create : ActionType.Update, c, request.CurrentUserId,
                 isNew
@@ -202,12 +210,7 @@ public class UpsertCampaignResultCommandHandler : IRequestHandler<UpsertCampaign
                     deviceSnapshotId = dto.DeviceSnapshotId,
                     checklistItemId = dto.ChecklistItemId,
                     standardParamId = dto.StandardParamId,
-                    changes = new
-                    {
-                        measuredValue = new { old = oldMeasuredValue, @new = existing.MeasuredValue },
-                        isPass = new { old = oldIsPass, @new = existing.IsPass },
-                        notes = new { old = oldNotes, @new = existing.Notes }
-                    }
+                    changes = changes.ToChangesMap()
                 }));
             await _context.SaveChangesAsync(cancellationToken);
         }, cancellationToken);

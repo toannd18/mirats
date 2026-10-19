@@ -107,7 +107,7 @@ public class CreateAssetCommandHandler : IRequestHandler<CreateAssetCommand, Ass
             actionType: ActionType.Create,
             loggedByUserId: request.CurrentUserId,
             companyId: asset.CompanyId,
-            note: $"Created asset: {assetTag} - {request.Name}",
+            note: $"Tạo thiết bị: {assetTag} - {request.Name}",
             logMeta: JsonSerializer.Serialize(new { assetTag, name = request.Name, serial = request.Serial }));
 
         await _context.SaveChangesAsync(cancellationToken);

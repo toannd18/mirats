@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -79,6 +79,13 @@ public class UpdateDepartmentCommandHandler : IRequestHandler<UpdateDepartmentCo
             return new DepartmentResult(false, "Tên phòng ban đã tồn tại.");
 
         var before = new { d.Name, d.CompanyId, d.ManagerId, d.Phone, d.Fax };
+        // [AUDIT-LOG B6a] helper dùng chung: tên field snake_case, CHỈ field thực sự đổi.
+        var changes = new ActionLogChanges()
+            .Track("name", before.Name)
+            .Track("companyId", before.CompanyId)
+            .Track("managerId", before.ManagerId)
+            .Track("phone", before.Phone)
+            .Track("fax", before.Fax);
         if (request.Name != null) d.Name = request.Name;
         if (request.CompanyId.HasValue) d.CompanyId = request.CompanyId;
         if (request.ManagerId.HasValue) d.ManagerId = request.ManagerId;
@@ -86,17 +93,13 @@ public class UpdateDepartmentCommandHandler : IRequestHandler<UpdateDepartmentCo
         if (request.Fax is not null) d.Fax = request.Fax;
         await _context.SaveChangesAsync(cancellationToken);
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                name = new { old = before.Name, @new = d.Name },
-                companyId = new { old = before.CompanyId, @new = d.CompanyId },
-                managerId = new { old = before.ManagerId, @new = d.ManagerId },
-                phone = new { old = before.Phone, @new = d.Phone },
-                fax = new { old = before.Fax, @new = d.Fax }
-            }
-        });
+        var logMeta = changes
+            .Set("name", d.Name)
+            .Set("companyId", d.CompanyId)
+            .Set("managerId", d.ManagerId)
+            .Set("phone", d.Phone)
+            .Set("fax", d.Fax)
+            .ToLogMeta();
 
         return new DepartmentResult(
             true, "Updated.",

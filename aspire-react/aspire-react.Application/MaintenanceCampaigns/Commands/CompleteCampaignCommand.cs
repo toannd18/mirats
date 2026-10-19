@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Persistence;
 using aspire_react.Server.Application.Maintenance;
@@ -71,6 +72,11 @@ public class CompleteCampaignCommandHandler : IRequestHandler<CompleteCampaignCo
 
         var endDate = c.EndDate ?? DateTime.UtcNow;
         var prevDue = c.SystemInfo?.NextMaintenanceDueDate;
+        var changes = new ActionLogChanges()
+            .Track("status", MaintenanceCampaignStatus.InProgress.ToString())
+            .Track("endDate", (DateTime?)null)
+            .Track("nextMaintenanceDueDate", prevDue)
+            .Track("reviewerId", (Guid?)null);
 
         c.EndDate = endDate;
         c.Status = MaintenanceCampaignStatus.Completed;
@@ -94,13 +100,12 @@ public class CompleteCampaignCommandHandler : IRequestHandler<CompleteCampaignCo
                 ActionType.Complete, c, request.CurrentUserId,
                 $"Hoàn thành đợt bảo dưỡng cho hệ thống \"{c.SystemInfo?.Name ?? c.SystemInfoId.ToString()}\"", new
                 {
-                    changes = new
-                    {
-                        status = new { old = MaintenanceCampaignStatus.InProgress.ToString(), @new = MaintenanceCampaignStatus.Completed.ToString() },
-                        endDate = new { old = (DateTime?)null, @new = endDate },
-                        nextMaintenanceDueDate = new { old = prevDue, @new = due },
-                        reviewerId = new { old = (Guid?)null, @new = c.ReviewerId }
-                    }
+                    changes = changes
+                        .Set("status", MaintenanceCampaignStatus.Completed.ToString())
+                        .Set("endDate", endDate)
+                        .Set("nextMaintenanceDueDate", due)
+                        .Set("reviewerId", c.ReviewerId)
+                        .ToChangesMap()
                 }));
             await _context.SaveChangesAsync(cancellationToken);
         }, cancellationToken);

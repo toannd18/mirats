@@ -486,7 +486,7 @@ public class AccessoryTests
         Assert.Equal(accessoryId, log.ItemId);
         Assert.Equal(ActorId, log.CreatedBy);
         Assert.Equal(companyId, log.CompanyId);
-        Assert.Contains("Updated accessory", log.Note);
+        Assert.Contains("Cập nhật phụ kiện", log.Note);
         Assert.Contains("name", log.LogMeta); // changes map records what actually changed
     }
 

@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -78,6 +78,16 @@ public class UpdateCustomFieldCommandHandler : IRequestHandler<UpdateCustomField
         }
 
         var before = new { field.Name, field.Slug, field.Format, field.Element, field.FieldValues, field.FieldEncrypted, field.HelpText, field.IsUnique };
+        // [AUDIT-LOG B6a] helper dùng chung: tên field snake_case, CHỈ field thực sự đổi.
+        var changes = new ActionLogChanges()
+            .Track("name", before.Name)
+            .Track("slug", before.Slug)
+            .Track("format", before.Format)
+            .Track("element", before.Element)
+            .Track("fieldValues", before.FieldValues)
+            .Track("fieldEncrypted", before.FieldEncrypted)
+            .Track("helpText", before.HelpText)
+            .Track("isUnique", before.IsUnique);
         if (request.Name != null) field.Name = request.Name;
         if (request.Slug != null) field.Slug = request.Slug;
         if (request.Format != null) field.Format = request.Format;
@@ -88,20 +98,16 @@ public class UpdateCustomFieldCommandHandler : IRequestHandler<UpdateCustomField
         if (request.IsUnique.HasValue) field.IsUnique = request.IsUnique.Value;
         await _context.SaveChangesAsync(cancellationToken);
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                name = new { old = before.Name, @new = field.Name },
-                slug = new { old = before.Slug, @new = field.Slug },
-                format = new { old = before.Format, @new = field.Format },
-                element = new { old = before.Element, @new = field.Element },
-                fieldValues = new { old = before.FieldValues, @new = field.FieldValues },
-                fieldEncrypted = new { old = before.FieldEncrypted, @new = field.FieldEncrypted },
-                helpText = new { old = before.HelpText, @new = field.HelpText },
-                isUnique = new { old = before.IsUnique, @new = field.IsUnique }
-            }
-        });
+        var logMeta = changes
+            .Set("name", field.Name)
+            .Set("slug", field.Slug)
+            .Set("format", field.Format)
+            .Set("element", field.Element)
+            .Set("fieldValues", field.FieldValues)
+            .Set("fieldEncrypted", field.FieldEncrypted)
+            .Set("helpText", field.HelpText)
+            .Set("isUnique", field.IsUnique)
+            .ToLogMeta();
 
         return new CustomFieldResult(
             true, "Custom field updated.",

@@ -440,6 +440,15 @@ public class UpdateStandardParamCommandHandler : IRequestHandler<UpdateStandardP
             return new UpdateStandardParamResult(false, MaintenanceTemplateItems.FrozenMessage(version), "TEMPLATE_VERSION_IN_USE");
 
         var before = new { param.ParamName, param.NominalValue, param.ThresholdOperator, param.ThresholdValue, param.CheckMethod, param.Unit };
+
+        // [AUDIT-LOG B6a] helper dùng chung: Track TRƯỚC khi gán, Set SAU. Chỉ 4 field như log cũ
+        // (checkMethod/unit KHÔNG nằm trong `changes` — giữ nguyên hình dạng nhật ký hiện có).
+        var changes = new ActionLogChanges()
+            .Track("paramName", before.ParamName)
+            .Track("nominalValue", before.NominalValue)
+            .Track("thresholdOperator", before.ThresholdOperator.ToString())
+            .Track("thresholdValue", before.ThresholdValue);
+
         if (!string.IsNullOrWhiteSpace(request.ParamName)) param.ParamName = request.ParamName.Trim();
         if (request.NominalValue is not null) param.NominalValue = request.NominalValue;
         // [MC-10] Patch-aware nhưng luôn theo cặp: Operator+Value (cả 2 hoặc không đổi).
@@ -451,6 +460,12 @@ public class UpdateStandardParamCommandHandler : IRequestHandler<UpdateStandardP
         // [AUDIT-LOG B5] dữ liệu + ActionLog trong CÙNG transaction (commit 1 lần).
         await DbTransaction.ExecuteAsync(_context, async _ =>
         {
+            changes
+                .Set("paramName", param.ParamName)
+                .Set("nominalValue", param.NominalValue)
+                .Set("thresholdOperator", param.ThresholdOperator.ToString())
+                .Set("thresholdValue", param.ThresholdValue);
+
             _actionLogService.Log(MaintenanceTemplateLogging.Build(
                 ActionType.Update, t, request.CurrentUserId,
                 $"Sửa tiêu chuẩn \"{param.ParamName}\" (version {version.VersionNumber})", new
@@ -460,13 +475,7 @@ public class UpdateStandardParamCommandHandler : IRequestHandler<UpdateStandardP
                     versionNumber = version.VersionNumber,
                     itemId = request.ItemId,
                     paramId = request.ParamId,
-                    changes = new
-                    {
-                        paramName = new { old = before.ParamName, @new = param.ParamName },
-                        nominalValue = new { old = before.NominalValue, @new = param.NominalValue },
-                        thresholdOperator = new { old = before.ThresholdOperator.ToString(), @new = param.ThresholdOperator.ToString() },
-                        thresholdValue = new { old = before.ThresholdValue, @new = param.ThresholdValue }
-                    }
+                    changes = changes.ToChangesMap()
                 }));
             await _context.SaveChangesAsync(cancellationToken);
         }, cancellationToken);

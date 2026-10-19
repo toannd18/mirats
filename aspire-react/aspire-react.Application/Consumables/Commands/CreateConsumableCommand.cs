@@ -65,7 +65,7 @@ public class CreateConsumableCommandHandler : IRequestHandler<CreateConsumableCo
             itemId: c.Id,
             actionType: ActionType.Create,
             loggedByUserId: request.CurrentUserId,
-            note: $"Created consumable: {c.Name}",
+            note: $"Tạo vật tư: {c.Name}",
             logMeta: JsonSerializer.Serialize(new { name = c.Name, qty = c.Qty, minAmt = c.MinAmt }),
             companyId: c.CompanyId);
         await _context.SaveChangesAsync(cancellationToken);

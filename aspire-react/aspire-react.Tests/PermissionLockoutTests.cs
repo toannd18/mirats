@@ -386,7 +386,7 @@ public class PermissionLockoutTests
             l.ItemType == ItemType.User && l.ItemId == targetUser.Id && l.ActionType == ActionType.Update);
         Assert.NotNull(log);
         Assert.Equal(adminA.Id, log.CreatedBy);
-        Assert.Contains("groupIds", log.LogMeta);
+        Assert.Contains("group_ids", log.LogMeta);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Persistence;
 using aspire_react.Server.Domain.Entities;
@@ -193,10 +194,11 @@ public class UpdateMaintenanceTemplateCommandHandler : IRequestHandler<UpdateMai
         if (!nameChanged && !sysChanged && !activeChanged)
             return new UpdateMaintenanceTemplateResult(true, "Updated."); // nothing actually sent/changed
 
-        // Capture BEFORE values prior to mutation (LogMeta.changes must hold true olds).
-        var beforeName = t.Name;
-        var beforeSystemId = t.SystemInfoId;
-        var beforeIsActive = t.IsActive;
+        // [AUDIT-LOG B6a] helper dùng chung: Track BEFORE mutation (LogMeta.changes phải giữ giá trị cũ thật).
+        var changes = new ActionLogChanges()
+            .Track("name", t.Name)
+            .Track("systemInfoId", t.SystemInfoId)
+            .Track("isActive", t.IsActive);
 
         if (nameChanged) t.Name = newName!;
         if (sysChanged) t.SystemInfoId = request.SystemInfoId!.Value;
@@ -205,17 +207,15 @@ public class UpdateMaintenanceTemplateCommandHandler : IRequestHandler<UpdateMai
         // [AUDIT-LOG B5] dữ liệu + ActionLog trong CÙNG transaction (commit 1 lần).
         await DbTransaction.ExecuteAsync(_context, async _ =>
         {
+            changes
+                .Set("name", t.Name)
+                .Set("systemInfoId", t.SystemInfoId)
+                .Set("isActive", t.IsActive);
+
             _actionLogService.Log(MaintenanceTemplateLogging.Build(
                 ActionType.Update, t, request.CurrentUserId,
-                $"Cập nhật template bảo dưỡng \"{t.Name}\"", new
-                {
-                    changes = new
-                    {
-                        name = new { old = beforeName, @new = t.Name },
-                        systemInfoId = new { old = beforeSystemId, @new = t.SystemInfoId },
-                        isActive = new { old = beforeIsActive, @new = t.IsActive }
-                    }
-                }));
+                $"Cập nhật template bảo dưỡng \"{t.Name}\"",
+                new { changes = changes.ToChangesMap() }));
             await _context.SaveChangesAsync(cancellationToken);
         }, cancellationToken);
         return new UpdateMaintenanceTemplateResult(true, "Updated.");

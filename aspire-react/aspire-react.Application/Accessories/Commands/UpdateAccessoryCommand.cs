@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -105,25 +105,23 @@ public class UpdateAccessoryCommandHandler : IRequestHandler<UpdateAccessoryComm
             // Verbatim: this body has NO error_code (only status + message).
             return new UpdateAccessoryResult(false, "Không thể sửa phụ kiện đang có thiết bị đang được cấp phát.");
 
-        // Before-snapshot for the ActionLog changes map (command is immutable — captured here).
-        var before = new Dictionary<string, object?>
-        {
-            ["name"] = a.Name,
-            ["itemNo"] = a.ItemNo,
-            ["qty"] = a.Qty,
-            ["minAmt"] = a.MinAmt,
-            ["categoryId"] = a.CategoryId,
-            ["manufacturerId"] = a.ManufacturerId,
-            ["supplierId"] = a.SupplierId,
-            ["locationId"] = a.LocationId,
-            ["companyId"] = a.CompanyId,
-            ["modelNumber"] = a.ModelNumber,
-            ["orderNumber"] = a.OrderNumber,
-            ["purchaseCost"] = a.PurchaseCost,
-            ["purchaseDate"] = a.PurchaseDate,
-            ["notes"] = a.Notes,
-            ["image"] = a.Image
-        };
+        // [AUDIT-LOG B6a] helper dùng chung: Track BEFORE mutation (giá trị cũ), Set AFTER (giá trị mới).
+        var changes = new ActionLogChanges()
+            .Track("name", a.Name)
+            .Track("itemNo", a.ItemNo)
+            .Track("qty", a.Qty)
+            .Track("minAmt", a.MinAmt)
+            .Track("categoryId", a.CategoryId)
+            .Track("manufacturerId", a.ManufacturerId)
+            .Track("supplierId", a.SupplierId)
+            .Track("locationId", a.LocationId)
+            .Track("companyId", a.CompanyId)
+            .Track("modelNumber", a.ModelNumber)
+            .Track("orderNumber", a.OrderNumber)
+            .Track("purchaseCost", a.PurchaseCost)
+            .Track("purchaseDate", a.PurchaseDate)
+            .Track("notes", a.Notes)
+            .Track("image", a.Image);
 
         // Task M2 patch semantics: only fields explicitly sent are applied.
         if (!string.IsNullOrWhiteSpace(r.Name)) a.Name = r.Name;
@@ -144,38 +142,31 @@ public class UpdateAccessoryCommandHandler : IRequestHandler<UpdateAccessoryComm
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        // LogMeta: only the fields that actually changed (old → new), same shape as other updates.
-        var after = new Dictionary<string, object?>
-        {
-            ["name"] = a.Name,
-            ["itemNo"] = a.ItemNo,
-            ["qty"] = a.Qty,
-            ["minAmt"] = a.MinAmt,
-            ["categoryId"] = a.CategoryId,
-            ["manufacturerId"] = a.ManufacturerId,
-            ["supplierId"] = a.SupplierId,
-            ["locationId"] = a.LocationId,
-            ["companyId"] = a.CompanyId,
-            ["modelNumber"] = a.ModelNumber,
-            ["orderNumber"] = a.OrderNumber,
-            ["purchaseCost"] = a.PurchaseCost,
-            ["purchaseDate"] = a.PurchaseDate,
-            ["notes"] = a.Notes,
-            ["image"] = a.Image
-        };
-        var changes = new Dictionary<string, object?>();
-        foreach (var kv in after)
-        {
-            if (!Equals(before[kv.Key], kv.Value))
-                changes[kv.Key] = new { old = before[kv.Key], @new = kv.Value };
-        }
+        // LogMeta: chỉ field thực sự đổi (old → new); null khi không field nào đổi.
+        var logMeta = changes
+            .Set("name", a.Name)
+            .Set("itemNo", a.ItemNo)
+            .Set("qty", a.Qty)
+            .Set("minAmt", a.MinAmt)
+            .Set("categoryId", a.CategoryId)
+            .Set("manufacturerId", a.ManufacturerId)
+            .Set("supplierId", a.SupplierId)
+            .Set("locationId", a.LocationId)
+            .Set("companyId", a.CompanyId)
+            .Set("modelNumber", a.ModelNumber)
+            .Set("orderNumber", a.OrderNumber)
+            .Set("purchaseCost", a.PurchaseCost)
+            .Set("purchaseDate", a.PurchaseDate)
+            .Set("notes", a.Notes)
+            .Set("image", a.Image)
+            .ToLogMeta();
 
         return new UpdateAccessoryResult(
             true,
             "Accessory updated.",
             AccessoryId: a.Id,
             CompanyId: a.CompanyId,
-            Note: $"Updated accessory: {a.Name}" + (a.ItemNo != null ? $" (#{a.ItemNo})" : ""),
-            LogMeta: JsonSerializer.Serialize(new { changes }));
+            Note: $"Cập nhật phụ kiện: {a.Name}" + (a.ItemNo != null ? $" (#{a.ItemNo})" : ""),
+            LogMeta: logMeta);
     }
 }

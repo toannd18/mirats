@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -74,21 +74,21 @@ public class UpdateGroupCommandHandler : IRequestHandler<UpdateGroupCommand, Gro
 
         var oldName = group.Name;
         var oldDescription = group.Description;
+        // [AUDIT-LOG B6a] helper dùng chung: tên field snake_case, CHỈ field thực sự đổi.
+        var changes = new ActionLogChanges()
+            .Track("name", oldName)
+            .Track("description", oldDescription);
         group.Name = newName;
         // [FIX-N4] Description absent → keep the stored value (was cleared unconditionally).
         if (request.Description is not null) group.Description = request.Description;
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                name = new { old = oldName, @new = group.Name },
-                description = new { old = oldDescription, @new = group.Description }
-            }
-        });
+        var logMeta = changes
+            .Set("name", group.Name)
+            .Set("description", group.Description)
+            .ToLogMeta();
 
         return new GroupResult(true, "Group updated successfully.",
             GroupId: group.Id, Name: group.Name,
-            LogMeta: logMeta, Note: "Group updated.");
+            LogMeta: logMeta, Note: "Cập nhật nhóm");
     }
 }

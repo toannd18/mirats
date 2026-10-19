@@ -113,7 +113,7 @@ public class DeleteUserCommandHandler : IRequestHandler<DeleteUserCommand, Delet
             true,
             "User deactivated successfully.",
             CompanyId: user.CompanyId,
-            Note: $"Deactivated user: {user.Username} ({user.Email})",
+            Note: $"Vô hiệu hoá người dùng: {user.Username} ({user.Email})",
             LogMeta: System.Text.Json.JsonSerializer.Serialize(new
             {
                 username = user.Username,

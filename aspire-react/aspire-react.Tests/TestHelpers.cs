@@ -219,6 +219,9 @@ public static class TestHelpers
         services.AddSingleton<ICompanyScopeService>(scope ?? (ICompanyScopeService)new SuperUserScope());
         services.AddSingleton<IActionLogService>(CreateActionLogService(db, actorId));
         services.AddSingleton<ICacheTagEvictor>(new NullCacheTagEvictor());
+        // [GĐ2.4] UpdateUser/UpdateUserGroups/UpdateGroupPermissions resolve IPermissionLockoutGuard.
+        services.AddSingleton<aspire_react.Server.Domain.Interfaces.IPermissionLockoutGuard>(
+            new aspire_react.Server.Infrastructure.Authorization.PermissionLockoutGuard(db));
         services.AddSingleton<IComponentAllocationService, ComponentAllocationService>();
         services.AddSingleton<IConsumableAllocationService, ConsumableAllocationService>();
         // [FIX-J N13+N19] FOR UPDATE row locks — no-op on InMemory, but handlers now depend on it.

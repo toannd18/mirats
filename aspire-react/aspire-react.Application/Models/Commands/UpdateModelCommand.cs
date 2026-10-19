@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -76,7 +76,17 @@ public class UpdateModelCommandHandler : IRequestHandler<UpdateModelCommand, Mod
         if (fkError != null)
             return ModelValidation.FkNotFound(fkError);
 
-        var before = new { m.Name, m.ModelNumber, m.ManufacturerId, m.CategoryId, m.DepreciationId, m.FieldsetId, m.Eol, m.Notes, m.Requestable };
+        // [AUDIT-LOG B6a] helper dùng chung: Track TRƯỚC khi gán (giá trị cũ), Set SAU (giá trị mới).
+        var changes = new ActionLogChanges()
+            .Track("name", m.Name)
+            .Track("modelNumber", m.ModelNumber)
+            .Track("manufacturerId", m.ManufacturerId)
+            .Track("categoryId", m.CategoryId)
+            .Track("depreciationId", m.DepreciationId)
+            .Track("fieldsetId", m.FieldsetId)
+            .Track("eol", m.Eol)
+            .Track("notes", m.Notes)
+            .Track("requestable", m.Requestable);
         if (!string.IsNullOrWhiteSpace(request.Name)) m.Name = request.Name;
         if (request.ModelNumber is not null) m.ModelNumber = request.ModelNumber;
         if (request.ManufacturerId is not null) m.ManufacturerId = request.ManufacturerId;
@@ -88,21 +98,17 @@ public class UpdateModelCommandHandler : IRequestHandler<UpdateModelCommand, Mod
         if (request.Requestable.HasValue) m.Requestable = request.Requestable.Value;
         await _context.SaveChangesAsync(cancellationToken);
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                name = new { old = before.Name, @new = m.Name },
-                modelNumber = new { old = before.ModelNumber, @new = m.ModelNumber },
-                manufacturerId = new { old = before.ManufacturerId, @new = m.ManufacturerId },
-                categoryId = new { old = before.CategoryId, @new = m.CategoryId },
-                depreciationId = new { old = before.DepreciationId, @new = m.DepreciationId },
-                fieldsetId = new { old = before.FieldsetId, @new = m.FieldsetId },
-                eol = new { old = before.Eol, @new = m.Eol },
-                notes = new { old = before.Notes, @new = m.Notes },
-                requestable = new { old = before.Requestable, @new = m.Requestable }
-            }
-        });
+        var logMeta = changes
+            .Set("name", m.Name)
+            .Set("modelNumber", m.ModelNumber)
+            .Set("manufacturerId", m.ManufacturerId)
+            .Set("categoryId", m.CategoryId)
+            .Set("depreciationId", m.DepreciationId)
+            .Set("fieldsetId", m.FieldsetId)
+            .Set("eol", m.Eol)
+            .Set("notes", m.Notes)
+            .Set("requestable", m.Requestable)
+            .ToLogMeta();
 
         return new ModelResult(
             true, "Updated.",

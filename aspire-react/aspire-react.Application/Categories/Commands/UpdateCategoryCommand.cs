@@ -1,5 +1,5 @@
-using System.Text.Json;
 using aspire_react.Server.Application.Common;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -76,6 +76,14 @@ public class UpdateCategoryCommandHandler : IRequestHandler<UpdateCategoryComman
 
         var before = new { c.Name, c.TagColor, c.CheckinEmail, c.RequireAcceptance, c.UseDefaultEula, c.Notes };
         var oldName = c.Name;
+        // [AUDIT-LOG B6a] helper dùng chung: tên field snake_case, CHỈ field thực sự đổi.
+        var changes = new ActionLogChanges()
+            .Track("name", before.Name)
+            .Track("tagColor", before.TagColor)
+            .Track("checkinEmail", before.CheckinEmail)
+            .Track("requireAcceptance", before.RequireAcceptance)
+            .Track("useDefaultEula", before.UseDefaultEula)
+            .Track("notes", before.Notes);
         if (!string.IsNullOrWhiteSpace(request.Name)) c.Name = request.Name;
         if (request.TagColor is not null) c.TagColor = request.TagColor;
         if (request.CheckinEmail.HasValue) c.CheckinEmail = request.CheckinEmail.Value;
@@ -86,18 +94,14 @@ public class UpdateCategoryCommandHandler : IRequestHandler<UpdateCategoryComman
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                name = new { old = before.Name, @new = c.Name },
-                tagColor = new { old = before.TagColor, @new = c.TagColor },
-                checkinEmail = new { old = before.CheckinEmail, @new = c.CheckinEmail },
-                requireAcceptance = new { old = before.RequireAcceptance, @new = c.RequireAcceptance },
-                useDefaultEula = new { old = before.UseDefaultEula, @new = c.UseDefaultEula },
-                notes = new { old = before.Notes, @new = c.Notes }
-            }
-        });
+        var logMeta = changes
+            .Set("name", c.Name)
+            .Set("tagColor", c.TagColor)
+            .Set("checkinEmail", c.CheckinEmail)
+            .Set("requireAcceptance", c.RequireAcceptance)
+            .Set("useDefaultEula", c.UseDefaultEula)
+            .Set("notes", c.Notes)
+            .ToLogMeta();
 
         return new CategoryResult(
             true, "Updated.",

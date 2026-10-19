@@ -31,7 +31,7 @@ public record CreateGroupCommand(string Name, string? Description, Guid CurrentU
             ActionType = ActionType.Create,
             CreatedBy = CurrentUserId,
             CompanyId = null, // PermissionGroup has no CompanyId — company-independent log
-            Note = $"Created group: {response.Name}"
+            Note = $"Tạo nhóm: {response.Name}"
         };
     }
 }

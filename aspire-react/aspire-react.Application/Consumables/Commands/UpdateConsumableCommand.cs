@@ -81,7 +81,7 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
                 itemId: request.Id,
                 actionType: ActionType.Update,
                 loggedByUserId: request.CurrentUserId,
-                note: $"Updated consumable: {c.Name}",
+                note: $"Cập nhật vật tư: {c.Name}",
                 logMeta: changes.Set("locationId", c.LocationId).Set("notes", c.Notes).ToLogMeta(),
                 companyId: c.CompanyId);
         }
@@ -135,7 +135,7 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
                 itemId: request.Id,
                 actionType: ActionType.Update,
                 loggedByUserId: request.CurrentUserId,
-                note: $"Updated consumable: {c.Name}",
+                note: $"Cập nhật vật tư: {c.Name}",
                 logMeta: changes
                     .Set("name", c.Name)
                     .Set("itemNo", c.ItemNo)

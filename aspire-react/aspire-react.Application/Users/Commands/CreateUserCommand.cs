@@ -51,7 +51,7 @@ public record CreateUserCommand : IRequest<CreateUserResult>, ILoggableCommand<C
             ActionType = ActionType.Create,
             CreatedBy = CurrentUserId,
             CompanyId = response.User.CompanyId,
-            Note = $"Created user: {response.User.Username} ({response.User.Email})",
+            Note = $"Tạo người dùng: {response.User.Username} ({response.User.Email})",
             LogMeta = System.Text.Json.JsonSerializer.Serialize(new
             {
                 username = response.User.Username,

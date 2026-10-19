@@ -164,6 +164,6 @@ public class GroupLockoutWireTests
         Assert.Contains("\"old\"", result.LogMeta);
         Assert.Contains("\"new\"", result.LogMeta);
         Assert.Contains("assets.delete", result.LogMeta); // old set present in LogMeta
-        Assert.Contains("Group permissions updated: PermsReplace", result.Note);
+        Assert.Contains("Cập nhật quyền nhóm \"PermsReplace\"", result.Note);
     }
 }

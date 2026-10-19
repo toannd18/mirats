@@ -1,5 +1,5 @@
-using System.Text.Json;
 using aspire_react.Server.Application.Common;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -69,6 +69,11 @@ public class UpdateCompanyCommandHandler : IRequestHandler<UpdateCompanyCommand,
             return new CompanyResult(false, "Not found", "NOT_FOUND");
 
         var before = new { c.Name, c.Code, c.ParentId };
+        // [AUDIT-LOG B6a] helper dùng chung: tên field snake_case, CHỈ field thực sự đổi.
+        var changes = new ActionLogChanges()
+            .Track("name", before.Name)
+            .Track("code", before.Code)
+            .Track("parentId", before.ParentId);
 
         // Code is editable on update; validate NOCO + uniqueness when it changes.
         var code = string.IsNullOrWhiteSpace(request.Code) ? c.Code : request.Code.Trim().ToUpperInvariant();
@@ -108,15 +113,11 @@ public class UpdateCompanyCommandHandler : IRequestHandler<UpdateCompanyCommand,
         c.Code = code;
         await _context.SaveChangesAsync(cancellationToken);
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                name = new { old = before.Name, @new = c.Name },
-                code = new { old = before.Code, @new = c.Code },
-                parentId = new { old = before.ParentId, @new = c.ParentId }
-            }
-        });
+        var logMeta = changes
+            .Set("name", c.Name)
+            .Set("code", c.Code)
+            .Set("parentId", c.ParentId)
+            .ToLogMeta();
 
         return new CompanyResult(true, "Updated",
             CompanyId: c.Id, Name: c.Name,

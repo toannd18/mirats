@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -130,6 +130,10 @@ public class CheckoutAccessoryCommandHandler : IRequestHandler<CheckoutAccessory
             };
             _context.AccessoryCheckouts.Add(co);
 
+            var changes = new ActionLogChanges()
+                .Track("quantity", remaining)
+                .Track("checkoutType", (string?)null);
+
             _actionLogService.LogAction(
                 itemType: ItemType.Accessory,
                 itemId: request.AccessoryId,
@@ -139,14 +143,10 @@ public class CheckoutAccessoryCommandHandler : IRequestHandler<CheckoutAccessory
                 targetId: request.TargetId,
                 companyId: accessory.CompanyId,
                 note: request.Note,
-                logMeta: JsonSerializer.Serialize(new
-                {
-                    changes = new Dictionary<string, object?>
-                    {
-                        ["quantity"] = new { old = remaining, @new = checkedOut + request.Quantity },
-                        ["checkout_type"] = new { old = (string?)null, @new = request.CheckoutType.ToString() }
-                    }
-                }));
+                logMeta: changes
+                    .Set("quantity", checkedOut + request.Quantity)
+                    .Set("checkoutType", request.CheckoutType.ToString())
+                    .ToLogMeta());
 
             await _context.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync(cancellationToken);

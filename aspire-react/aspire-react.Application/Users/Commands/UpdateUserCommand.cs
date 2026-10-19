@@ -252,7 +252,7 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
             "User updated successfully.",
             User: dto,
             CompanyId: user.CompanyId,
-            Note: $"Updated user: {user.Username} ({user.Email})",
+            Note: $"Cập nhật người dùng: {user.Username} ({user.Email})",
             LogMeta: changes
                 .Set("firstName", user.FirstName)
                 .Set("lastName", user.LastName)

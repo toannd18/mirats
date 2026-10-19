@@ -121,15 +121,13 @@
    `formatLogDetail` map thêm `InStock: 'Trong kho'`, `Allocated: 'Đang cấp phát'`, `Damaged: 'Hỏng'`,
    `Disposed: 'Đã loại bỏ'` cho key `status` (tập giá trị không trùng với AssetStatus). Log cấp phát/thu hồi
    serial + đổi trạng thái unit nay hiển thị tiếng Việt; drawer "Lịch sử serial" dùng chung `ActionLogTable`.)*
-7. **FE: câu Note tiếng Anh lẫn trong UI tiếng Việt** (thấp — phát hiện 2026-10-19 khi verify nhật ký User):
-   - **Hiện trạng:** nhiều câu `Note` do backend sinh vẫn là tiếng Anh và hiển thị nguyên văn ở cột "Chi tiết"
-     của nhật ký, ví dụ `ActionLogNote` của User: **"Created user: <username> (<email>)"**,
-     **"Updated user: <username> (<email>)"**, **"Deactivated user: …"** (`CreateUserCommand` /
-     `UpdateUserCommand` / `DeleteUserCommand`), một số delete khác: `"Deleted group: …"`,
-     `"Group deleted successfully."`.
-   - **Việc cần làm:** chuẩn hoá các `Note` này sang tiếng Việt (giữ nguyên dữ liệu định danh), rà toàn bộ
-     `Note = $"..."` trong Application để tìm câu tiếng Anh còn sót.
-   - **Tiêu chí nghiệm thu:** nhật ký trên UI tiếng Việt không còn câu Note tiếng Anh; test hiện có vẫn xanh.
+7. ~~**FE: câu Note tiếng Anh lẫn trong UI tiếng Việt**~~ **(✅ RESOLVED 2026-10-19 — GĐ3):**
+   đã dịch toàn bộ `Note` tiếng Anh sang tiếng Việt (danh sách: `Created/Updated/Deleted group`,
+   `Group updated.`, `Group permissions updated`, `Created/Updated/Deleted accessory`, `Created/Updated/
+   Deleted/Confirmed/Archived/Unarchived asset`, `Update blocked (confirmed asset)`, `Created/Updated/
+   Deactivated user`, `User group assignments updated.`, `Created/Updated/Deleted/Confirmed consumable`).
+   Nhật ký CŨ trong DB giữ nguyên (không backfill). 2 test assert note tiếng Anh đã cập nhật
+   (`AccessoryTests`, `GroupLockoutWireTests`).
 
 ### 🧾 AUDIT-LOG — kế hoạch sửa `LogMeta.changes` (audit Bước 1 ngày 2026-10-19)
 
@@ -216,21 +214,28 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
      · **Lưu ý còn lại:** `User.Email` (PII) và `CampaignResult.Notes` (free-text) hiện CÓ trong meta —
        chưa thay đổi (cần quyết định sản phẩm nếu muốn ẩn).
    - **Tiêu chí nghiệm thu:** số field phủ = DTO; test khẳng định.
-6. **B7 — gộp các `changes` hard-code còn lại về helper** (sau B6): dần thay `new { changes = … }` ở
-   master data bằng `ActionLogChanges` để hết tình trạng "serialize cả field không đổi" (noise) và giữ 1
-   đường duy nhất.
-   - **Tiêu chí nghiệm thu:** grep không còn `new { changes` trong Application (ngoài helper); gates xanh.
-   - **[YÊU CẦU MỚI — 2026-10-19] Kiểm tra theo HÀNH VI thay vì tìm chữ `changes` trong file:** heuristic
-     của `ActionLogMetaRatchetTests` KHÔNG thấy được log viết trong SERVICE (không qua command) và không
-     kiểm được "đủ field / old có thật". B7 phải bổ sung test chạy command THẬT rồi soi
-     `action_logs.LogMeta` (parse JSON, so old/new) cho mọi command ghi dữ liệu — thay/bổ trợ phép quét chữ.
-   - **Sót cụ thể cần xử lý ở B7:** `ComponentAllocationService` dòng ~130/~222 (`{before, after, serialNo}`).
-   - **[YÊU CẦU MỚI — duyệt cùng B5, 2026-10-19] Thêm LUẬT vào `scripts/audit-sweeps.ps1`:**
-     handler nào gọi `SaveChangesAsync` **> 1 lần** mà **không nằm trong `DbTransaction.ExecuteAsync`**
-     ⇒ **vi phạm** (bắt đúng lớp lỗi B5: dữ liệu commit trước, nhật ký commit sau / mất nhật ký).
-     Miễn trừ hợp lệ phải là khối lệnh **nằm trong** `DbTransaction.ExecuteAsync` (VD `Publish` có 2
-     SaveChanges vì unique index `IsCurrent`, `Upsert` có vòng retry savepoint) — luật phải nhận biết
-     bằng ngữ cảnh khối lệnh, không chỉ đếm số lần gọi.
+6. **B7 — gộp các `changes` hard-code còn lại về helper** *(✅ XONG 2026-10-19 — GĐ1 + GĐ2)*:
+   - **GĐ2.4 (test bánh cóc THEO HÀNH VI):** `ActionLogBehaviorRatchetTests` chạy THẬT **31 command**
+     (Update/Upsert/Set + Close/Inspect/Reopen) trên InMemory với dữ liệu thật, đọc `action_logs.LogMeta`,
+     parse JSON, khẳng định `changes.<field>.old/new` ĐÚNG; + 1 test phủ sóng: mọi command trong phạm vi
+     quét PHẢI có spec (thêm command mới mà quên ⇒ FAIL). **Đã xoá `ActionLogMetaRatchetTests`** (cách tìm
+     chữ "changes" trong file) và **xoá nốt ngoại lệ cuối `UpdateComponentUnitStatusCommand`** (nay kiểm
+     bằng hành vi). Probe âm đã chứng minh 2 chiều: (a) probe log thiếu wrapper `changes` ⇒ FAIL
+     "LogMeta thiếu wrapper 'changes'"; (b) probe command không có spec ⇒ FAIL "CHƯA có spec hành vi".
+   - **GĐ2.5 (gộp 28 chỗ `changes` viết tay về helper):** Update Department/Location/Category/Company/
+     CustomField/Group/Permissions/UserGroups/Accessory/Asset/SystemInfo/SystemPosition/Model/
+     MaintenanceTemplate/StandardParam/TemplateVersion, Checkout/Checkin/Archive/Unarchive/Confirm/Correct
+     (Asset), Checkout/Checkin (Accessory), Complete/UpsertResult (Campaign), SetAssetTagFormat,
+     SetPasskeysEnabled. Khác biệt CÓ CHỦ ĐÍCH: (i) tên field snake_case, (ii) field không đổi bị bỏ
+     (không còn "noise" old==new; PUT không đổi gì ⇒ `LogMeta = null`), (iii) DateTime UTC có `Z`,
+     (iv) tập hợp (permissions/group_ids) không đổi khi chỉ đổi thứ tự.
+     **BUG-P phát hiện khi gộp:** `CheckoutAssetCommand` chụp `oldSnapshot` SAU khi gán Location/
+     SystemPosition ⇒ log ghi old = giá trị MỚI; đã dời snapshot lên TRƯỚC (old nay là giá trị cũ thật).
+   - **GĐ2.6 (FE):** `ActionLogTable.CHANGE_LABELS` thêm nhãn tiếng Việt cho ~48 field snake_case mới;
+     verify UI thật 1440 (DB tạm): "Tên: … → …", "Trạng thái: Chờ cấp phát → Đã cấp phát"…
+   - **GĐ1.1 (luật audit-sweeps):** Sweep 5 đã có (xem mục 5) + luật "commit rồi mới ghi log".
+   - **Tiêu chí nghiệm thu:** grep không còn `new { changes` trong Application (ngoài helper) ✓; gates xanh ✓.
+   - **Sót cụ thể:** `ComponentAllocationService` ~130/~222 đã sửa ở B7a (GĐ trước).
 7. **B8 (ĐỂ SAU) — lưới an toàn auto-changes trong `ActionLogBehavior`** từ EF `ChangeTracker`
    (`OriginalValue` vs `CurrentValue`) cho ~52 command `ILoggableCommand`: phủ 100% field kể cả khi thêm
    field mới, nhưng phải (a) map tên snake_case + cập nhật nhãn timeline, (b) denylist PII

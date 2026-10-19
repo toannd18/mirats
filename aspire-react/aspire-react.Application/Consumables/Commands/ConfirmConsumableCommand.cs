@@ -41,7 +41,7 @@ public class ConfirmConsumableCommandHandler : IRequestHandler<ConfirmConsumable
             itemId: request.Id,
             actionType: ActionType.Confirm,
             loggedByUserId: request.CurrentUserId,
-            note: "Consumable confirmed.",
+            note: "Đã xác nhận vật tư",
             companyId: c.CompanyId);
         await _context.SaveChangesAsync(cancellationToken);
         return new ConsumableResult(true, "Consumable confirmed.");

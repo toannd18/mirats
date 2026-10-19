@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Persistence;
 using aspire_react.Server.Domain.Entities;
@@ -193,6 +194,8 @@ public class UpdateTemplateVersionCommandHandler : IRequestHandler<UpdateTemplat
                 "TEMPLATE_VERSION_IN_USE");
 
         var before = version.EffectiveFrom;
+        // [AUDIT-LOG B6a] helper dùng chung: Track BEFORE mutation (giá trị cũ), Set sau khi gán.
+        var changes = new ActionLogChanges().Track("effectiveFrom", before);
         if (request.EffectiveFrom.HasValue)
         {
             version.EffectiveFrom = MaintenanceTemplateAccess.ToUtc(request.EffectiveFrom.Value);
@@ -203,7 +206,7 @@ public class UpdateTemplateVersionCommandHandler : IRequestHandler<UpdateTemplat
                 _actionLogService.Log(MaintenanceTemplateLogging.Build(
                     ActionType.Update, t, request.CurrentUserId,
                     $"Cập nhật version {version.VersionNumber} của template \"{t.Name}\"",
-                    new { scope = "version", versionId = version.Id, changes = new { effectiveFrom = new { old = before, @new = version.EffectiveFrom } } },
+                    new { scope = "version", versionId = version.Id, changes = changes.Set("effectiveFrom", version.EffectiveFrom).ToChangesMap() },
                     itemId: version.Id));
                 await _context.SaveChangesAsync(cancellationToken);
             }, cancellationToken);

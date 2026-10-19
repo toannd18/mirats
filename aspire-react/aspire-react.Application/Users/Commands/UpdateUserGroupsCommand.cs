@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Users.DTOs;
 using aspire_react.Server.Domain.Entities;
@@ -105,24 +105,20 @@ public class UpdateUserGroupsCommandHandler : IRequestHandler<UpdateUserGroupsCo
             .Select(ug => ug.GroupId)
             .ToListAsync(cancellationToken);
 
+        // [AUDIT-LOG B6a] helper dùng chung: `groupIds` so tập KHÔNG phân biệt thứ tự,
+        // tự bỏ khi bộ nhóm không đổi (tên field chuẩn hoá ⇒ `group_ids`).
+        var changes = new ActionLogChanges().Track("groupIds", oldGroupIds);
+
         _context.UserGroups.RemoveRange(_context.UserGroups.Where(ug => ug.UserId == request.Id));
         foreach (var groupId in validGroupIds)
         {
             _context.UserGroups.Add(new UserGroup { UserId = request.Id, GroupId = groupId });
         }
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                groupIds = new
-                {
-                    old = oldGroupIds,
-                    @new = validGroupIds
-                }
-            }
-        });
-        const string note = "User group assignments updated.";
+        var logMeta = changes
+            .Set("groupIds", validGroupIds)
+            .ToLogMeta();
+        const string note = "Cập nhật nhóm của người dùng";
 
         await _context.SaveChangesAsync(cancellationToken);
 

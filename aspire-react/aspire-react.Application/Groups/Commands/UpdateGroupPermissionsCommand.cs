@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -87,6 +87,15 @@ public class UpdateGroupPermissionsCommandHandler : IRequestHandler<UpdateGroupP
             .Select(p => new { p.PermissionKey, Value = (int)p.Value })
             .ToList();
 
+        // Bộ quyền MỚI (cùng shape int như `oldPermissions` để so tập & serialize như trước migration).
+        var newPermissions = permissions
+            .Select(p => new { p.PermissionKey, Value = (int)p.Value })
+            .ToList();
+
+        // [AUDIT-LOG B6a] helper dùng chung: `permissions` so tập KHÔNG phân biệt thứ tự,
+        // tự bỏ khi bộ quyền không đổi.
+        var changes = new ActionLogChanges().Track("permissions", oldPermissions);
+
         _context.GroupPermissions.RemoveRange(group.GroupPermissions);
 
         foreach (var perm in permissions)
@@ -99,22 +108,12 @@ public class UpdateGroupPermissionsCommandHandler : IRequestHandler<UpdateGroupP
             });
         }
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                permissions = new
-                {
-                    old = oldPermissions,
-                    @new = permissions.Select(p => new { p.PermissionKey, p.Value })
-                }
-            }
-        });
+        var logMeta = changes.Set("permissions", newPermissions).ToLogMeta();
 
         await _context.SaveChangesAsync(cancellationToken);
 
         return new GroupResult(true, "Group permissions updated.",
             GroupId: group.Id, Name: group.Name,
-            LogMeta: logMeta, Note: $"Group permissions updated: {group.Name}");
+            LogMeta: logMeta, Note: $"Cập nhật quyền nhóm \"{group.Name}\"");
     }
 }

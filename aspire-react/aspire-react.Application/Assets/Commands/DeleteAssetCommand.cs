@@ -72,7 +72,7 @@ public class DeleteAssetCommandHandler : IRequestHandler<DeleteAssetCommand, Ass
             actionType: ActionType.Delete,
             loggedByUserId: request.CurrentUserId,
             companyId: asset.CompanyId,
-            note: $"Deleted asset: {asset.AssetTag} - {asset.Name}",
+            note: $"Xóa thiết bị: {asset.AssetTag} - {asset.Name}",
             logMeta: JsonSerializer.Serialize(new { assetTag = asset.AssetTag, name = asset.Name, serial = asset.Serial }));
 
         _context.Assets.Remove(asset);

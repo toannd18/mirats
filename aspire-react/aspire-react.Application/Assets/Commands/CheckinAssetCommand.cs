@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -76,6 +76,11 @@ public class CheckinAssetCommandHandler : IRequestHandler<CheckinAssetCommand, C
                 ["previous_target_type"] = oldAssignment?.TargetType.ToString(),
                 ["previous_target_id"] = oldAssignment?.TargetId.ToString()
             };
+            var changes = new ActionLogChanges()
+                .Track("currentAssignmentId", oldSnapshot["current_assignment_id"])
+                .Track("status", oldSnapshot["status"])
+                .Track("locationId", oldSnapshot["location_id"]?.ToString())
+                .Track("systemPositionId", oldSnapshot["system_position_id"]?.ToString());
 
             // [LL-2] Mốc thời gian checkin dùng CHUNG cho LastCheckin và EndedAt của lý lịch lắp đặt.
             var endedAt = request.CheckinAt ?? DateTime.UtcNow;
@@ -108,16 +113,12 @@ public class CheckinAssetCommandHandler : IRequestHandler<CheckinAssetCommand, C
                 locationId: request.LocationId,
                 companyId: asset.CompanyId,
                 note: request.Note,
-                logMeta: JsonSerializer.Serialize(new
-                {
-                    changes = new Dictionary<string, object?>
-                    {
-                        ["current_assignment_id"] = new { old = oldSnapshot["current_assignment_id"], @new = (string?)null },
-                        ["status"] = new { old = oldSnapshot["status"], @new = AssetStatus.Pending.ToString() },
-                        ["location_id"] = new { old = oldSnapshot["location_id"]?.ToString(), @new = request.LocationId.ToString() },
-                        ["system_position_id"] = new { old = oldSnapshot["system_position_id"]?.ToString(), @new = (string?)null }
-                    }
-                }));
+                logMeta: changes
+                    .Set("currentAssignmentId", (string?)null)
+                    .Set("status", AssetStatus.Pending.ToString())
+                    .Set("locationId", request.LocationId.ToString())
+                    .Set("systemPositionId", (string?)null)
+                    .ToLogMeta());
 
             try
             {

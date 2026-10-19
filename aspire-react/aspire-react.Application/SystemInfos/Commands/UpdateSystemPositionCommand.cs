@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.SystemInfos;
 using aspire_react.Server.Domain.Entities;
@@ -73,21 +73,21 @@ public class UpdateSystemPositionCommandHandler : IRequestHandler<UpdateSystemPo
 
         // ─── Patch semantics (Task F/M1 pattern): only fields explicitly sent are applied. A
         // position has no own CompanyId — it inherits its parent SystemInfo's company. ───
-        var before = new { pos.Code, pos.Name, pos.Description };
+        // [AUDIT-LOG B6a] helper dùng chung: Track TRƯỚC khi gán (giá trị cũ), Set SAU (giá trị mới).
+        var changes = new ActionLogChanges()
+            .Track("code", pos.Code)
+            .Track("name", pos.Name)
+            .Track("description", pos.Description);
         if (normalizedCode != null) pos.Code = normalizedCode.ToUpper();
         if (!string.IsNullOrWhiteSpace(request.Name)) pos.Name = request.Name;
         if (request.Description is not null) pos.Description = request.Description;
         await _context.SaveChangesAsync(cancellationToken);
 
-        var logMeta = JsonSerializer.Serialize(new
-        {
-            changes = new
-            {
-                code = new { old = before.Code, @new = pos.Code },
-                name = new { old = before.Name, @new = pos.Name },
-                description = new { old = before.Description, @new = pos.Description }
-            }
-        });
+        var logMeta = changes
+            .Set("code", pos.Code)
+            .Set("name", pos.Name)
+            .Set("description", pos.Description)
+            .ToLogMeta();
 
         return new SystemInfoResult(true, "Position updated.",
             Id: pos.Id, Code: pos.Code, Name: pos.Name, CompanyId: pos.SystemInfo?.CompanyId,

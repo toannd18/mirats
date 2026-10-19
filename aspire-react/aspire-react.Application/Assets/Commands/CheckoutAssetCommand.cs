@@ -1,4 +1,4 @@
-using System.Text.Json;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -134,6 +134,22 @@ public class CheckoutAssetCommandHandler : IRequestHandler<CheckoutAssetCommand,
             if (preError != null)
                 return new CheckoutResult(false, InstallationLedger.DescribeError(preError), ErrorCode: preError);
 
+            // Snapshot for audit — PHẢI chụp TRƯỚC khi gán con trỏ vị trí bên dưới, nếu không giá trị
+            // "old" của location/system position sẽ là giá trị MỚI (diff luôn rỗng, mất dấu thay đổi).
+            var oldSnapshot = new Dictionary<string, object?>
+            {
+                ["current_assignment_id"] = asset.CurrentAssignmentId,
+                ["location_id"] = asset.LocationId,
+                ["system_position_id"] = asset.SystemPositionId,
+                ["status"] = asset.Status.ToString(),
+                ["checkout_counter"] = asset.CheckoutCounter
+            };
+            var changes = new ActionLogChanges()
+                .Track("currentAssignmentId", oldSnapshot["current_assignment_id"])
+                .Track("status", oldSnapshot["status"])
+                .Track("locationId", oldSnapshot["location_id"]?.ToString())
+                .Track("systemPositionId", oldSnapshot["system_position_id"]?.ToString());
+
             if (request.TargetType == AssignmentTargetType.SystemPosition)
             {
                 if (!request.LocationId.HasValue)
@@ -147,16 +163,6 @@ public class CheckoutAssetCommandHandler : IRequestHandler<CheckoutAssetCommand,
                 asset.SystemPositionId = null;
                 asset.LocationId = null; // User/Department don't carry location
             }
-
-            // Snapshot for audit
-            var oldSnapshot = new Dictionary<string, object?>
-            {
-                ["current_assignment_id"] = asset.CurrentAssignmentId,
-                ["location_id"] = asset.LocationId,
-                ["system_position_id"] = asset.SystemPositionId,
-                ["status"] = asset.Status.ToString(),
-                ["checkout_counter"] = asset.CheckoutCounter
-            };
 
             // [LL-2] Mốc thời gian của lần checkout: dùng CHUNG cho Assignment.AssignedAt và
             // StartedAt của lý lịch lắp đặt (một mốc duy nhất — không gọi DateTime.UtcNow hai lần).
@@ -216,16 +222,12 @@ public class CheckoutAssetCommandHandler : IRequestHandler<CheckoutAssetCommand,
                 locationId: asset.LocationId,
                 companyId: asset.CompanyId,
                 note: request.Note,
-                logMeta: JsonSerializer.Serialize(new
-                {
-                    changes = new Dictionary<string, object?>
-                    {
-                        ["current_assignment_id"] = new { old = oldSnapshot["current_assignment_id"], @new = assignment.Id.ToString() },
-                        ["status"] = new { old = oldSnapshot["status"], @new = AssetStatus.Deployed.ToString() },
-                        ["location_id"] = new { old = oldSnapshot["location_id"]?.ToString(), @new = asset.LocationId?.ToString() },
-                        ["system_position_id"] = new { old = oldSnapshot["system_position_id"]?.ToString(), @new = asset.SystemPositionId?.ToString() }
-                    }
-                }));
+                logMeta: changes
+                    .Set("currentAssignmentId", assignment.Id.ToString())
+                    .Set("status", AssetStatus.Deployed.ToString())
+                    .Set("locationId", asset.LocationId?.ToString())
+                    .Set("systemPositionId", asset.SystemPositionId?.ToString())
+                    .ToLogMeta());
 
             try
             {
