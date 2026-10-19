@@ -78,6 +78,71 @@
    `Kind=Utc` cho mọi cột naive đã đăng ký) chúng **không còn cần thiết**, nhưng để lại cũng không sai.
    - **Tiêu chí nghiệm thu:** bỏ 2 helper mà `AssetTimelineQueryTests` + phân trang cursor trên **DB thật**
      vẫn PASS, và mốc `occurredAt` trả ra vẫn có `Z` đúng như trước.
+4. **BUG-S — `UpdateMaintenanceCommand` ghi ActionLog Update nhưng KHÔNG có `LogMeta.changes`**
+   (phát hiện 2026-10-19 khi verify MT-TZ Bước 3 trên DB tạm: dòng `action_logs` Update của bảo trì có
+   `LogMeta = NULL` trong khi convention §3.2 yêu cầu `{ changes: { field: { old, new } } }` cho mọi Update).
+   - **Hiện trạng:** `BuildLogEntry` (`Application/AssetMaintenances/Commands/UpdateMaintenanceCommand.cs`
+     L49-63) chỉ set `ItemType/ItemId/ActionType/CreatedBy/CompanyId/Note`; handler whitelist 7 field
+     (Title/Notes/Type/SupplierId/CompletionDate/Cost/IsWarranty) + danh sách assignee nhưng **không chụp
+     giá trị cũ** trước khi gán ⇒ hiện không có dữ liệu để dựng old→new.
+   - **Hệ quả:** sự kiện UPDATE bảo trì trên timeline thiết bị rơi vào nhánh "details mặc định"
+     (`AssetTimelineQuery.DescribeChanges` đọc `LogMeta.changes`) — mất truy vết thay đổi field.
+   - **Tiêu chí nghiệm thu:** PUT bảo trì thật (đổi ≥1 field) ⇒ `LogMeta` có dạng
+     `{"changes":{"title":{"old":…,"new":…}}}` với `old` **chụp TRƯỚC khi gán**; test unit chứng minh
+     old ≠ new khi đổi thật; timeline hiện đúng field thay đổi.
+
+### 🧾 AUDIT-LOG — kế hoạch sửa `LogMeta.changes` (audit Bước 1 ngày 2026-10-19)
+
+Bối cảnh: audit Bước 1 (CHỈ khảo sát) lập bản đồ toàn bộ điểm ghi dữ liệu + điểm ghi log:
+**0 command ghi dữ liệu nào thiếu ActionLog hoàn toàn**, **0 controller tự `SaveChangesAsync`**;
+vấn đề nằm ở (a) command Update **thiếu** `LogMeta.changes`, (b) `changes` **sai schema/thiếu field**
++ lỗi kiểu **BUG-P** (chụp "old" sau khi đã gán), (c) log **không cùng transaction** với dữ liệu ở
+MaintenanceTemplates + MaintenanceCampaigns.
+
+Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 để sau**).
+
+1. **B2 — helper dùng chung + test kiến trúc bánh cóc + 3 command Update thiếu meta** *(✅ XONG —
+   commit local B2, 2026-10-19)*
+   - `ActionLogChanges` (`aspire-react.Application/Common/ActionLogs/ActionLogChanges.cs`):
+     `Track()` chụp giá trị CŨ (bắt buộc gọi TRƯỚC khi gán) → `Set()` giá trị MỚI;
+     `ToLogMeta()` = `{"changes":{"field":{"old":…,"new":…}}}` tên field **snake_case**, tự bỏ field
+     không đổi, **không đổi gì ⇒ `null`**; `TrackSensitive/SetSensitive` cho trường nhạy cảm chỉ ghi
+     `{"changed":true}`; `Set()` khi chưa `Track()` ⇒ ném (chặn BUG-P).
+   - `ActionLogMetaRatchetTests` (bánh cóc 2 chiều): mọi request `Update*/Close/Inspect/Reopen` phải có
+     dấu hiệu `changes`, trừ `Exempt` ghi tường minh (kèm lý do + bước sẽ xóa); ngoại lệ còn vi phạm lẫn
+     ngoại lệ "đã sửa" đều FAIL. Đã negative-test: thêm `UpdateBogusRatchetProbeCommand` ⇒ FAIL đúng tên;
+     thêm `UpdateComponentCommand` vào Exempt ⇒ FAIL "XÓA khỏi Exempt".
+   - Áp helper cho 3 command từng **không có** `LogMeta`: `UpdateComponentCommand`, `UpdateLicenseCommand`
+     (`serial` = nhạy cảm), `UpdateMaintenanceCommand` (**BUG-S**, gồm danh sách assignee old/new) — và
+     **xóa 3 command này khỏi danh sách ngoại lệ**.
+   - **Tiêu chí nghiệm thu:** test đơn vị helper (14) + test 3 command (6: đổi 1 field ⇒ old là giá trị CŨ
+     thật, không đổi ⇒ `LogMeta` null, serial không bị lộ) + ratchet xanh; PUT thật trên DB tạm cho cả 3
+     command ra `LogMeta` đúng.
+2. **B3 — sửa schema sai**: `UpdateConsumableCommand` (cả 2 nhánh: thiếu wrapper `changes`, chỉ 3/15 field,
+   `minAmt` old==new) + `ComponentAllocationService.SetUnitStatus` (`{before, after}` → `changes`).
+   - **Tiêu chí nghiệm thu:** `LogMeta` parse được bởi `AssetTimelineQuery` (`changes`), có test; xóa 2 mục
+     khỏi `Exempt` của ratchet.
+3. **B4 — diệt BUG-P còn lại**: `UpdateManufacturerCommand`/`UpdateSupplierCommand` (chụp `before` khi
+   `code`/`name` đã bị gán ⇒ "old" = "new").
+   - **Tiêu chí nghiệm thu:** test: đổi code/name ⇒ `old` là giá trị cũ thật.
+4. **B5 — log cùng transaction với dữ liệu**: MaintenanceTemplates (mọi handler) + MaintenanceCampaigns
+   (Create/Complete/UpsertResult/DeleteResult) đang `SaveChanges` → log → `SaveChanges` KHÔNG bọc
+   transaction ⇒ gói vào `CreateExecutionStrategy + BeginTransaction`, log trước khi commit
+   (tôn trọng `ILoggableCommand` = không lồng transaction).
+   - **Tiêu chí nghiệm thu:** test trên Postgres thật chứng minh rollback kéo theo ActionLog; gates 6/6 xanh.
+5. **B6 — chuẩn hoá field còn thiếu (mức thấp)**: `UpdateUserCommand` thêm `employeeNumber`/`jobTitle`;
+   `UpdateChecklistItemCommand` thêm `positionIds`; cân nhắc `Close/Inspect` ghi lý do/kết quả; Delete*
+   snapshot (hiện chỉ `DeleteMaintenance`/`DeleteCampaignResult` có).
+   - **Tiêu chí nghiệm thu:** số field phủ = DTO; test khẳng định.
+6. **B7 — gộp các `changes` hard-code còn lại về helper** (sau B6): dần thay `new { changes = … }` ở
+   master data bằng `ActionLogChanges` để hết tình trạng "serialize cả field không đổi" (noise) và giữ 1
+   đường duy nhất.
+   - **Tiêu chí nghiệm thu:** grep không còn `new { changes` trong Application (ngoài helper); gates xanh.
+7. **B8 (ĐỂ SAU) — lưới an toàn auto-changes trong `ActionLogBehavior`** từ EF `ChangeTracker`
+   (`OriginalValue` vs `CurrentValue`) cho ~52 command `ILoggableCommand`: phủ 100% field kể cả khi thêm
+   field mới, nhưng phải (a) map tên snake_case + cập nhật nhãn timeline, (b) denylist PII
+   (`PasswordHash`…), (c) ưu tiên `LogMeta` thủ công khi đã có, (d) không áp cho command tự quản
+   transaction. Chỉ làm sau khi B2–B7 ổn định.
 
 ### 🤖 Đề xuất đưa `ConcurrencyRaceAuditTests` vào CI (mục D — CHƯA sửa `ci.yml`)
 

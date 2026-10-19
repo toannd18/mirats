@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -13,7 +14,8 @@ public record UpdateMaintenanceResult(
     string? ErrorCode = null,
     Guid? MaintenanceId = null,
     Guid? CompanyId = null,
-    string? Note = null);
+    string? Note = null,
+    string? LogMeta = null);
 
 /// <summary>
 /// [Subtask C] PUT api/v1/maintenances/{id} (extracted verbatim from
@@ -58,7 +60,8 @@ public record UpdateMaintenanceCommand(
             ActionType = ActionType.Update,
             CreatedBy = CurrentUserId,
             CompanyId = response.CompanyId,
-            Note = response.Note
+            Note = response.Note,
+            LogMeta = response.LogMeta
         };
     }
 }
@@ -102,6 +105,25 @@ public class UpdateMaintenanceCommandHandler : IRequestHandler<UpdateMaintenance
         if (request.SupplierId.HasValue && !await _context.Suppliers.AnyAsync(s => s.Id == request.SupplierId.Value, cancellationToken))
             return new UpdateMaintenanceResult(false, "Nhà cung cấp không hợp lệ.", "INVALID_SUPPLIER");
 
+        // [AUDIT-LOG B2 — BUG-S] Chụp giá trị CŨ TRƯỚC khi gán (LogMeta.changes). Danh sách assignee
+        // chụp TRƯỚC ReplaceAsync (replace-all). Khi không field nào gửi/đổi ⇒ ToLogMeta() = null.
+        var changes = new ActionLogChanges()
+            .Track("title", m.Title)
+            .Track("notes", m.Notes)
+            .Track("type", m.Type)
+            .Track("supplierId", m.SupplierId)
+            .Track("completionDate", m.CompletionDate)
+            .Track("cost", m.Cost)
+            .Track("isWarranty", m.IsWarranty);
+        if (request.AssigneeUserIds != null)
+        {
+            var oldAssigneeIds = await _context.AssetMaintenanceAssignees
+                .Where(a => a.MaintenanceId == request.Id)
+                .Select(a => a.UserId)
+                .ToListAsync(cancellationToken);
+            changes.Track("assignees", oldAssigneeIds);
+        }
+
         // Whitelist: Title, Notes, Type, SupplierId, CompletionDate, Cost, IsWarranty.
         // [BUG-N FIX] PATCH-SAFE: every field assigned ONLY when sent (Task M1/M2 pattern).
         // NOTE: the pre-migration code assigned SupplierId/CompletionDate/Cost directly (absent →
@@ -127,10 +149,23 @@ public class UpdateMaintenanceCommandHandler : IRequestHandler<UpdateMaintenance
             await MaintenanceAssignees.ReplaceAsync(_context, request.Id, request.AssigneeUserIds, cancellationToken);
         }
 
+        // [AUDIT-LOG B2] Giá trị MỚI sau khi gán (assignee: tập sau replace-all, đã Distinct như ReplaceAsync).
+        changes
+            .Set("title", m.Title)
+            .Set("notes", m.Notes)
+            .Set("type", m.Type)
+            .Set("supplierId", m.SupplierId)
+            .Set("completionDate", m.CompletionDate)
+            .Set("cost", m.Cost)
+            .Set("isWarranty", m.IsWarranty);
+        if (request.AssigneeUserIds != null)
+            changes.Set("assignees", request.AssigneeUserIds.Distinct().ToList());
+
         await _context.SaveChangesAsync(cancellationToken);
 
         return new UpdateMaintenanceResult(true, "Đã cập nhật bảo trì.",
             MaintenanceId: m.Id, CompanyId: m.CompanyId,
-            Note: $"Cập nhật bảo trì \"{m.Title}\"");
+            Note: $"Cập nhật bảo trì \"{m.Title}\"",
+            LogMeta: changes.ToLogMeta());
     }
 }

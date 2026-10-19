@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -55,6 +56,19 @@ public class UpdateComponentCommandHandler : IRequestHandler<UpdateComponentComm
                 $"Không thể thay đổi (field đã khóa): {string.Join(", ", locked)}. Tracking type, Category và Company chỉ xác định lúc tạo.",
                 "FIELD_LOCKED");
 
+        // [AUDIT-LOG B2] Chụp giá trị CŨ trước khi gán (Task M1 whitelist bên dưới) → LogMeta.changes.
+        var changes = new ActionLogChanges()
+            .Track("name", c.Name)
+            .Track("notes", c.Notes)
+            .Track("supplierId", c.SupplierId)
+            .Track("manufacturerId", c.ManufacturerId)
+            .Track("modelNumber", c.ModelNumber)
+            .Track("minAmt", c.MinAmt)
+            .Track("locationId", c.LocationId)
+            .Track("orderNumber", c.OrderNumber)
+            .Track("purchaseCost", c.PurchaseCost)
+            .Track("purchaseDate", c.PurchaseDate);
+
         // ─── Patch semantics (Task M1, mirroring Task F Asset): only fields EXPLICITLY sent
         // (non-null) are applied. A partial payload (e.g. only Name/Notes) must NOT wipe the other
         // fields back to null/empty. Qty/Serial/ItemNo stay silently ignored (Qty is read-only).
@@ -69,7 +83,21 @@ public class UpdateComponentCommandHandler : IRequestHandler<UpdateComponentComm
         if (request.PurchaseCost is not null) c.PurchaseCost = request.PurchaseCost;
         if (request.PurchaseDate is not null) c.PurchaseDate = request.PurchaseDate;
 
-        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Component, ItemId = request.Id, ActionType = ActionType.Update, CreatedBy = request.CurrentUserId, CompanyId = c.CompanyId, Note = $"Cập nhật linh kiện \"{c.Name}\"" });
+        // [AUDIT-LOG B2] Giá trị MỚI sau khi gán → LogMeta.changes (null khi không field nào đổi).
+        var logMeta = changes
+            .Set("name", c.Name)
+            .Set("notes", c.Notes)
+            .Set("supplierId", c.SupplierId)
+            .Set("manufacturerId", c.ManufacturerId)
+            .Set("modelNumber", c.ModelNumber)
+            .Set("minAmt", c.MinAmt)
+            .Set("locationId", c.LocationId)
+            .Set("orderNumber", c.OrderNumber)
+            .Set("purchaseCost", c.PurchaseCost)
+            .Set("purchaseDate", c.PurchaseDate)
+            .ToLogMeta();
+
+        _actionLogService.Log(new ActionLogEntry { ItemType = ItemType.Component, ItemId = request.Id, ActionType = ActionType.Update, CreatedBy = request.CurrentUserId, CompanyId = c.CompanyId, Note = $"Cập nhật linh kiện \"{c.Name}\"", LogMeta = logMeta });
         await _context.SaveChangesAsync(cancellationToken);
         return new ComponentOperationResult(true, "Component updated.");
     }

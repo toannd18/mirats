@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Licenses;
 using aspire_react.Server.Domain.Entities;
@@ -48,6 +49,23 @@ public class UpdateLicenseCommandHandler : IRequestHandler<UpdateLicenseCommand,
         if (request.CompanyId.HasValue && request.CompanyId != l.CompanyId)
             return new LicenseResult(false, "Không thể đổi công ty sau khi tạo.", "FIELD_LOCKED");
 
+        // [AUDIT-LOG B2] Chụp giá trị CŨ trước mọi mutation (kể cả khối seats bên dưới).
+        // `serial` = trường NHẠY CẢM: LogMeta chỉ ghi {"changed":true}, KHÔNG ghi giá trị.
+        var changes = new ActionLogChanges()
+            .Track("name", l.Name)
+            .TrackSensitive("serial", l.Serial)
+            .Track("seats", l.Seats)
+            .Track("reassignable", l.Reassignable)
+            .Track("expirationDate", l.ExpirationDate)
+            .Track("terminationDate", l.TerminationDate)
+            .Track("purchaseCost", l.PurchaseCost)
+            .Track("purchaseDate", l.PurchaseDate)
+            .Track("orderNumber", l.OrderNumber)
+            .Track("minSeats", l.MinSeats)
+            .Track("notes", l.Notes)
+            .Track("supplierId", l.SupplierId)
+            .Track("manufacturerId", l.ManufacturerId);
+
         // Seat count sync: increase → generate new seats; decrease → only if enough free seats.
         if (request.Seats.HasValue && request.Seats.Value != l.Seats)
         {
@@ -85,6 +103,23 @@ public class UpdateLicenseCommandHandler : IRequestHandler<UpdateLicenseCommand,
         if (request.ManufacturerId is not null) l.ManufacturerId = request.ManufacturerId;
         l.UpdatedAt = DateTime.UtcNow;
 
+        // [AUDIT-LOG B2] Giá trị MỚI sau khi gán → LogMeta.changes (null khi không field nào đổi).
+        var logMeta = changes
+            .Set("name", l.Name)
+            .SetSensitive("serial", l.Serial)
+            .Set("seats", l.Seats)
+            .Set("reassignable", l.Reassignable)
+            .Set("expirationDate", l.ExpirationDate)
+            .Set("terminationDate", l.TerminationDate)
+            .Set("purchaseCost", l.PurchaseCost)
+            .Set("purchaseDate", l.PurchaseDate)
+            .Set("orderNumber", l.OrderNumber)
+            .Set("minSeats", l.MinSeats)
+            .Set("notes", l.Notes)
+            .Set("supplierId", l.SupplierId)
+            .Set("manufacturerId", l.ManufacturerId)
+            .ToLogMeta();
+
         _actionLogService.Log(new ActionLogEntry
         {
             ItemType = ItemType.License,
@@ -92,7 +127,8 @@ public class UpdateLicenseCommandHandler : IRequestHandler<UpdateLicenseCommand,
             ActionType = ActionType.Update,
             CreatedBy = request.CurrentUserId,
             CompanyId = l.CompanyId,
-            Note = $"Cập nhật license \"{l.Name}\""
+            Note = $"Cập nhật license \"{l.Name}\"",
+            LogMeta = logMeta
         });
         await _context.SaveChangesAsync(cancellationToken);
         return new LicenseResult(true, "License updated.");
