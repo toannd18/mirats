@@ -2,6 +2,7 @@ using aspire_react.Server.Application.Users.DTOs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -180,14 +181,18 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
             return new UpdateUserResult(false, referenceCheck.Message!, ErrorCode: referenceCheck.ErrorCode);
         }
 
-        var previousIsSuperUser = user.IsSuperUser;
-        var previousEmail = user.Email;
-        var previousFirstName = user.FirstName;
-        var previousLastName = user.LastName;
-        var previousIsActive = user.IsActive;
-        var previousCompanyId = user.CompanyId;
-        var previousDepartmentId = user.DepartmentId;
-        var previousLocationId = user.LocationId;
+        // [AUDIT-LOG B6a] Chụp giá trị CŨ bằng helper dùng chung (snake_case, CHỈ field thực đổi được ghi).
+        var changes = new ActionLogChanges()
+            .Track("firstName", user.FirstName)
+            .Track("lastName", user.LastName)
+            .Track("email", user.Email)
+            .Track("employeeNumber", user.EmployeeNumber)
+            .Track("jobTitle", user.JobTitle)
+            .Track("isSuperUser", user.IsSuperUser)
+            .Track("isActive", user.IsActive)
+            .Track("companyId", user.CompanyId)
+            .Track("departmentId", user.DepartmentId)
+            .Track("locationId", user.LocationId);
 
         // Update local entity properties
         // [FIX BUG-O] Patch semantics cho 3 field bắt buộc: KHÔNG gửi (null) → GIỮ NGUYÊN.
@@ -248,22 +253,18 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
             User: dto,
             CompanyId: user.CompanyId,
             Note: $"Updated user: {user.Username} ({user.Email})",
-            LogMeta: System.Text.Json.JsonSerializer.Serialize(new
-            {
-                changes = new Dictionary<string, object?>
-                {
-                    // [FIX BUG-O] Tên cũng vào `changes` — chính 2 field này từng bị xoá trắng âm thầm
-                    // mà ActionLog không ghi lại, nên không ai phát hiện được từ nhật ký.
-                    ["firstName"] = new { old = previousFirstName, @new = user.FirstName },
-                    ["lastName"] = new { old = previousLastName, @new = user.LastName },
-                    ["email"] = new { old = previousEmail, @new = user.Email },
-                    ["isActive"] = new { old = previousIsActive, @new = user.IsActive },
-                    ["isSuperUser"] = new { old = previousIsSuperUser, @new = user.IsSuperUser },
-                    ["companyId"] = new { old = previousCompanyId, @new = user.CompanyId },
-                    ["departmentId"] = new { old = previousDepartmentId, @new = user.DepartmentId },
-                    ["locationId"] = new { old = previousLocationId, @new = user.LocationId }
-                }
-            }));
+            LogMeta: changes
+                .Set("firstName", user.FirstName)
+                .Set("lastName", user.LastName)
+                .Set("email", user.Email)
+                .Set("employeeNumber", user.EmployeeNumber)
+                .Set("jobTitle", user.JobTitle)
+                .Set("isSuperUser", user.IsSuperUser)
+                .Set("isActive", user.IsActive)
+                .Set("companyId", user.CompanyId)
+                .Set("departmentId", user.DepartmentId)
+                .Set("locationId", user.LocationId)
+                .ToLogMeta());
     }
 
     /// <summary>

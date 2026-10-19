@@ -206,10 +206,11 @@ public class UserActionLogTests
         var changes = doc.RootElement.GetProperty("changes");
         Assert.Equal("old@t.local", changes.GetProperty("email").GetProperty("old").GetString());
         Assert.Equal("new@t.local", changes.GetProperty("email").GetProperty("new").GetString());
-        Assert.Equal(companyId.ToString(), changes.GetProperty("companyId").GetProperty("old").GetString());
-        Assert.Equal(otherCompany.Id.ToString(), changes.GetProperty("companyId").GetProperty("new").GetString());
-        Assert.True(changes.GetProperty("isActive").GetProperty("old").GetBoolean());
-        Assert.False(changes.GetProperty("isActive").GetProperty("new").GetBoolean());
+        // [AUDIT-LOG B6a] helper dùng chung ⇒ tên field snake_case (trước đây companyId/isActive).
+        Assert.Equal(companyId.ToString(), changes.GetProperty("company_id").GetProperty("old").GetString());
+        Assert.Equal(otherCompany.Id.ToString(), changes.GetProperty("company_id").GetProperty("new").GetString());
+        Assert.True(changes.GetProperty("is_active").GetProperty("old").GetBoolean());
+        Assert.False(changes.GetProperty("is_active").GetProperty("new").GetBoolean());
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Persistence;
 using aspire_react.Server.Domain.Entities;
@@ -197,10 +198,16 @@ public class UpdateChecklistItemCommandHandler : IRequestHandler<UpdateChecklist
         if (request.CycleMonths.HasValue && request.CycleMonths.Value <= 0)
             return new UpdateChecklistItemResult(false, "Chu kỳ (tháng) phải lớn hơn 0.", "INVALID_CYCLE_MONTHS");
         // [MC-7b] Nếu PositionIds ĐƯỢC GỬI (null/[] = universal, danh sách = khai báo) → validate + thay toàn bộ.
+        // [AUDIT-LOG B6a] Chụp phạm vi vị trí CŨ TRƯỚC khi replace-all để LogMeta có old[]/new[].
+        Guid[]? positionIdsBefore = null;
         if (request.PositionIds != null)
         {
             if (await MaintenanceTemplateItems.ValidatePositionsErrorAsync(_context, t, request.PositionIds) is { } posErr)
                 return new UpdateChecklistItemResult(false, "Có vị trí không tồn tại hoặc không thuộc hệ thống của template.", posErr);
+            positionIdsBefore = (await _context.MaintenanceChecklistItemPositions.AsNoTracking()
+                .Where(ip => ip.ItemId == item.Id)
+                .Select(ip => ip.SystemPositionId)
+                .ToListAsync(cancellationToken)).ToArray();
             await MaintenanceTemplateItems.ReplaceItemPositionsAsync(_context, item, request.PositionIds);
         }
 
@@ -216,7 +223,17 @@ public class UpdateChecklistItemCommandHandler : IRequestHandler<UpdateChecklist
         }
 
         // Patch semantics: absent fields NEVER overwrite real data.
-        var before = new { item.Order, item.Name, item.CycleMonths, item.ToolsRequired, item.Instruction };
+        // [AUDIT-LOG B6a] helper dùng chung: snake_case, CHỈ field thực đổi; `position_ids` so tập
+        // KHÔNG phân biệt thứ tự (old[] = phạm vi trước khi replace-all, new[] = danh sách gửi lên).
+        var changes = new ActionLogChanges()
+            .Track("order", item.Order)
+            .Track("name", item.Name)
+            .Track("cycleMonths", item.CycleMonths)
+            .Track("toolsRequired", item.ToolsRequired)
+            .Track("instruction", item.Instruction);
+        if (request.PositionIds != null)
+            changes.Track("positionIds", positionIdsBefore);
+
         if (newOrder.HasValue) item.Order = newOrder.Value;
         if (!string.IsNullOrWhiteSpace(request.Name)) item.Name = request.Name.Trim();
         if (request.CycleMonths.HasValue) item.CycleMonths = request.CycleMonths.Value;
@@ -226,6 +243,15 @@ public class UpdateChecklistItemCommandHandler : IRequestHandler<UpdateChecklist
         // [AUDIT-LOG B5] dữ liệu (item + positions) + ActionLog trong CÙNG transaction (commit 1 lần).
         await DbTransaction.ExecuteAsync(_context, async _ =>
         {
+            changes
+                .Set("order", item.Order)
+                .Set("name", item.Name)
+                .Set("cycleMonths", item.CycleMonths)
+                .Set("toolsRequired", item.ToolsRequired)
+                .Set("instruction", item.Instruction);
+            if (request.PositionIds != null)
+                changes.Set("positionIds", request.PositionIds.Distinct().ToArray());
+
             _actionLogService.Log(MaintenanceTemplateLogging.Build(
                 ActionType.Update, t, request.CurrentUserId,
                 $"Sửa hạng mục \"{item.Name}\" (version {version.VersionNumber})", new
@@ -234,14 +260,7 @@ public class UpdateChecklistItemCommandHandler : IRequestHandler<UpdateChecklist
                     versionId = request.VersionId,
                     versionNumber = version.VersionNumber,
                     itemId = request.ItemId,
-                    changes = new
-                    {
-                        order = new { old = before.Order, @new = item.Order },
-                        name = new { old = before.Name, @new = item.Name },
-                        cycleMonths = new { old = before.CycleMonths, @new = item.CycleMonths },
-                        toolsRequired = new { old = before.ToolsRequired, @new = item.ToolsRequired },
-                        instruction = new { old = before.Instruction, @new = item.Instruction }
-                    }
+                    changes = changes.ToChangesMap()
                 }));
             await _context.SaveChangesAsync(cancellationToken);
         }, cancellationToken);

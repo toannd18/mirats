@@ -379,8 +379,10 @@ public class UserUpdatePatchSafetyTests
 
         Assert.True(result.Success);
         Assert.NotNull(result.LogMeta);
-        Assert.Contains("\"isSuperUser\":{\"old\":true,\"new\":false}", result.LogMeta);  // đổi thật
-        Assert.Contains("\"firstName\":{\"old\":\"First\",\"new\":\"First\"}", result.LogMeta); // không đổi
+        Assert.Contains("\"is_super_user\":{\"old\":true,\"new\":false}", result.LogMeta);  // đổi thật
+        // [AUDIT-LOG B6a] helper chỉ ghi field THỰC ĐỔI ⇒ firstName không đổi thì KHÔNG xuất hiện
+        // (trước đây meta ghi cả field không đổi: "firstName":{"old":"First","new":"First"}).
+        Assert.DoesNotContain("\"first_name\"", result.LogMeta);
     }
 
     /// <summary>Gửi ĐỦ 3 field → cập nhật đúng (kèm trim tên và lowercase email như trước).</summary>

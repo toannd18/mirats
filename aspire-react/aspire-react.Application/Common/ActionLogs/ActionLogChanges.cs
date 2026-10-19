@@ -115,10 +115,22 @@ public sealed class ActionLogChanges
     /// </summary>
     public string? ToLogMeta()
     {
-        var changed = ChangedFields();
-        if (changed.Count == 0)
-            return null;
+        var map = ToChangesMap();
+        return map.Count == 0 ? null : JsonSerializer.Serialize(new { changes = map }, MetaJson);
+    }
 
+    /// <summary>
+    /// [AUDIT-LOG B6a] Bản dạng MAP của `changes` (field snake_case → `{old,new}` hoặc `{changed:true}`),
+    /// rỗng khi không field nào đổi. Dành cho command cần GHÉP thêm key phụ cạnh `changes`
+    /// (VD log của checklist item còn có `scope`/`versionId`/`itemId`):
+    /// <code>
+    /// var meta = new { scope = "item", itemId = item.Id, changes = changes.ToChangesMap() };
+    /// </code>
+    /// Tên field/so sánh/sensitive dùng CHUNG đúng một nguồn với <see cref="ToLogMeta"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, object?> ToChangesMap()
+    {
+        var changed = ChangedFields();
         var map = new Dictionary<string, object?>(changed.Count, StringComparer.Ordinal);
         foreach (var field in changed)
         {
@@ -126,8 +138,7 @@ public sealed class ActionLogChanges
                 ? new { changed = true }
                 : new { old = _old[field], @new = _new[field] };
         }
-
-        return JsonSerializer.Serialize(new { changes = map }, MetaJson);
+        return map;
     }
 
     /// <summary>camelCase/PascalCase → snake_case (đã snake_case thì giữ nguyên).</summary>

@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -16,7 +17,8 @@ public record CloseMaintenanceResult(
     bool IsClosed = false,
     DateTime? ClosedAt = null,
     Guid? ClosedById = null,
-    string? Note = null);
+    string? Note = null,
+    string? LogMeta = null);
 
 public record InspectMaintenanceResult(
     bool Success,
@@ -26,7 +28,8 @@ public record InspectMaintenanceResult(
     Guid? CompanyId = null,
     Guid? InspectedById = null,
     DateTime? InspectedAt = null,
-    string? Note = null);
+    string? Note = null,
+    string? LogMeta = null);
 
 public record ReopenMaintenanceResult(
     bool Success,
@@ -37,7 +40,8 @@ public record ReopenMaintenanceResult(
     bool IsClosed = false,
     DateTime? ClosedAt = null,
     Guid? ClosedById = null,
-    string? Note = null);
+    string? Note = null,
+    string? LogMeta = null);
 
 /// <summary>
 /// [Subtask D] POST api/v1/maintenances/{id}/close (extracted verbatim from
@@ -65,7 +69,8 @@ public record CloseMaintenanceCommand(Guid Id, Guid CurrentUserId)
             ActionType = ActionType.Close,
             CreatedBy = CurrentUserId,
             CompanyId = response.CompanyId,
-            Note = response.Note
+            Note = response.Note,
+            LogMeta = response.LogMeta
         };
     }
 }
@@ -103,6 +108,13 @@ public class CloseMaintenanceCommandHandler : IRequestHandler<CloseMaintenanceCo
         if (m.InspectedById == null)
             return new CloseMaintenanceResult(false, "Cần kiểm tra trước khi đóng bảo trì.", "MAINTENANCE_NOT_INSPECTED_YET");
 
+        // [AUDIT-LOG B6a] Chụp trạng thái CŨ trước khi đóng. AssetMaintenance KHÔNG có cột Status —
+        // `is_closed` CHÍNH LÀ trạng thái quy trình (Open/Closed); kèm 2 trường kết quả lệnh này ghi.
+        var changes = new ActionLogChanges()
+            .Track("status", m.IsClosed ? "Closed" : "Open")
+            .Track("closedAt", m.ClosedAt)
+            .Track("closedById", m.ClosedById);
+
         m.IsClosed = true;
         m.ClosedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
         m.ClosedById = request.CurrentUserId;
@@ -113,7 +125,12 @@ public class CloseMaintenanceCommandHandler : IRequestHandler<CloseMaintenanceCo
         return new CloseMaintenanceResult(true, "Đã đóng bảo trì.",
             MaintenanceId: m.Id, CompanyId: m.CompanyId,
             IsClosed: m.IsClosed, ClosedAt: m.ClosedAt, ClosedById: m.ClosedById,
-            Note: $"Đóng bảo trì \"{m.Title}\"");
+            Note: $"Đóng bảo trì \"{m.Title}\"",
+            LogMeta: changes
+                .Set("status", m.IsClosed ? "Closed" : "Open")
+                .Set("closedAt", m.ClosedAt)
+                .Set("closedById", m.ClosedById)
+                .ToLogMeta());
     }
 }
 
@@ -140,7 +157,8 @@ public record InspectMaintenanceCommand(Guid Id, Guid CurrentUserId)
             ActionType = ActionType.Inspect,
             CreatedBy = CurrentUserId,
             CompanyId = response.CompanyId,
-            Note = response.Note
+            Note = response.Note,
+            LogMeta = response.LogMeta
         };
     }
 }
@@ -174,6 +192,11 @@ public class InspectMaintenanceCommandHandler : IRequestHandler<InspectMaintenan
         if (m.CompletionDate == null)
             return new InspectMaintenanceResult(false, "Cần nhập Ngày hoàn thành trước khi kiểm tra bảo trì.", "MAINTENANCE_NOT_COMPLETED_YET");
 
+        // [AUDIT-LOG B6a] Kiểm tra CÓ THỂ LẶP (ghi đè lượt trước) ⇒ old là giá trị thật trước lần này.
+        var changes = new ActionLogChanges()
+            .Track("inspectedById", m.InspectedById)
+            .Track("inspectedAt", m.InspectedAt);
+
         m.InspectedById = request.CurrentUserId;
         m.InspectedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
         m.UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
@@ -183,7 +206,11 @@ public class InspectMaintenanceCommandHandler : IRequestHandler<InspectMaintenan
         return new InspectMaintenanceResult(true, "Đã đánh dấu đã kiểm tra.",
             MaintenanceId: m.Id, CompanyId: m.CompanyId,
             InspectedById: m.InspectedById, InspectedAt: m.InspectedAt,
-            Note: $"Kiểm tra bảo trì \"{m.Title}\"");
+            Note: $"Kiểm tra bảo trì \"{m.Title}\"",
+            LogMeta: changes
+                .Set("inspectedById", m.InspectedById)
+                .Set("inspectedAt", m.InspectedAt)
+                .ToLogMeta());
     }
 }
 
@@ -210,7 +237,8 @@ public record ReopenMaintenanceCommand(Guid Id, Guid CurrentUserId)
             ActionType = ActionType.Reopen,
             CreatedBy = CurrentUserId,
             CompanyId = response.CompanyId,
-            Note = response.Note
+            Note = response.Note,
+            LogMeta = response.LogMeta
         };
     }
 }
@@ -239,6 +267,10 @@ public class ReopenMaintenanceCommandHandler : IRequestHandler<ReopenMaintenance
         if (!m.IsClosed)
             return new ReopenMaintenanceResult(false, "Bản ghi chưa đóng.", "MAINTENANCE_NOT_CLOSED");
 
+        // [AUDIT-LOG B6a] status Closed → Open. ClosedAt/ClosedById CỐ Ý giữ nguyên (mốc lần đóng gần
+        // nhất) nên KHÔNG nằm trong `changes` — chỉ field thực đổi mới được ghi.
+        var changes = new ActionLogChanges().Track("status", "Closed");
+
         m.IsClosed = false;
         // Keep ClosedAt/ClosedById — they record the most recent close (each cycle is audited in ActionLog).
         m.UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
@@ -248,6 +280,7 @@ public class ReopenMaintenanceCommandHandler : IRequestHandler<ReopenMaintenance
         return new ReopenMaintenanceResult(true, "Đã mở lại bảo trì.",
             MaintenanceId: m.Id, CompanyId: m.CompanyId,
             IsClosed: m.IsClosed, ClosedAt: m.ClosedAt, ClosedById: m.ClosedById,
-            Note: $"Mở lại bảo trì \"{m.Title}\" (superuser)");
+            Note: $"Mở lại bảo trì \"{m.Title}\" (superuser)",
+            LogMeta: changes.Set("status", m.IsClosed ? "Closed" : "Open").ToLogMeta());
     }
 }

@@ -37,10 +37,6 @@ public class ActionLogMetaRatchetTests
         // [B7] Command chỉ DELEGATE — log nằm trong ComponentAllocationService.SetUnitStatusAsync
         // (đã bọc "changes" từ B3), file command không có dấu hiệu nào để soi.
         "UpdateComponentUnitStatusCommand",
-        // Chuyển trạng thái (không phải field-update) — LogMeta không yêu cầu old/new.
-        "CloseMaintenanceCommand",
-        "InspectMaintenanceCommand",
-        "ReopenMaintenanceCommand",
     };
 
     /// <summary>Các tiền tố "ghi dữ liệu" được quét (mở rộng ở B3 — trước đó chỉ Update/Close/Inspect/Reopen).</summary>

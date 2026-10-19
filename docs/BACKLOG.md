@@ -186,9 +186,34 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
      Ca mạnh nhất: `VersionPublish_ActionLogSaveFails_RollsBackVersionFlip` — dữ liệu đã được ghi bằng 2
      SaveChanges TRƯỚC bước log, lỗi ⇒ cả demote/promote rollback.
    - **Tiêu chí nghiệm thu:** 18/18 test atomicity PASS trên DB tạm; gates 6/6; nhóm ThrowawayDb 696/696.
-5. **B6 — chuẩn hoá field còn thiếu (mức thấp)**: `UpdateUserCommand` thêm `employeeNumber`/`jobTitle`;
-   `UpdateChecklistItemCommand` thêm `positionIds`; cân nhắc `Close/Inspect` ghi lý do/kết quả; Delete*
-   snapshot (hiện chỉ `DeleteMaintenance`/`DeleteCampaignResult` có).
+5. **B6 — chuẩn hoá field còn thiếu** — tách 2 phần:
+   - **B6a — ✅ XONG (commit local B6a, 2026-10-19):**
+     · `UpdateUserCommand` dùng `ActionLogChanges` ⇒ thêm `employee_number`/`job_title`; toàn bộ field
+       chuyển snake_case + **chỉ ghi field ĐỔI** (trước: 8/10 field, camelCase, ghi cả field không đổi).
+       Đã cập nhật 2 test cũ khẳng định camelCase (`UserUpdatePatchSafetyTests`, `UserActionLogTests`).
+     · `UpdateChecklistItemCommand` thêm `position_ids` (old[]/new[], so **không phân biệt thứ tự**) —
+       thêm `ActionLogChanges.ToChangesMap()` để ghép `changes` cạnh `scope/versionId/versionNumber/itemId`.
+     · `Close/Inspect/ReopenMaintenanceCommand` ghi `LogMeta.changes`: Close = `status` Open→Closed +
+       `closed_at` + `closed_by_id`; Inspect = `inspected_by_id` + `inspected_at` (old = lượt kiểm tra
+       TRƯỚC, có thể null); Reopen = `status` Closed→Open (không ghi closed_at/by vì cố ý giữ nguyên).
+       **Đã xóa 3 lệnh khỏi `Exempt`** — bánh cóc giờ chỉ còn `UpdateComponentUnitStatusCommand`.
+     · Test: `AuditLogB6aLogMetaTests` (7) + `ToChangesMap` (1); evidence bằng API thật trên DB tạm.
+   - **B6b — ĐÃ KHẢO SÁT, CHƯA SỬA** (23 `Delete*Command`):
+     · **Xóa mềm:** `DeleteMaintenance` (DeletedAt + **full snapshot**); `DeleteLicense` (DeletedAt,
+       **LogMeta null** — serial KHÔNG bị ghi, tốt cho bảo mật nhưng mất ảnh chụp); `DeleteComponentUnit`
+       (service: DeletedAt + Qty−1, meta null); `DeleteUser` (IsActive=false; meta `{username,email,
+       isActive,companyId}` — **không** có PasswordHash).
+     · **Xóa cứng + LogMeta null:** Component, Group, CustomField, Location, Department, Company, Model,
+       Category, Supplier, Manufacturer, SystemInfo, SystemPosition, `DeletePasskey` (không lộ
+       CredentialId/PublicKey), MaintenanceTemplate.
+     · **Xóa cứng + có ảnh chụp:** Asset `{assetTag,name,serial}`, Accessory `{name,itemNo,qty}`,
+       TemplateVersion `{scope,versionId,versionNumber}`, ChecklistItem `{scope,…,itemId}`, StandardParam
+       `{scope,…,paramId}`, CampaignResult `{…,deleted{measuredValue,isPass,notes}}`.
+     · **Nhạy cảm KHÔNG nằm trong ảnh chụp:** `User.PasswordHash` (không log delete nào chứa),
+       `License.Serial` (soft + meta null), passkey `CredentialId/PublicKey`. Lưu ý khi sửa B6b:
+       `User.Email` (PII) và `CampaignResult.Notes` (free-text) hiện CÓ trong meta.
+     · **Đề xuất (chưa làm):** snapshot tối thiểu (name/code + vài field định danh, KHÔNG PII/secret) cho
+       11 delete cứng đang meta null + test khẳng định không có `password_hash`/`serial`.
    - **Tiêu chí nghiệm thu:** số field phủ = DTO; test khẳng định.
 6. **B7 — gộp các `changes` hard-code còn lại về helper** (sau B6): dần thay `new { changes = … }` ở
    master data bằng `ActionLogChanges` để hết tình trạng "serialize cả field không đổi" (noise) và giữ 1

@@ -190,6 +190,28 @@ public class ActionLogChangesTests
         Assert.Null(meta);
     }
 
+    /// <summary>[AUDIT-LOG B6a] `ToChangesMap` — dạng MAP để command GHÉP thêm key phụ cạnh `changes`.</summary>
+    [Fact]
+    public void ToChangesMap_ReturnsOnlyChangedFields_AndIsEmptyWhenNothingChanged()
+    {
+        var changed = new ActionLogChanges()
+            .Track("a", 1)
+            .Track("b", 2)
+            .Set("a", 3)
+            .Set("b", 2)
+            .ToChangesMap();
+
+        Assert.Single(changed);
+        Assert.True(changed.ContainsKey("a"));
+        Assert.False(changed.ContainsKey("b"));
+
+        var unchanged = new ActionLogChanges()
+            .Track("x", 1)
+            .Set("x", 1)
+            .ToChangesMap();
+        Assert.Empty(unchanged);
+    }
+
     [Fact]
     public void ToSnakeCase_HandlesCamelPascalAndAcronyms()
     {
