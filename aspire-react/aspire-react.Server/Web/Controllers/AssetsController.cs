@@ -62,9 +62,10 @@ public class AssetsController : ControllerBase
     [Authorize(Policy = "assets.view")]
     public async Task<IActionResult> GetAssets(
         [FromQuery] string? search, [FromQuery] AssetStatus? status, [FromQuery] Guid? categoryId,
-        [FromQuery] Guid? locationId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+        [FromQuery] Guid? locationId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null)
     {
-        var result = await _mediator.Send(new ListAssetsQuery(search, status, categoryId, locationId, page, pageSize));
+        var result = await _mediator.Send(new ListAssetsQuery(search, status, categoryId, locationId, page, pageSize, sortBy, sortDir));
 
         return Ok(new { status = "success", data = result.Items, pagination = new { page, pageSize, totalItems = result.Total, totalPages = (int)Math.Ceiling((double)result.Total / pageSize), hasNextPage = page * pageSize < result.Total, hasPreviousPage = page > 1 } });
     }

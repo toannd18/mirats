@@ -53,7 +53,9 @@ public record ListAssetsQuery(
     Guid? CategoryId,
     Guid? LocationId,
     int Page,
-    int PageSize) : IRequest<ListAssetsResult>;
+    int PageSize,
+    string? SortBy = null,
+    string? SortDir = null) : IRequest<ListAssetsResult>;
 
 public record ListAssetsResult(IReadOnlyList<AssetListItemDto> Items, int Total);
 
@@ -92,7 +94,21 @@ public class ListAssetsQueryHandler : IRequestHandler<ListAssetsQuery, ListAsset
         query = query.Where(a => userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value);
 
         var total = await query.CountAsync(cancellationToken);
-        var assets = await query.OrderBy(a => a.AssetTag).Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
+
+        // UI-1 GĐ3 — whitelist sortable Asset list columns. Unknown values fall back to AssetTag.
+        var sortBy = request.SortBy?.Trim().ToLowerInvariant();
+        var desc = string.Equals(request.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
+        query = sortBy switch
+        {
+            "name" => desc ? query.OrderByDescending(a => a.Name) : query.OrderBy(a => a.Name),
+            "status" => desc ? query.OrderByDescending(a => a.Status) : query.OrderBy(a => a.Status),
+            "serial" => desc ? query.OrderByDescending(a => a.Serial) : query.OrderBy(a => a.Serial),
+            "purchasedate" => desc ? query.OrderByDescending(a => a.PurchaseDate) : query.OrderBy(a => a.PurchaseDate),
+            "assettag" => desc ? query.OrderByDescending(a => a.AssetTag) : query.OrderBy(a => a.AssetTag),
+            _ => query.OrderBy(a => a.AssetTag),
+        };
+
+        var assets = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
             .Select(a => new
             {
                 a.Id,

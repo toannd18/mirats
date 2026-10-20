@@ -1163,6 +1163,12 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
   **không** dùng cặp `ItemType` + `ItemId` mềm.
 - Chưa triển khai trong đợt UI-1; giữ làm backlog.
 
+### UI-1 — việc ghi nhận thêm (2026-10-20)
+
+- **“Hoàn thành đợt” phải bấm được khi 0/0 kết quả**: hiện nút bị vô hiệu hóa khi đợt chưa có
+  thiết bị/hạng mục nào, khiến người dùng không thể đóng đợt rỗng. Sửa để luôn cho phép hoàn thành
+  (kèm xác nhận), kể cả khi kết quả là 0/0. Chưa làm trong GĐ1–GĐ3; giữ làm backlog UI-1.
+
 ### P1 — tuần 1–2 sau go-live
 
 | # | Việc | Ghi chú |

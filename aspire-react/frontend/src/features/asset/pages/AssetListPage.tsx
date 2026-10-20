@@ -1,20 +1,22 @@
 import { useRef, useState, useEffect } from 'react';
 import {
-  Tag, App, Button, Space, Card, Typography, Divider, Popconfirm, Empty,
-  Modal, Alert, Descriptions, Form, Input, InputNumber, Select, DatePicker, Row, Col,
+  Tag, App, Button, Space, Card, Typography, Empty,
+  Modal, Alert, Descriptions, Form, Input, InputNumber, Select, DatePicker, Row, Col, Dropdown,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
-  PlusOutlined, EditOutlined, EyeOutlined, SendOutlined,
+  PlusOutlined, EditOutlined, SendOutlined,
   LaptopOutlined,
-  RollbackOutlined, DeleteOutlined, CheckSquareOutlined, UndoOutlined, InboxOutlined,
+  RollbackOutlined, DeleteOutlined, CheckSquareOutlined, UndoOutlined, InboxOutlined, MoreOutlined,
 } from '@ant-design/icons';
-import { ProList } from '@ant-design/pro-components';
+import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useNavigate, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { assetService, type CreateAssetPayload } from '../services/asset.service';
 import { usePermission } from '../../../hooks/usePermission';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import { isSuperUser } from '../../../features/auth/services/auth';
 import AssetArchiveModal from '../components/AssetArchiveModal';
 import AssetAllocationModal from '../components/AssetAllocationModal';
@@ -34,7 +36,8 @@ const { Text, Title, Paragraph } = Typography;
 // ==================== AssetListPage ====================
 
 const AssetListPage: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
   const actionRef = useRef<ActionType | undefined>(undefined);
@@ -73,10 +76,217 @@ const AssetListPage: React.FC = () => {
   // ST6 (F40) — company column is only shown to Superusers (could see multiple companies).
   const superUser = isSuperUser();
 
+  const reload = () => actionRef.current?.reload();
+
+  const hasAction = (record: AssetDto, action: string) =>
+    (getAssetActions({
+      status: record.status,
+      isConfirmed: record.isConfirmed,
+      assignedTo: record.assignedTo,
+    }) as string[]).includes(action);
+
+  const assignedLabel = (record: AssetDto) => (!record.assignedTo ? null
+    : (record.assignedTo.name
+      ?? ALLOCATION_TARGET_LABELS[record.assignedTo.type as AllocationTargetType]
+      ?? record.assignedTo.type ?? null));
+
+  const handleConfirm = (record: AssetDto) => {
+    modal.confirm({
+      title: 'Xác nhận tài sản',
+      content: 'Sau khi xác nhận, chỉ có thể sửa Tên và Ghi chú. Không thể xóa tài sản này.',
+      okText: 'Xác nhận',
+      cancelText: 'Hủy',
+      onOk: async () => {
+        try {
+          await assetService.confirm(record.id);
+          void message.success('Đã xác nhận');
+          reload();
+        } catch {
+          void message.error('Lỗi xác nhận');
+          throw new Error('confirm failed');
+        }
+      },
+    });
+  };
+
+  const handleUnarchive = (record: AssetDto) => {
+    modal.confirm({
+      title: 'Mở lại tài sản?',
+      content: 'Tài sản sẽ trở về trạng thái Chờ cấp phát.',
+      okText: 'Mở lại',
+      cancelText: 'Hủy',
+      onOk: async () => {
+        try {
+          await assetService.unarchive(record.id);
+          void message.success('Đã mở lại');
+          reload();
+        } catch {
+          void message.error('Lỗi mở lại');
+          throw new Error('unarchive failed');
+        }
+      },
+    });
+  };
+
+  const handleDelete = (record: AssetDto) => {
+    modal.confirm({
+      title: 'Xóa tài sản?',
+      content: 'Tài sản chưa xác nhận sẽ bị xóa vĩnh viễn.',
+      okText: 'Xóa',
+      cancelText: 'Hủy',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await apiClient.delete(`/assets/${record.id}`);
+          void message.success('Đã xóa');
+          reload();
+        } catch {
+          void message.error('Không thể xóa');
+          throw new Error('delete failed');
+        }
+      },
+    });
+  };
+
+  const handleEdit = (record: AssetDto) => {
+    setEditModalAssetId(record.id);
+    setEditModalOpen(true);
+  };
+
+  const handleArchive = (record: AssetDto) => {
+    setArchiveAsset(record);
+    setArchiveOpen(true);
+  };
+
+  const handleAllocate = (record: AssetDto) => {
+    setAllocAsset(record);
+    setAllocOpen(true);
+  };
+
+  const handleRecall = (record: AssetDto) => {
+    setRecallAsset(record);
+    setRecallOpen(true);
+  };
+
+  /** One primary action per lifecycle state; everything else goes into the ⋯ menu. */
+  const primaryActionFor = (record: AssetDto) => {
+    const status = normalizeAssetStatus(record.status);
+    if (!record.isConfirmed && hasAction(record, 'confirm') && canEdit) {
+      return { key: 'confirm', label: 'Xác nhận', icon: <CheckSquareOutlined />, danger: false, run: () => handleConfirm(record) };
+    }
+    if (status === 'Deployed' && hasAction(record, 'recall') && canCheckin) {
+      return { key: 'recall', label: 'Thu hồi', icon: <RollbackOutlined />, danger: true, run: () => handleRecall(record) };
+    }
+    if (status === 'Pending' && hasAction(record, 'allocate') && canCheckout) {
+      return { key: 'allocate', label: 'Cấp phát', icon: <SendOutlined />, danger: false, run: () => handleAllocate(record) };
+    }
+    if (status === 'Archived' && hasAction(record, 'unarchive') && canEdit) {
+      return { key: 'unarchive', label: 'Mở lại', icon: <UndoOutlined />, danger: false, run: () => handleUnarchive(record) };
+    }
+    return null;
+  };
+
+  const secondaryMenuItems = (record: AssetDto): MenuProps['items'] => {
+    const items: NonNullable<MenuProps['items']> = [];
+    if (hasAction(record, 'edit') && canEdit) {
+      items.push({ key: 'edit', label: 'Sửa', icon: <EditOutlined />, onClick: () => handleEdit(record) });
+    }
+    if (hasAction(record, 'archive') && canEdit) {
+      items.push({ key: 'archive', label: 'Lưu trữ', icon: <InboxOutlined />, onClick: () => handleArchive(record) });
+    }
+    if (hasAction(record, 'delete') && canDelete) {
+      items.push({ key: 'delete', label: 'Xóa', icon: <DeleteOutlined />, danger: true, onClick: () => handleDelete(record) });
+    }
+    return items;
+  };
+
+  const renderRowActions = (record: AssetDto, stopPropagation = false) => {
+    const primary = primaryActionFor(record);
+    const menuItems = secondaryMenuItems(record);
+    const stop = (e: { stopPropagation: () => void }) => { if (stopPropagation) e.stopPropagation(); };
+    return (
+      <Space size={4} wrap>
+        {primary && (
+          <Button type="primary" size="small" danger={primary.danger}
+            icon={primary.icon}
+            onClick={(e) => { stop(e); primary.run(); }}>{primary.label}</Button>
+        )}
+        {menuItems && menuItems.length > 0 && (
+          <Dropdown menu={{ items: menuItems }} trigger={['click']}>
+            <Button size="small" icon={<MoreOutlined />} aria-label="Thao tác khác"
+              onClick={stop} />
+          </Dropdown>
+        )}
+      </Space>
+    );
+  };
+
+  const desktopColumns: ProColumns<AssetDto>[] = ([
+    {
+      title: 'Mã tài sản', dataIndex: 'assetTag', width: 110,
+      sorter: true,
+      render: (_, record) => <Text code>{record.assetTag}</Text>,
+    },
+    {
+      title: 'Tên tài sản', dataIndex: 'name', width: 170,
+      sorter: true,
+      render: (_, record) => (
+        <Typography.Link onClick={() => navigate(`/assets/${record.id}`)}>
+          {record.name}
+        </Typography.Link>
+      ),
+    },
+    {
+      title: 'Trạng thái', dataIndex: 'status', key: 'status', width: 130,
+      sorter: true,
+      render: (_, record) => {
+        const status = normalizeAssetStatus(record.status);
+        return (
+          <Space size={[0, 4]} wrap>
+            <Tag color={record.isConfirmed ? (ASSET_STATUS_COLORS[status] ?? 'default') : 'default'}>
+              {ASSET_STATUS_LABELS[status]}
+            </Tag>
+            {!record.isConfirmed && <Tag color="warning">Chưa xác nhận</Tag>}
+          </Space>
+        );
+      },
+    },
+    {
+      title: 'Số serial', dataIndex: 'serial', width: 130,
+      sorter: true,
+      render: (_, record) => <Text style={{ fontFamily: 'monospace' }}>{record.serial || '-'}</Text>,
+    },
+    {
+      title: 'Model', key: 'model', width: 160, ellipsis: true,
+      render: (_, record) => record.model?.name || '-',
+    },
+    {
+      title: 'Vị trí', key: 'location', width: 120, ellipsis: true,
+      render: (_, record) => record.location?.name || '-',
+    },
+    {
+      title: 'Đang giữ', key: 'assignedTo', width: 170,
+      render: (_, record) => (assignedLabel(record) ?? '-'),
+    },
+    {
+      title: 'Ngày mua', dataIndex: 'purchaseDate', width: 120,
+      sorter: true,
+      render: (_: unknown, record: AssetDto) => formatDate(record.purchaseDate),
+    },
+    ...(superUser ? [{
+      title: 'Công ty', key: 'company', width: 160,
+      render: (_: unknown, record: AssetDto) => record.company?.name || '-',
+    } as ProColumns<AssetDto>] : []),
+    {
+      title: 'Thao tác', key: 'actions', width: 150, fixed: 'right',
+      render: (_: unknown, record: AssetDto) => renderRowActions(record),
+    },
+  ] as ProColumns<AssetDto>[]).map((column) => ({ ...column, hideInSearch: true, search: false }));
+
   const searchColumns: ProColumns<AssetDto>[] = [
     { title: 'Tìm kiếm', dataIndex: 'search', valueType: 'text', hideInTable: true,
       fieldProps: { placeholder: 'Tên, mã tài sản, số serial...' } },
-    { title: 'Trạng thái', dataIndex: 'status', valueType: 'select', hideInTable: true,
+    { key: 'search-status', title: 'Trạng thái', dataIndex: 'status', valueType: 'select', hideInTable: true,
       valueEnum: { Pending: 'Chờ cấp phát', Deployed: 'Đã cấp phát', Archived: 'Đã thu hồi' } },
     { title: 'Vị trí', dataIndex: 'locationId', valueType: 'select', hideInTable: true,
       request: async () => {
@@ -92,95 +302,118 @@ const AssetListPage: React.FC = () => {
 
   return (
     <>
-      <ProList<AssetDto>
-        headerTitle={<Title level={4} style={{ margin: 0 }}>Danh sách tài sản</Title>}
-        actionRef={actionRef} rowKey="id" ghost cardProps={false}
-        columns={searchColumns}
-        grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3, xxl: 3 }}
-        search={{ labelWidth: 'auto', defaultCollapsed: false }}
-        toolBarRender={() => [
-          canCreate && <Button key="create" type="primary" size="middle" icon={<PlusOutlined />}
-            onClick={() => setCreateModalOpen(true)}>Tạo tài sản</Button>,
-        ]}
-        request={async (params) => {
-          try {
-            const { current, pageSize, ...rest } = params;
-            const res = await apiClient.get('/assets', { params: { ...rest, page: current, pageSize } });
-            return { data: res.data.data ?? [], success: true, total: res.data.pagination?.totalItems ?? 0 };
-          } catch { void message.error('Không thể tải danh sách tài sản'); return { data: [], success: false, total: 0 }; }
-        }}
-        pagination={{ defaultPageSize: 12, showSizeChanger: true,
-          showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} tài sản` }}
-        locale={{ emptyText: <Empty description={<span>Không tìm thấy tài sản phù hợp — thử bỏ bớt điều kiện lọc hoặc <Typography.Link onClick={() => setCreateModalOpen(true)}>Tạo tài sản mới</Typography.Link></span>} /> }}
-        itemRender={(record) => {
-          const st = normalizeAssetStatus(record.status);
-          const actions = getAssetActions({ status: st, isConfirmed: record.isConfirmed });
-          const has = (a: string) => actions.includes(a as ReturnType<typeof getAssetActions>[number]);
-          const statusColor = record.isConfirmed ? (ASSET_STATUS_COLORS[st] ?? 'default') : 'default';
-          const isDraft = !record.isConfirmed;
-          const assignedLabel = !record.assignedTo ? null
-            : (record.assignedTo.name ?? ALLOCATION_TARGET_LABELS[record.assignedTo.type as AllocationTargetType] ?? record.assignedTo.type);
-          const isDeployed = record.assignedTo != null;
-          return (
-            <Card size="small" style={{ borderRadius: 12, marginBottom: 12, borderLeft: `4px solid ${statusColor}`, cursor: 'pointer', transition: 'box-shadow 0.2s' }}
-              onClick={() => navigate(`/assets/${record.id}`)}
-              styles={{ body: { padding: '16px' } }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: statusColor === statusColors.ready ? '#e6f4ff' : statusColor === statusColors.active ? '#f6ffed' : '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <LaptopOutlined style={{ fontSize: 18, color: statusColor }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
-                    <Text strong style={{ fontSize: 15 }}>{record.name}</Text>
-                    <Text code style={{ fontSize: 11 }}>{record.assetTag}</Text>
-                    {superUser && record.company?.name && <Tag style={{ fontSize: 10, lineHeight: '16px' }} color="geekblue">{record.company.name}</Tag>}
+      {isMobile ? (
+        <ProList<AssetDto>
+          headerTitle={<Title level={4} style={{ margin: 0 }}>Danh sách tài sản</Title>}
+          actionRef={actionRef} rowKey="id" ghost cardProps={false}
+          columns={searchColumns}
+          grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3, xxl: 3 }}
+          search={{ labelWidth: 'auto', defaultCollapsed: true }}
+          toolBarRender={() => [
+            canCreate && <Button key="create" type="primary" size="middle" icon={<PlusOutlined />}
+              onClick={() => setCreateModalOpen(true)}>Tạo tài sản</Button>,
+          ]}
+          request={async (params) => {
+            try {
+              const { current, pageSize, ...rest } = params;
+              const res = await apiClient.get('/assets', { params: { ...rest, page: current, pageSize } });
+              return { data: res.data.data ?? [], success: true, total: res.data.pagination?.totalItems ?? 0 };
+            } catch { void message.error('Không thể tải danh sách tài sản'); return { data: [], success: false, total: 0 }; }
+          }}
+          pagination={{ defaultPageSize: 12, showSizeChanger: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} tài sản` }}
+          locale={{ emptyText: <Empty description={<span>Không tìm thấy tài sản phù hợp — thử bỏ bớt điều kiện lọc hoặc <Typography.Link onClick={() => setCreateModalOpen(true)}>Tạo tài sản mới</Typography.Link></span>} /> }}
+          itemRender={(record) => {
+            const st = normalizeAssetStatus(record.status);
+            const statusColor = record.isConfirmed ? (ASSET_STATUS_COLORS[st] ?? 'default') : 'default';
+            const isDraft = !record.isConfirmed;
+            const holder = assignedLabel(record);
+            const isDeployed = record.assignedTo != null;
+            return (
+              <Card size="small" style={{ borderRadius: 12, marginBottom: 12, borderLeft: `4px solid ${statusColor}`, cursor: 'pointer', transition: 'box-shadow 0.2s' }}
+                onClick={() => navigate(`/assets/${record.id}`)}
+                styles={{ body: { padding: '16px' } }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: statusColor === statusColors.ready ? '#e6f4ff' : statusColor === statusColors.active ? '#f6ffed' : '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <LaptopOutlined style={{ fontSize: 18, color: statusColor }} />
                   </div>
-                  <Space size={[2, 4]} wrap style={{ marginBottom: 6 }}>
-                    <Tag color={isDraft ? 'default' : statusColor}>{ASSET_STATUS_LABELS[st]}</Tag>
-                    {isDraft && <Tag color="warning">Chưa xác nhận</Tag>}
-                    {st === 'Archived' && <Tag icon={<InboxOutlined />} color="default">Đã lưu trữ</Tag>}
-                  </Space>
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', margin: '8px 0', fontSize: 12 }}>
-                <span><Text type="secondary">Model:</Text> <Text>{record.model?.name || '-'}</Text></span>
-                <span><Text type="secondary">Số serial:</Text> <Text style={{ fontFamily: 'monospace' }}>{record.serial || '-'}</Text></span>
-                <span><Text type="secondary">Vị trí:</Text> <Text>{record.location?.name || '-'}</Text></span>
-                {isDeployed && assignedLabel && <span><Text type="secondary">Đang giữ:</Text> <Text strong>{assignedLabel}</Text></span>}
-                {record.notes && (
-                  <div style={{ gridColumn: '1 / -1', minWidth: 0, marginTop: 2 }}>
-                    <div><Text type="secondary">Ghi chú:</Text></div>
-                    <Paragraph ellipsis={{ rows: 2, tooltip: record.notes }} style={{ fontSize: 12, margin: 0 }}>{record.notes}</Paragraph>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+                      <Typography.Link style={{ fontSize: 15, fontWeight: 600 }}
+                        onClick={(e) => { e.stopPropagation(); navigate(`/assets/${record.id}`); }}>
+                        {record.name}
+                      </Typography.Link>
+                      <Text code style={{ fontSize: 11 }}>{record.assetTag}</Text>
+                      {superUser && record.company?.name && <Tag style={{ fontSize: 10, lineHeight: '16px' }} color="geekblue">{record.company.name}</Tag>}
+                    </div>
+                    <Space size={[2, 4]} wrap style={{ marginBottom: 6 }}>
+                      <Tag color={isDraft ? 'default' : statusColor}>{ASSET_STATUS_LABELS[st]}</Tag>
+                      {isDraft && <Tag color="warning">Chưa xác nhận</Tag>}
+                      {st === 'Archived' && <Tag icon={<InboxOutlined />} color="default">Đã lưu trữ</Tag>}
+                    </Space>
                   </div>
-                )}
-              </div>
-              <Divider style={{ margin: '8px 0' }} />
-              <Space size="small" wrap style={{ justifyContent: 'flex-end', width: '100%' }}>
-                {has('view') && <Button size="small" icon={<EyeOutlined />} onClick={(e) => { e.stopPropagation(); navigate(`/assets/${record.id}`); }}>Xem</Button>}
-                {has('edit') && canEdit && <Button size="small" icon={<EditOutlined />} onClick={(e) => { e.stopPropagation(); setEditModalAssetId(record.id); setEditModalOpen(true); }}>Sửa</Button>}
-                {has('confirm') && canEdit && (
-                  <Popconfirm title="Xác nhận tài sản" description="Sau khi xác nhận, chỉ có thể sửa Tên và Ghi chú. Không thể xóa tài sản này." okText="Xác nhận" cancelText="Hủy" onConfirm={async () => { try { await assetService.confirm(record.id); void message.success('Đã xác nhận'); actionRef.current?.reload(); } catch { void message.error('Lỗi xác nhận'); } }}>
-                    <Button size="small" type="primary" ghost icon={<CheckSquareOutlined />} onClick={(e) => e.stopPropagation()}>Xác nhận</Button>
-                  </Popconfirm>
-                )}
-                {has('allocate') && canCheckout && <Button size="small" type="primary" ghost icon={<SendOutlined />} onClick={(e) => { e.stopPropagation(); setAllocAsset(record); setAllocOpen(true); }}>Cấp phát</Button>}
-                {has('archive') && canEdit && <Button size="small" danger icon={<InboxOutlined />} onClick={(e) => { e.stopPropagation(); setArchiveAsset(record); setArchiveOpen(true); }}>Lưu trữ</Button>}
-                {has('recall') && canCheckin && <Button size="small" icon={<RollbackOutlined />} onClick={(e) => { e.stopPropagation(); setRecallAsset(record); setRecallOpen(true); }}>Thu hồi</Button>}
-                {has('unarchive') && canEdit && (
-                  <Popconfirm title="Mở lại tài sản?" description="Tài sản sẽ trở về trạng thái Chờ cấp phát." okText="Mở lại" cancelText="Hủy" onConfirm={async () => { try { await assetService.unarchive(record.id); void message.success('Đã mở lại'); actionRef.current?.reload(); } catch { void message.error('Lỗi mở lại'); } }}>
-                    <Button size="small" icon={<UndoOutlined />} onClick={(e) => e.stopPropagation()}>Mở lại</Button>
-                  </Popconfirm>
-                )}
-                {has('delete') && canDelete && (
-                  <Popconfirm title="Xóa tài sản?" description="Tài sản chưa xác nhận sẽ bị xóa vĩnh viễn." okText="Xóa" cancelText="Hủy" okButtonProps={{ danger: true }} onConfirm={async () => { try { await apiClient.delete(`/assets/${record.id}`); void message.success('Đã xóa'); actionRef.current?.reload(); } catch { void message.error('Không thể xóa'); } }}>
-                    <Button size="small" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()}>Xóa</Button>
-                  </Popconfirm>
-                )}
-              </Space>
-            </Card>
-          );
-        }}
-      />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', margin: '8px 0', fontSize: 12 }}>
+                  <span><Text type="secondary">Model:</Text> <Text>{record.model?.name || '-'}</Text></span>
+                  <span><Text type="secondary">Số serial:</Text> <Text style={{ fontFamily: 'monospace' }}>{record.serial || '-'}</Text></span>
+                  <span><Text type="secondary">Vị trí:</Text> <Text>{record.location?.name || '-'}</Text></span>
+                  {isDeployed && holder && <span><Text type="secondary">Đang giữ:</Text> <Text strong>{holder}</Text></span>}
+                  {record.notes && (
+                    <div style={{ gridColumn: '1 / -1', minWidth: 0, marginTop: 2 }}>
+                      <div><Text type="secondary">Ghi chú:</Text></div>
+                      <Paragraph ellipsis={{ rows: 2, tooltip: record.notes }} style={{ fontSize: 12, margin: 0 }}>{record.notes}</Paragraph>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                  {renderRowActions(record, true)}
+                </div>
+              </Card>
+            );
+          }}
+        />
+      ) : (
+        <ProTable<AssetDto>
+          headerTitle={<Title level={4} style={{ margin: 0 }}>Danh sách tài sản</Title>}
+          actionRef={actionRef}
+          rowKey="id"
+          columns={[...searchColumns, ...desktopColumns]}
+          search={{ labelWidth: 'auto', defaultCollapsed: false }}
+          options={{ reload: true, density: true, setting: true }}
+          columnsState={{
+            persistenceKey: 'asset-list-columns',
+            persistenceType: 'localStorage',
+            defaultValue: {
+              purchaseDate: { show: false },
+              company: { show: false },
+              assignedTo: { show: false },
+            },
+          }}
+          toolBarRender={() => [
+            canCreate && <Button key="create" type="primary" size="middle" icon={<PlusOutlined />}
+              onClick={() => setCreateModalOpen(true)}>Tạo tài sản</Button>,
+          ]}
+          request={async (params, sort) => {
+            try {
+              const { current, pageSize, ...rest } = params;
+              const sortEntry = Object.entries(sort ?? {}).find(([, order]) => order === 'ascend' || order === 'descend');
+              const sortBy = sortEntry?.[0];
+              const sortDir = sortEntry?.[1] === 'descend' ? 'desc' : 'asc';
+              const res = await apiClient.get('/assets', {
+                params: {
+                  ...rest, page: current, pageSize,
+                  ...(sortBy ? { sortBy, sortDir } : {}),
+                },
+              });
+              return { data: res.data.data ?? [], success: true, total: res.data.pagination?.totalItems ?? 0 };
+            } catch { void message.error('Không thể tải danh sách tài sản'); return { data: [], success: false, total: 0 }; }
+          }}
+          pagination={{ defaultPageSize: 12, showSizeChanger: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} tài sản` }}
+          locale={{ emptyText: <Empty description={<span>Không tìm thấy tài sản phù hợp — thử bỏ bớt điều kiện lọc hoặc <Typography.Link onClick={() => setCreateModalOpen(true)}>Tạo tài sản mới</Typography.Link></span>} /> }}
+          scroll={{ x: 'max-content' }}
+        />
+      )}
       <CreateAssetFlowModal open={createModalOpen} onClose={() => setCreateModalOpen(false)}
         onSuccess={() => { setCreateModalOpen(false); actionRef.current?.reload(); }} />
       <AssetArchiveModal open={archiveOpen} asset={archiveAsset}
