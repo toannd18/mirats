@@ -4307,3 +4307,41 @@ và **Edge 155.0.4283.62** đang cài, qua CDP `Page.printToPDF` (`preferCSSPage
 
 ### 3. Gates
 - `precommit-gates.ps1`: **PASS 6/6**. Test loader/format: **8/8 PASS**.
+
+## 2026-10-20 — LL-6 trình bày bản in (v2): mã giữ '-', actor backfill, 2 cột, chữ ký
+
+> Commit **`96e0f8d`**. Chỉnh trình bày theo duyệt; in lại 2 PDF mẫu trên DB tạm.
+
+### Sửa
+1. **Mã tài sản in NGUYÊN VĂN** — không có code biến đổi ký tự; nguyên nhân PDF cũ có `U+2212` là in
+   **trước khi font tải xong** (fallback font → ToUnicode khác). Nay trang chờ `document.fonts.ready`
+   (`printWhenReady`, dòng ~118-125) ⇒ **cả 2 PDF v2 không còn U+2212**, mã là `LL6C-122923` / `LL6D-122923`
+   (ASCII `-`). Fixture kiểm `tag chars = ASCII-ONLY`.
+2. **Người thực hiện:** `actorLabel()` — `actorName` rỗng + `isEstimated` ⇒ **"Chuyển dữ liệu tự động"**;
+   còn lại `—`. Fixture backfill (SQL, ngoại lệ trên DB tạm) để `LoggedByName = NULL` đúng dữ liệu thật.
+3. **Khối thông tin 2 cột**, `.asset-info-value.nowrap` cho ngày/giờ; nới `.col-actor` 16%→**20%** +
+   `th { white-space: nowrap }` cho tiêu đề "Người thực hiện". DOM check: `gridColumns=2`,
+   `dateWhiteSpace=nowrap`, `actorHeaderRects=1`.
+4. **Tiêu đề phụ** đổi sang flex + gap (đảm bảo khoảng trắng trước "Bộ lọc"); ô trống thống nhất `—`.
+5. **Khối chữ ký cuối bản in:** dòng "……, ngày …… tháng …… năm ………" căn phải; 2 cột **Người lập** /
+   **Phụ trách đơn vị**, mỗi cột có chỗ ký + dòng "Họ và tên"; `break-inside: avoid` (không tách).
+
+### Bằng chứng (Chrome 155, DB tạm container riêng, API 5518, Vite 5184)
+| Tiêu chí | PDF lớn (216 sự kiện) | PDF dấu hiệu ("Sự kiện chính") |
+|---|---|---|
+| Số trang / khổ | **7** / A4 209,9×297,0mm | **1** / A4 |
+| `<thead>` lặp | **7/7** | **1/1** |
+| Số trang | `1/7 … 7/7` | `1/1` |
+| Dòng in ra | **216** (215 cập nhật + 1 tạo) | **3** |
+| Dòng bị cắt đôi | **0** | — |
+| `U+2212` trong PDF | **KHÔNG** | **KHÔNG** |
+| `≈` + chú thích | — | **CÓ** |
+| `[Đã đính chính]` | — | **CÓ** |
+| "Chuyển dữ liệu tự động" | — | **CÓ** |
+| Khối chữ ký | trang **7** (trang cuối) | **CÓ** |
+
+File mới (gitignored): `screenshots/ll6-print-sample.pdf` (390.912 bytes),
+`screenshots/ll6-print-sample2.pdf` (83.244 bytes).
+
+### Gates
+- `precommit-gates.ps1`: **PASS 6/6**. Test loader/format: **8/8 PASS** (không đổi).
