@@ -4,6 +4,7 @@ using aspire_react.Server.Infrastructure.Authentication;
 using aspire_react.Server.Infrastructure.Authorization;
 using aspire_react.Server.Infrastructure.Caching;
 using aspire_react.Server.Infrastructure.Persistence;
+using aspire_react.Server.Web;
 using aspire_react.Server.Web.ExceptionHandlers;
 using System.Text.Json.Serialization;
 
@@ -74,6 +75,10 @@ StartupDataSeeder.Seed(app.Services);
 // (X-Forwarded-Proto) from trusted proxies only — auth lockout, ActionLog IP and
 // QR BaseUrl all depend on these being correct before anything else runs.
 app.UseProxyHeaders();
+
+// [READY GĐ0] Minimal security headers for every API response (including errors).
+// HSTS lives at the TLS terminator (NPM) — see docs/DEPLOYMENT.md §4.5.
+app.UseMiddleware<SecurityHeadersMiddleware>();
 
 app.UseExceptionHandler();
 app.UseCors("Frontend");

@@ -21,6 +21,27 @@ public static class AuthenticationServiceCollectionExtensions
 {
     public static IServiceCollection AddAppAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
+        // [READY GĐ0] Fail-fast at startup: an HS256 key shorter than 256 bits still "works" at
+        // runtime but makes issued tokens brute-forceable. Measure the key EXACTLY the way
+        // TokenService/JwtBearer consume it — UTF-8 bytes — and refuse to boot instead of
+        // silently weakening authentication.
+        var signingKey = configuration["Auth:SigningKey"];
+        if (string.IsNullOrWhiteSpace(signingKey))
+        {
+            throw new InvalidOperationException(
+                "Auth:SigningKey is not configured. Set a random key of at least 32 bytes (256 bits), " +
+                "e.g. `openssl rand -base64 48`.");
+        }
+
+        var signingKeyBytes = Encoding.UTF8.GetBytes(signingKey);
+        if (signingKeyBytes.Length < 32)
+        {
+            throw new InvalidOperationException(
+                $"Auth:SigningKey must be at least 32 bytes (256 bits) when UTF-8 encoded; the configured " +
+                $"value is only {signingKeyBytes.Length} bytes. Generate a new key with `openssl rand -base64 48` " +
+                "and restart the server.");
+        }
+
         services.AddAuthentication(AuthSchemes.App)
             .AddJwtBearer(AuthSchemes.App, options =>
             {
@@ -32,9 +53,7 @@ public static class AuthenticationServiceCollectionExtensions
                     ValidateAudience = true,
                     ValidAudience = configuration["Auth:Audience"] ?? "aspire-react-api",
                     ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(configuration["Auth:SigningKey"]
-                            ?? throw new InvalidOperationException("Auth:SigningKey is not configured."))),
+                    IssuerSigningKey = new SymmetricSecurityKey(signingKeyBytes),
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.FromMinutes(1)
                 };

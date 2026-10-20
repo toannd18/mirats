@@ -62,11 +62,15 @@ cp .env.example .env
 |------|---------|-------|
 | `POSTGRES_PASSWORD` | Mật khẩu DB Postgres | mật khẩu mạnh, không dùng chung nơi khác |
 | `REDIS_PASSWORD` | Mật khẩu Redis (prod bật auth) | mật khẩu mạnh |
-| `AUTH_SIGNING_KEY` | Khóa ký JWT HS256 (≥ 256 bit) | `openssl rand -base64 48` |
-| `AUTH_BOOTSTRAP_ADMIN_PASSWORD` | Mật khẩu **admin đầu tiên** (KHÔNG để `Admin123!`) | mật khẩu mạnh |
+| `AUTH_SIGNING_KEY` | Khóa ký JWT HS256 — **≥ 32 byte UTF-8** (server fail-fast nếu ngắn hơn) | `openssl rand -base64 48` |
+| `AUTH_BOOTSTRAP_ADMIN_PASSWORD` | Mật khẩu **admin đầu tiên** (KHÔNG để `Admin123!`). Khi tạo admin trên DB trắng: **≥ 12 ký tự** và **khác `INITIAL_ADMIN_USERNAME`** (server fail-fast nếu không đạt) | mật khẩu mạnh |
 | `CORS_ALLOWED_ORIGINS` | Origin được phép gọi API (CSV). Prod là domain người dùng vào | `https://app.example.com` |
 
-Các biến TÙY CHỌN đã có default hợp lý: `AUTH_ISSUER` (`aspire-react`), `AUTH_AUDIENCE` (`aspire-react-api`), `INITIAL_ADMIN_USERNAME` (`admin`), `INITIAL_ADMIN_EMAIL` (`admin@localhost`), `VITE_API_BASE_URL` (`/api/v1`), `BACKEND_PORT` (`5000`), `FRONTEND_PORT` (`80`), `ASPNETCORE_URLS`, `ASPNETCORE_ENVIRONMENT`, `POSTGRES_DB/USER/PORT`, `REDIS_PORT`, `PGADMIN_*`.
+Các biến TÙY CHỌN đã có default hợp lý: `AUTH_ISSUER` (`aspire-react`), `AUTH_AUDIENCE` (`aspire-react-api`), `INITIAL_ADMIN_USERNAME` (`admin`), `INITIAL_ADMIN_EMAIL` (`admin@localhost`), `VITE_API_BASE_URL` (`/api/v1`), `BACKEND_PORT` (`5000`), `FRONTEND_PORT` (`80`), `ASPNETCORE_URLS`, `ASPNETCORE_ENVIRONMENT`, `POSTGRES_DB/USER/PORT`, `REDIS_PORT`.
+
+> ⚠️ `PGADMIN_PASSWORD` **không còn default** (`pgadmin`): compose đọc/validate toàn bộ file trước khi lọc profile,
+> nên biến này phải có giá trị ngay cả khi **không** bật `--profile debug` — nếu thiếu, `docker compose` báo lỗi
+> interpolation. Chỉ dùng khi bật pgAdmin (§5.1).
 
 > ⚠️ **Không commit `.env`.** File này chứa secret thật và đã có trong `.gitignore`.
 
@@ -204,6 +208,17 @@ Frontend container chỉ serve **HTTP** (Nginx). Nhưng:
 **Khuyến nghị:** đặt reverse proxy (Nginx/Caddy/Traefik) hoặc LB terminate TLS trước stack, trỏ về
 `FRONTEND_PORT`, và set `CORS_ALLOWED_ORIGINS=https://<domain>`.
 
+**HSTS — đặt tại nơi kết thúc TLS, KHÔNG đặt trong app:** API và frontend Nginx trong repo chỉ chạy HTTP
+(bên trong mạng Docker), nên không đủ thông tin về scheme công khai. Cấu hình tại **Nginx Proxy Manager**
+(hoặc LB/TLS terminator):
+
+```nginx
+add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
+```
+
+Kiểm tra bằng `curl -sI https://<domain> | grep -i strict-transport-security`. Khi đổi domain hoặc tạm thời
+bỏ HTTPS, nhớ xoá HSTS trên proxy để tránh trình duyệt ép HTTPS trong thời gian dài.
+
 ---
 
 ## 5. Debug / Development
@@ -212,6 +227,7 @@ Frontend container chỉ serve **HTTP** (Nginx). Nhưng:
 
 ```bash
 docker compose --profile debug up -d pgadmin
+# BẮT BUỘC set PGADMIN_PASSWORD trong .env (không còn default "pgadmin")
 # truy cập http://localhost:5050  (login: PGADMIN_DEFAULT_EMAIL / PGADMIN_PASSWORD từ .env)
 # host DB để kết nối trong pgAdmin: tên service `postgres` (cần map cổng — xem §5.2)
 ```
@@ -276,6 +292,7 @@ Script sẽ:
 | Hạng mục | Trạng thái |
 |---|---|
 | **TLS** | Stack không tự terminate TLS — **phải** đặt reverse proxy/LB phía trước (§4.5) |
+| **Security headers** | API + frontend Nginx đã gửi `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy` / `Permissions-Policy`; **HSTS đặt tại NPM** (nơi kết thúc TLS); CSP để P1 |
 | **Backup** | Chưa có backup tự động. Cần `pg_dump` định kỳ + backup secret (`AUTH_SIGNING_KEY`, `.env`) |
 | **Rotate khóa ký** | Thủ công: đổi `AUTH_SIGNING_KEY` + `docker compose up -d server` (mọi access token cũ vô hiệu) |
 | **Rate limit tầng ngoài** | Chống brute-force trong app là per-username/per-IP process-local; nên thêm rate limit ở reverse proxy |
@@ -354,7 +371,8 @@ Script sẽ:
 > Nguồn chính thức: `.env.example` (giữ comment chi tiết). Bảng dưới là tóm tắt.
 
 **BẮT BUỘC (compose fail nếu thiếu):** `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `AUTH_SIGNING_KEY`,
-`AUTH_BOOTSTRAP_ADMIN_PASSWORD`, `CORS_ALLOWED_ORIGINS`.
+`AUTH_BOOTSTRAP_ADMIN_PASSWORD`, `CORS_ALLOWED_ORIGINS`, `PGADMIN_PASSWORD` (validate ở bước đọc file — xem
+ghi chú §3 Bước 2).
 
 **TÙY CHỌN (có default):**
 
@@ -366,7 +384,7 @@ Script sẽ:
 | Server | `ASPNETCORE_URLS`, `ASPNETCORE_ENVIRONMENT` | `http://+:5000`, `Production` |
 | Frontend | `VITE_API_BASE_URL` | `/api/v1` |
 | Ports | `BACKEND_PORT`, `FRONTEND_PORT` | `5000`, `80` |
-| pgAdmin (debug) | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_PASSWORD`, `PGADMIN_PORT` | `pgadmin@example.com`, `pgadmin`, `5050` |
+| pgAdmin (debug) | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_PASSWORD`, `PGADMIN_PORT` | `pgadmin@example.com`, **(bắt buộc — không default)**, `5050` |
 | NPM (chỉ `docker-compose.npm.yml`) | `NPM_NETWORK_NAME`, `PROXY_KNOWN_NETWORKS`, `PROXY_FORWARD_LIMIT`, `WEBAUTHN_RPID`, `WEBAUTHN_ORIGINS` | (không default — bắt buộc, trừ `PROXY_FORWARD_LIMIT=2`) |
 
 > Ghi chú security: `CORS_ALLOWED_ORIGINS` được backend đọc khi khởi động (Program.cs) — đổi xong nhớ
@@ -386,6 +404,9 @@ Script sẽ:
   cũng dùng TCP `/dev/tcp/5000` (không dùng HTTP `/health` — image không có wget + `/health` không tồn tại ở Production).
 - **Logs:** `docker compose logs -f` (mọi service). OpenTelemetry/traces chỉ hoạt động khi chạy dưới Aspire
   AppHost (dev) — compose prod không có Aspire Dashboard; logs lấy từ stdout container.
+- **Security headers:** API (`SecurityHeadersMiddleware`) và frontend Nginx gửi `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` tối thiểu.
+  **HSTS cấu hình tại NPM** (§4.5) — KHÔNG đặt trong app/frontend (chỉ chạy HTTP nội bộ). CSP: P1.
 - **Backup (khuyến nghị):** Postgres — `pg_dump` định kỳ; secret — backup `.env` (đặc biệt `AUTH_SIGNING_KEY`).
   Xem §7.
 

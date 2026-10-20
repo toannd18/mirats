@@ -118,7 +118,8 @@ services:
     env_file: [.env]
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-pgadmin@example.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-pgadmin}
+      # [READY GĐ0] No default password — the debug profile must never come up with "pgadmin".
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?PGADMIN_PASSWORD is required — set it in .env (debug profile)}
       PGADMIN_CONFIG_SERVER_MODE: "False"
     ports:
       - "${PGADMIN_PORT:-5050}:80"

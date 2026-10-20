@@ -98,69 +98,18 @@ public static class StartupDataSeeder
         // Chỉ THÊM membership, idempotent → không bao giờ thu hẹp quyền hiện có (xem PermissionMigration). ===
         try { PermissionMigration.AssignLegacySuperUsersToSuperuserGroupAsync(db).GetAwaiter().GetResult(); } catch { }
 
-        // [FIX-DEPLOY 2026-10-02] Bootstrap admin USER + local password.
-        // Local auth replaced Keycloak (AUTH Phase 5 removed the Keycloak seed path and JIT
-        // provisioning), so on a FRESH database nothing else creates the first administrator —
-        // without this the deployment comes up but nobody can log in. Behaviour:
-        //   1. If no user with INITIAL_ADMIN_USERNAME (default "admin") exists AND the configured
-        //      email is free AND Auth:BootstrapAdminPassword is set → create the superuser with
-        //      MustChangePassword = true: the value in .env is a ONE-TIME bootstrap secret, so the
-        //      first login is forced through the change-password gate (that session can only reach
-        //      /users/me + /auth/password until the password is changed).
-        //   2. Otherwise, if that admin exists without a local PasswordHash → seed the hash ONLY.
-        //      No other field is touched (in particular MustChangePassword is left as it was): an
-        //      admin that already exists must not be affected by a redeploy.
-        // Idempotent: an existing user/hash is NEVER overwritten here.
+        // [READY GĐ0] Bootstrap policy lives in BootstrapAdminSeeder: on a blank DB the one-time
+        // password must be >= 12 characters and different from the username, otherwise startup
+        // aborts. Existing admins are never re-validated or overwritten.
         try
         {
             var config = services.GetRequiredService<IConfiguration>();
             var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("StartupDataSeeder");
-            var bootstrapPassword = config["Auth:BootstrapAdminPassword"];
-            if (!string.IsNullOrEmpty(bootstrapPassword))
-            {
-                var adminUsername = config["INITIAL_ADMIN_USERNAME"];
-                if (string.IsNullOrWhiteSpace(adminUsername)) adminUsername = "admin";
-                var adminEmail = config["INITIAL_ADMIN_EMAIL"];
-                if (string.IsNullOrWhiteSpace(adminEmail)) adminEmail = "admin@localhost";
-
-                var admin = db.Users.FirstOrDefault(u => u.Username.ToLower() == adminUsername.ToLower());
-                if (admin == null)
-                {
-                    if (db.Users.Any(u => u.Email == adminEmail))
-                    {
-                        logger.LogWarning(
-                            "Bootstrap admin not created: email '{Email}' is already used by another user. " +
-                            "Set INITIAL_ADMIN_EMAIL to a free address.", adminEmail);
-                    }
-                    else
-                    {
-                        db.Users.Add(new User
-                        {
-                            Username = adminUsername,
-                            Email = adminEmail,
-                            FirstName = "System",
-                            LastName = "Admin",
-                            PasswordHash = new Authentication.PasswordHasherService().Hash(bootstrapPassword),
-                            // One-time .env secret → force a password change at first login.
-                            MustChangePassword = true,
-                            IsSuperUser = true,
-                            IsActive = true
-                        });
-                        db.SaveChanges();
-                        logger.LogInformation(
-                            "Bootstrap admin '{Username}' created (local auth, must change password at first login).",
-                            adminUsername);
-                    }
-                }
-                else if (string.IsNullOrEmpty(admin.PasswordHash))
-                {
-                    // Existing row without a local password: seed the hash only and leave every other
-                    // field (including MustChangePassword) exactly as it was.
-                    admin.PasswordHash = new Authentication.PasswordHasherService().Hash(bootstrapPassword);
-                    db.SaveChanges();
-                    logger.LogInformation("Bootstrap password seeded for existing admin '{Username}'.", adminUsername);
-                }
-            }
+            BootstrapAdminSeeder.Ensure(db, config, logger);
+        }
+        catch (BootstrapAdminConfigurationException)
+        {
+            throw;
         }
         catch { }
     }

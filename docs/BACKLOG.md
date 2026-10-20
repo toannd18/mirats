@@ -1127,3 +1127,41 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
   `Correct` có `LogMeta.changes` (old/new) + lý do — tab **Lịch sử** đã thấy dấu vết bản cũ ngay bây giờ.
 - **Tiêu chí nghiệm thu (dự kiến):** bật `includeSuperseded` thì bản cũ hiện mờ kèm nhãn, KHÔNG mất/lặp sự kiện khi đi qua
   các trang; mặc định (không tham số) giữ nguyên hành vi ẩn; có test + ảnh UI 1440/390.
+
+---
+
+## READY — Việc còn lại sau GĐ0 (2026-10-20)
+
+> Bối cảnh: khảo sát READY Bước 1 (chỉ đọc) kết luận chưa đủ điều kiện vận hành an toàn. GĐ0 đã làm:
+> fail-fast `Auth:SigningKey` < 32 byte UTF-8; bootstrap admin ≥ 12 ký tự + khác username (chỉ khi tạo trên DB trắng);
+> `PGADMIN_PASSWORD` bắt buộc; security headers ở API + frontend Nginx (HSTS tại NPM, CSP để P1).
+
+### P0 — còn lại, phải xong trước khi dùng thật
+
+| # | Việc | Tiêu chí nghiệm thu |
+|---|---|---|
+| P0-1 | **Backup DB tự động + diễn tập restore** (`pg_dump -Fc` hằng ngày, mã hoá, retention 30 ngày, offsite) | Có ≥ 1 bản backup/24h; `pg_restore --list` mở được; restore vào DB trắng thành công, số dòng bảng chính khớp, đăng nhập được; runbook trong `docs/` |
+| P0-2 | **Backup trước migrate + runbook nâng cấp/rollback** (snapshot trước `Database.Migrate()`, image tag cũ để rollback) | Diễn tập nâng cấp trên bản sao: backup → migrate → health OK → rollback bằng snapshot thành công |
+| P0-3 | **Readiness health thật** (map DB/Redis ở Production, trả 503 khi dependency chết; compose healthcheck gọi HTTP thay TCP) | Dừng Postgres → health 503 + container unhealthy trong ≤ 30s; bật lại → healthy |
+| P0-4 | **Log rotation/retention** (`logging.options.max-size`/`max-file` cho mọi service) | Log không tăng vô hạn khi bơm tải; ghi rõ vị trí log trong DEPLOYMENT |
+| P0-5 | **TLS/HSTS tại NPM** (HSTS `max-age=15552000; includeSubDomains`, HTTP→HTTPS, đóng port backend) | `curl -sI https://<domain>` có HSTS; `http://<IP>:5000` không truy cập được |
+
+### P1 — tuần 1–2 sau go-live
+
+| # | Việc | Ghi chú |
+|---|---|---|
+| P1-1 | **Giám sát: Zabbix (health, tỉ lệ 5xx, dung lượng đĩa) + Wazuh (thu thập/phân tích log)** | Thay phương án Loki/ELK; alert ra email/Telegram; OTel exporter trỏ collector nếu dùng |
+| P1-2 | Rate limit tại NPM cho `/api/v1/auth/*`; chuyển IP limiter sang Redis nếu chạy > 1 instance | App đã có lockout per-username + burst per-IP (process-local) |
+| P1-3 | **CSP đầy đủ** (nonce/hash cho inline style antd) | Rủi ro vỡ style antd — phải test UI thật trước khi bật |
+| P1-4 | Password policy ≥ 12 + complexity/breach check; cân nhắc MFA bắt buộc cho admin | Hiện policy chỉ ≥ 8 ký tự |
+| P1-5 | Container non-root; quét image (Trivy) trong CI; pin digest | Server Dockerfile hiện chạy root |
+| P1-6 | Security headers verify trên proxy (không trùng lặp), session/token cleanup job | API + Nginx đã gửi bộ header tối thiểu |
+
+### P2 — sau khi ổn định
+
+| # | Việc | Ghi chú |
+|---|---|---|
+| P2-1 | Secret manager (Vault/Doppler/SM) + rotate `AUTH_SIGNING_KEY` có kế hoạch | Hiện secret nằm trong `.env` trên server |
+| P2-2 | PITR (WAL archiving) + backup immutable/offsite; diễn tập restore định kỳ | Bổ sung cho P0-1 |
+| P2-3 | Chuẩn bị scale ngang: migration lock, lockout phân tán, session store, zero-downtime deploy | Hiện single-instance |
+| P2-4 | Lưu trữ/xuất ActionLog cho audit, tích hợp SIEM (Wazuh) | Phục vụ điều tra sự cố |
