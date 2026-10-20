@@ -4433,3 +4433,45 @@ healthcheck HTTP; log rotation/retention; TLS/HSTS tại NPM + đóng port backe
 
 ### Còn lại (P0)
 Backup DB tự động + diễn tập restore; backup trước migrate + runbook nâng cấp/rollback; TLS/HSTS tại NPM + đóng port backend.
+
+---
+
+## 2026-10-20 — READY GĐ1: backup mã hoá + diễn tập restore + deploy script (commit `383d02e`)
+
+### Thay đổi
+1. **Test tự động `/api/v1/health/ready`** (`ReadinessCheckerTests`, 5 test): tách logic ra
+   `ReadinessChecker`/`IReadinessProbe` (Postgres/Redis), response record `ReadinessResponse` chỉ có
+   `status` + `checks`, map 200/503. Test: đủ → 200; Postgres down → 503; Redis down → 503; probe throw → 503;
+   serialized body **không** chứa `Host=`, `Password`, `Npgsql`, `StackExchange`, `statusCode`.
+2. **Service `backup`** (`deploy/backup/Dockerfile` + `backup.sh`):
+   - Base **chính thức `postgres:18`** (PostgreSQL License) + `age` (BSD-3), `rsync` (GPL-3), `openssh-client` (BSD);
+     không dùng image bên thứ ba.
+   - `pg_dump -Fc` hằng ngày (mặc định **01:00 Asia/Ho_Chi_Minh**, cấu hình giờ/phút), tên file có timestamp,
+     mã hoá **age PUBLIC key** (`BACKUP_AGE_RECIPIENT` bắt buộc; private key không nằm trên server), xoá plaintext,
+     `.sha256` cho file `.age`, retention 30 ngày (cấu hình), remote copy `BACKUP_REMOTE` mặc định **TẮT**.
+   - `last_success` (ISO timestamp) chỉ cập nhật khi dump + mã hoá + checksum (+ remote copy) thành công.
+   - Bind mount `${BACKUP_HOST_DIR:-./backup-data}` để Zabbix đọc file; log rotation 10m×5.
+3. **`scripts/deploy.sh`**: backup (`backup --once`) → `build --pull` → `up -d` → chờ
+   `/api/v1/health/ready` = 200 (timeout 180s) → fail thì in hướng dẫn rollback (restore + commit cũ).
+   Backup fail ⇒ **dừng trước build/up**.
+4. **`docs/RUNBOOK_BACKUP_RESTORE.md`**: backup thủ công, checksum, giải mã age, restore DB trắng, verify counts/login,
+   rollback nâng cấp, Zabbix freshness 26h, retention/remote; kèm kết quả diễn tập.
+5. **Compose**: thêm service `backup`; `.env.example` thêm `BACKUP_*`; `.gitignore` chặn `backup-data/`, `backup-key*.txt`;
+   DEPLOYMENT cập nhật required env + §7/§10 + Zabbix backup freshness.
+
+### Bằng chứng diễn tập thật (compose project tạm `ready-gd1`, API 5523)
+- Dữ liệu qua API: **3 assets, 1 user, 15 action_logs, 1 asset_installations**.
+- Backup: **1,2s**, `aspire-react-db-20261020-134527.dump.age` (**157.969 bytes**) + `.sha256`;
+  `sha256sum -c` → **OK**; `last_success = 2026-10-20T13:45:27+07:00`.
+- **Ca lỗi (dừng Postgres)**: backup exit **1** (`pg_dump ... could not translate host name "postgres"`),
+  `last_success` **không đổi** (content + mtime).
+- **Xoá volume DB** → DB trắng (`information_schema.tables = 0`) → decrypt + `pg_restore`:
+  **0,74s**, exit 0; counts sau restore `3|1|15|1` — **khớp**; login **OK**; `GET /assets` = 3;
+  `/api/v1/health/ready` = 200 sau **4,4s**.
+- Dừng Postgres sau refactor: `/ready` **503 sau 5,6s**; bật lại → **200**.
+- `scripts/deploy.sh` + `backup.sh`: `bash -n` **OK**.
+- **Gates**: `precommit-gates.ps1` **PASS 6/6**; test **721 passed / 37 skipped** (+5 readiness).
+- Stack tạm/volume/image/backup dir đã dọn sạch; private key chỉ nằm ở thư mục admin tạm (không mount vào DB/API), đã xoá.
+
+### Còn lại (P0)
+TLS/HSTS tại NPM + đóng port backend; **diễn tập nâng cấp/rollback thật** (deploy.sh + runbook đã có, chưa chạy upgrade drill).
