@@ -4012,3 +4012,62 @@ snapshot lên **TRƯỚC** đoạn gán; old nay là giá trị cũ thật. Khô
 - Nhóm ThrowawayDb trên **DB TRẮNG** (container mới `auditlog11-pg`, cổng 55451, **không** khởi động API
   trước): **720/720 PASS** (`logs/trx/gd23-throwaway.trx`) — xác nhận lại cơ chế migration-một-lần của GĐ1.
 - DB tạm container riêng, fixture tạo/dọn **qua API**; đã xoá container sau khi xong.
+
+## 2026-10-20 — Sửa 500 FK khi Guid rỗng (archive/checkin/checkout) + Sweep 6 (mojibake) → đóng AUDIT-LOG B2–B7
+
+> **AUDIT-LOG đã đóng (B2–B7 xong; B8 để sau theo yêu cầu).** Commit: **`5610361`**.
+> Nhóm việc này xuất phát từ lỗi gặp khi dựng fixture ở GĐ2: `POST /assets/{id}/archive` body `{}` ⇒ **500**.
+
+### 1. Lỗi gốc và cách sửa
+- **Nguyên nhân:** DTO `ArchiveUnarchiveRequestDto` dùng `Guid` **không nullable** ⇒ body thiếu field bind
+  thành `Guid.Empty`; handler gán thẳng vào FK `assets.LocationId` ⇒ Postgres **23503** ⇒ HTTP **500**.
+- **Sửa (3 nhóm, mỗi nhóm có test):**
+
+  | Nhóm | Endpoint | Validator | Handler |
+  |---|---|---|---|
+  | A. Archive | `POST /assets/{id}/archive` | `LocationId` NotEmpty → `LOCATION_REQUIRED` | vị trí không tồn tại → `RESOURCE_NOT_FOUND` |
+  | B. Checkin | `POST /assets/{id}/checkin` | `LocationId` NotEmpty → `LOCATION_REQUIRED` | vị trí không tồn tại → `RESOURCE_NOT_FOUND` |
+  | C. Checkout → SystemPosition | `POST /assets/{id}/checkout` | `LocationId` phải có & `!= Guid.Empty` → `LOCATION_REQUIRED`; vị trí lạ → `RESOURCE_NOT_FOUND` | — |
+
+- **Bẫy (ghi lại):** FluentValidation `NotEmpty()` trên `Guid?` **chỉ chặn null** — `default(Guid?)` là `null`
+  nên `Guid.Empty` **lọt**; phải `Must(v => v.HasValue && v.Value != Guid.Empty)`.
+- Test: `aspire-react.Tests/GuidFkValidationTests.cs` — **13 test**, trong đó **5 chạy Postgres THẬT**
+  (`[ThrowawayDbFact]`) vì **InMemory không thực thi FK** (test InMemory thuần sẽ "xanh giả" trong khi
+  production vẫn 500). Test còn khẳng định sau khi bị từ chối, asset **không đổi trạng thái**.
+
+### 2. Bảng rà required-Guid FK (52 ứng viên)
+- **49 chỗ an toàn:** là id của entity cha được **load + trả NOT_FOUND/`ASSET_NOT_FOUND`/`NOT_FOUND`**
+  (asset, component, component unit, license, consumable, accessory checkout, template/version/item,
+  campaign/snapshot, user…) hoặc đã có guard `Guid.Empty` sẵn (`CreateCampaign`, `MaintenanceTemplate`,
+  `CampaignResult`, `Import*` → `COMPANY_REQUIRED`).
+- **3 chỗ ghi thẳng vào cột FK (đã sửa):** `Archive.LocationId`, `Checkin.LocationId`,
+  `Checkout.LocationId` (nhánh TargetType=SystemPosition).
+- **CÒN MỞ (ngoài phạm vi "bắt buộc"):** field `Guid?` **không bắt buộc** (VD `UpdateAssetCommand.ModelId/
+  LocationId/SupplierId/CompanyId`, `UpdateComponentCommand.*Id`, `UpdateConsumableCommand.*Id`,
+  `UpdateLicenseCommand.SupplierId/ManufacturerId`, `UpdateLocationCommand.*Id`, `UpdateDepartmentCommand.*Id`,
+  `UpdateSystemInfoCommand.CompanyId`, `UpdateMaintenanceCommand.SupplierId`) vẫn nhận `Guid.Empty` tường minh
+  ⇒ FK 500; ngoài ra id **lạ** ở các handler Update chưa được kiểm ⇒ cũng FK 500. Hướng xử lý cần quyết định
+  sản phẩm (`Guid.Empty` = "clear" hay 400) — ghi ở `docs/BACKLOG.md` mục FIX-GUID-EMPTY.
+
+### 3. audit-sweeps **Sweep 6 — Mojibake**
+- Quét **mọi file text do git theo dõi** (748 file): phát hiện chuỗi UTF-8 double-encode (lead
+  U+00C3/U+00C4/U+00E1/U+00E2 + trail U+00BA/BB/B0/A1..A3/20AC/2020/2018..1D/2013..14). Chữ Việt hợp lệ
+  **không** khớp (chữ "Ã" trong "ĐÃ" không đi kèm các ký tự trail đó).
+- **Loại trừ tường minh (3 file cố ý TRÍCH DẪN ví dụ mojibake):** `AGENTS.md`,
+  `.claude/skills/mirats-docs/SKILL.md`, `docs/HANDOFF_LATEST.md`.
+- **Probe âm:** thêm 1 dòng mojibake vào file tạm đã `git add` ⇒ S6 báo đúng `file:line`; gỡ ⇒ 0.
+- Chính lần chạy đầu đã bắt được **1 lỗi thật do tôi vừa viết** (một dòng trong `DEVELOPMENT_WORKFLOW.md`
+  trích nguyên chuỗi mojibake) ⇒ đã sửa lại mô tả, không nới exclusion list.
+
+### 4. Bằng chứng (DB tạm container riêng, API `127.0.0.1:5508`, không dùng cổng dev)
+| # | Request | Trước | Sau |
+|---|---|---|---|
+| E1 | `POST /assets/{id}/archive` body `{}` | **500** (FK 23503) | **400** `{"error_code":"LOCATION_REQUIRED"}` |
+| E2 | archive + `locationId` ngẫu nhiên | **500** (FK 23503) | **400** `{"error_code":"RESOURCE_NOT_FOUND"}` |
+| E3 | `POST /assets/{id}/checkin` body `{}` | **500** (FK 23503) | **400** `{"error_code":"LOCATION_REQUIRED"}` |
+| E4 | archive + `locationId` thật | 200 | 200; DB `Status=Archived`, `LocationId` đúng, đúng **1** dòng log Archive |
+
+### 5. Gates & test
+- `scripts/precommit-gates.ps1`: **PASS 6/6** (gồm Sweep 5 + Sweep 6 mới).
+- ThrowawayDb group trên Postgres thật: **733/733 PASS** (`logs/trx/guidfix-throwaway2.trx`).
+- Container tạm `guidfix-pg`/`guidfix-redis` đã xoá; fixture tạo/dọn qua API.
