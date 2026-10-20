@@ -4390,3 +4390,46 @@ File mới (gitignored): `screenshots/ll6-print-sample.pdf` (390.912 bytes),
 ### Còn lại (P0, chưa làm — theo backlog)
 Backup tự động + diễn tập restore; backup trước migrate + runbook nâng cấp/rollback; readiness health DB/Redis + compose
 healthcheck HTTP; log rotation/retention; TLS/HSTS tại NPM + đóng port backend.
+
+---
+
+## 2026-10-20 — READY GĐ2: pgAdmin overlay, readiness /health/ready, log rotation, Zabbix (commit `0846c2f`)
+
+> Phần không phụ thuộc môi trường của GĐ2. Stack tạm: project `ready-gd2`, cổng API 5522, frontend 5187; đã dọn
+> container/volume/image tạm.
+
+### Thay đổi
+1. **Tách pgAdmin** khỏi `docker-compose.yml` → `docker-compose.debug.yml` (overlay opt-in, `PGADMIN_PASSWORD:?required`).
+   Production không cần biến này. `.env.example` + DEPLOYMENT §2/§3.2/§5.1/§9 cập nhật.
+2. **Health**:
+   - Giữ nguyên `GET /api/v1/health` (liveness, static, không chạm DB/Redis). Nơi gọi: `frontend/nginx.conf`
+     `location = /health` (proxy sang `/api/v1/health`), `docs/DEPLOYMENT.md`, `docs/API.md`; AppHost dùng
+     `/health` của ServiceDefaults (dev) — không phải endpoint này.
+   - Thêm `GET /api/v1/health/ready` (anonymous): `CanConnectAsync` Postgres (timeout 5–6s) + `PING` Redis
+     (timeout 3–4s). 200 khi cả hai OK, 503 khi thiếu. Body chỉ có `status` + `checks.{postgres,redis}`, không lộ
+     connection string/exception.
+   - Compose healthcheck server + Dockerfile: HTTP `GET /api/v1/health/ready` (bash `/dev/tcp` + `printf` + `grep`,
+     vì image không có wget/curl), interval 10s / timeout 5s / **retries 2** / start_period 30s.
+3. **Redis env fix** (phát hiện khi verify): thêm `REDIS_PASSWORD` vào `environment` của service redis — healthcheck
+   dùng `$$REDIS_PASSWORD` trong container, chỉ `env_file` không đảm bảo có giá trị interpolated.
+4. **Log rotation**: YAML anchor `x-logging` (`json-file`, `max-size=10m`, `max-file=5`) áp cho postgres/redis/server/
+   frontend; debug overlay áp cho pgadmin.
+5. **Docs**: DEPLOYMENT §10 (liveness/readiness, log path + lệnh xem), **§10.1 Zabbix** (HTTP agent `/ready`, trigger
+   `<>200` 2 phút); §8.2 cập nhật healthcheck; §11.2 verify cả `/health/ready`; `docs/API.md` thêm route; BACKLOG
+   đánh dấu P0-3/P0-4 xong, P1-1 Zabbix + Wazuh.
+
+### Bằng chứng
+- **Compose config**: base (không `PGADMIN_PASSWORD`) → **exit 0**; `-f docker-compose.debug.yml` thiếu biến →
+  **exit 1** (`required variable PGADMIN_PASSWORD is missing a value`); có biến → **exit 0**.
+- **`/ready` 200**: `{"status":"healthy","checks":{"postgres":"healthy","redis":"healthy"}}`.
+- **Dừng Postgres**: `/ready` → **503 sau 5,2s** (`postgres:"unhealthy"`); server **unhealthy sau 20,8s** (compose);
+  bật lại → `/ready` 200, server healthy sau 9,3s.
+- **Dừng Redis**: `/ready` → **503 sau 4,1s** (`redis:"unhealthy"`); server unhealthy sau 20,8s; bật lại → 200 +
+  healthy sau 9,2s.
+- **Log rotation** (`docker inspect .HostConfig.LogConfig`): cả 4 service đều
+  `{"Type":"json-file","Config":{"max-file":"5","max-size":"10m"}}`.
+- **Frontend built image** (cổng 5187): đủ 4 security header, không HSTS (xác nhận lại sau khi build image thật).
+- **Gates**: `precommit-gates.ps1` **PASS 6/6**; test **716 passed / 37 skipped** (không đổi số test).
+
+### Còn lại (P0)
+Backup DB tự động + diễn tập restore; backup trước migrate + runbook nâng cấp/rollback; TLS/HSTS tại NPM + đóng port backend.
