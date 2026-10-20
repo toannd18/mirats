@@ -112,6 +112,18 @@ export default function AssetTimelinePrintPage() {
     }
   }, [assetId, types]);
 
+  // [LL-6] In khi dữ liệu + layout + FONT đã sẵn sàng. `document.fonts.ready` đảm bảo font (Segoe UI /
+  // ký tự Việt) tải xong TRƯỚC khi trình duyệt phân trang — in sớm có thể bị fallback font ⇒ sai số trang
+  // và ngắt dòng. Dùng chung cho auto-print và nút "In lại".
+  const printWhenReady = useCallback(async () => {
+    try {
+      await document.fonts?.ready;
+    } catch {
+      // Font Loading API không khả dụng → vẫn in (không chặn tính năng).
+    }
+    window.print();
+  }, []);
+
   useEffect(() => {
     void load();
   }, [load, reloadKey]);
@@ -120,9 +132,11 @@ export default function AssetTimelinePrintPage() {
   useEffect(() => {
     if (state.kind !== 'ready' || autoPrintedRef.current) return undefined;
     autoPrintedRef.current = true;
-    const timer = window.setTimeout(() => window.print(), 500);
+    const timer = window.setTimeout(() => {
+      void printWhenReady();
+    }, 500);
     return () => window.clearTimeout(timer);
-  }, [state.kind]);
+  }, [state.kind, printWhenReady]);
 
   if (state.kind === 'loading') {
     return (
@@ -196,7 +210,7 @@ export default function AssetTimelinePrintPage() {
     <div className="asset-print-page">
       <div className="print-toolbar">
         <Link to={`/assets/${assetId}`}>Quay lại thiết bị</Link>
-        <Button type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>
+        <Button type="primary" icon={<PrinterOutlined />} onClick={() => void printWhenReady()}>
           In lại
         </Button>
       </div>

@@ -58,8 +58,13 @@ Quyền: `assets.view`. Thiết bị ngoài phạm vi công ty / không tồn t�
 - Không cắt đôi một dòng: `tr { break-inside: avoid; page-break-inside: avoid }`.
   Lưu ý: nếu một dòng **cao hơn 1 trang** thì trình duyệt buộc phải cắt — thiết kế dữ liệu in nên giữ
   `details` ngắn.
+- **Chờ FONT trước khi in:** `printWhenReady()` trong `AssetTimelinePrintPage.tsx` (dòng ~118-125) `await
+  document.fonts.ready` rồi mới gọi `window.print()`; auto-print (dòng ~136) và nút "In lại" (dòng ~213)
+  dùng CÙNG hàm. In trước khi font tải xong ⇒ trình duyệt có thể dùng fallback font ⇒ sai số trang/ngắt dòng.
 
-## 5. Kiểm chứng thật (GĐ3, 2026-10-20)
+## 5. Kiểm chứng thật (GĐ3 + bổ sung 2026-10-20)
+
+### 5.1. Bộ dữ liệu lớn (217 sự kiện)
 
 **Môi trường:** DB tạm (container Postgres riêng) + API `127.0.0.1:5514` + Vite **5180**; fixture tạo qua API:
 1 thiết bị + **215 lần cập nhật** + 1 lần tạo + 1 lần cấp phát tới vị trí hệ thống = **217 sự kiện**.
@@ -74,15 +79,39 @@ Quyền: `assets.view`. Thiết bị ngoài phạm vi công ty / không tồn t�
 | Tổng số dòng in ra | **217** (215 cập nhật + 1 tạo + 1 cấp phát) | **217** |
 | Dòng bị cắt đôi | **0** (mọi cặp "old → new" nằm trọn 1 trang; không có mảnh `→` lẻ) | **0** |
 | Thứ tự | dòng đầu = sự kiện **cũ nhất** ("Tạo mới") | giống |
-| Dấu `≈` | không có trong lần đo (DB tạm **không có** dòng backfill) — logic được test riêng | giống |
 
-**Ghi chú về `≈` / `[Đã đính chính]`:** `isEstimated` chỉ đúng với dòng lý lịch `Source = Backfill`, được
-tạo bởi lần chuyển dữ liệu lịch sử (LL-1); **không có API tạo dòng backfill**, nên DB mới không thể sinh
-dữ liệu này. Logic hiển thị được kiểm bằng unit test `formatEventTime` (`≈` chỉ thêm khi `isEstimated`);
-`[Đã đính chính]` render khi `isCorrection` (dòng đính chính do `POST /assets/{id}/installations/{entryId}/correct`).
+### 5.2. PDF mẫu thứ hai — đủ dấu hiệu `≈` và `[Đã đính chính]`
 
-**Ảnh/PDF mẫu** (thư mục `screenshots/`, gitignored): `ll6-print-button-1440.png`,
-`ll6-print-page-1440.png` (full-page 1440), `ll6-print-sample.pdf` (Chrome, 7 trang).
+**Môi trường:** DB tạm MỚI (container riêng) + API `127.0.0.1:5516` + Vite **5182**; in ở chế độ
+**"Sự kiện chính"** (`types=INSTALL,REMOVE,MAINTENANCE,MAINTENANCE_CAMPAIGN`).
+
+Fixture:
+1. Cấp phát thiết bị tới một **vị trí hệ thống** (tạo dòng lý lịch đang mở, `Source = Api`).
+2. **Đính chính THẬT qua API** `POST /assets/{id}/installations/{entryId}/correct` (đổi `note`, `reason` ≥ 10 ký tự)
+   ⇒ dòng mới `Source = Correction`, `CorrectsEntryId != null` ⇒ timeline trả `isCorrection = true`.
+3. **Một dòng backfill:** ⚠️ **NGOẠI LỆ FIXTURE** — dòng `Source = Backfill` được **INSERT thẳng bằng SQL**
+   trên **DB TẠM** (hệ thống không có API tạo backfill; dữ liệu thật chỉ sinh từ lần chuyển dữ liệu LL-1).
+   Dùng khoảng **đã đóng trong quá khứ** (`2026-01-01 08:00→09:00Z`) để không vi phạm exclusion constraint.
+
+Kết quả timeline "Sự kiện chính": **3 sự kiện** (INSTALL backfill `isEstimated=true`, REMOVE kết thúc backfill,
+INSTALL đính chính `isCorrection=true`).
+
+| Tiêu chí (phân tích text PDF) | Kết quả |
+|---|---|
+| Số trang / khổ | **1** / **A4** (209,9 × 297,0 mm) |
+| Dấu `≈` trên dòng thời điểm | **CÓ** (`≈ 01/01/2026 15:00 …`) |
+| Chú thích cuối bảng | **CÓ** ("≈ Thời điểm ước tính — được suy ra khi chuyển dữ liệu cũ sang lý lịch (backfill)…") |
+| `[Đã đính chính]` | **CÓ** (dòng `Lắp đặt tại: Ke LL6B… [Đã đính chính]`) |
+| `<thead>` / số trang | **1/1** / `Trang 1 / 1` |
+
+> Ghi chú: `≈` gắn với **sự kiện INSTALL của dòng backfill** (mốc bắt đầu). Sự kiện REMOVE suy ra từ
+> `EndedAt` của cùng dòng hiện không mang `≈` (hành vi sẵn có của timeline API, không thuộc phạm vi LL-6).
+
+### 5.3. Ảnh/PDF mẫu (thư mục `screenshots/`, gitignored)
+
+`ll6-print-button-1440.png` · `ll6-print-page-1440.png` (full-page 1440) · `ll6-print-sample.pdf`
+(Chrome, 217 sự kiện / 7 trang) · **`ll6-print-sample2.pdf`** (Chrome, "Sự kiện chính", có `≈` + chú thích +
+`[Đã đính chính]`).
 
 ## 6. Test tự động
 
