@@ -34,13 +34,19 @@ type PrintState =
   | { kind: 'tooLarge'; message: string }
   | { kind: 'ready'; asset: AssetDetailDto; events: AssetTimelineEvent[]; requests: number; loadedAt: string };
 
-function InfoItem({ label, value }: { label: string; value: string }) {
-  return (
+function InfoItem({ label, value, nowrap }: { label: string; value: string; nowrap?: boolean }) {  return (
     <div className="asset-info-item">
       <span className="asset-info-label">{label}:</span>
-      <span className="asset-info-value">{value || '—'}</span>
+      <span className={`asset-info-value${nowrap ? ' nowrap' : ''}`}>{value || '—'}</span>
     </div>
   );
+}
+
+/** Nhãn người thực hiện trên bản in: dòng ước tính (backfill) không có người ghi → "Chuyển dữ liệu tự động". */
+function actorLabel(event: AssetTimelineEvent): string {
+  const name = event.actorName?.trim();
+  if (name) return name;
+  return event.isEstimated ? 'Chuyển dữ liệu tự động' : '—';
 }
 
 export default function AssetTimelinePrintPage() {
@@ -203,7 +209,7 @@ export default function AssetTimelinePrintPage() {
   const { asset, events, loadedAt } = state;
   const statusLabel = ASSET_STATUS_LABELS[normalizeAssetStatus(asset.status)] ?? String(asset.status);
   const hasEstimated = events.some((event) => event.isEstimated);
-  const assignedTo = asset.assignedTo?.name ?? '-';
+  const assignedTo = asset.assignedTo?.name ?? '—';
   const modelLabel = [asset.model?.name, asset.model?.modelNumber].filter(Boolean).join(' · ');
 
   return (
@@ -218,8 +224,13 @@ export default function AssetTimelinePrintPage() {
       <header className="print-header">
         <h1>LÝ LỊCH THIẾT BỊ</h1>
         <div className="print-subtitle">
-          Mã: <strong>{asset.assetTag}</strong> · {asset.name} · Bộ lọc: <strong>{filterLabel}</strong> ·{' '}
-          <strong>{events.length}</strong> sự kiện
+          <span>Mã: <strong>{asset.assetTag}</strong></span>
+          <span aria-hidden="true">·</span>
+          <span>{asset.name}</span>
+          <span aria-hidden="true">·</span>
+          <span>Bộ lọc: <strong>{filterLabel}</strong></span>
+          <span aria-hidden="true">·</span>
+          <span><strong>{events.length}</strong> sự kiện</span>
         </div>
       </header>
 
@@ -236,13 +247,13 @@ export default function AssetTimelinePrintPage() {
           <InfoItem label="Vị trí" value={asset.location?.name ?? ''} />
           <InfoItem label="Trạng thái" value={asset.isConfirmed ? statusLabel : `${statusLabel} (chưa xác nhận)`} />
           <InfoItem label="Đang giữ" value={assignedTo} />
-          <InfoItem label="Ngày mua" value={formatDate(asset.purchaseDate)} />
-          <InfoItem label="Giá mua" value={formatMoney(asset.purchaseCost)} />
+          <InfoItem label="Ngày mua" value={asset.purchaseDate ? formatDate(asset.purchaseDate) : "—"} nowrap />
+          <InfoItem label="Giá mua" value={asset.purchaseCost != null ? formatMoney(asset.purchaseCost) : "—"} nowrap />
           <InfoItem label="Bảo hành" value={asset.warrantyMonths ? `${asset.warrantyMonths} tháng` : ''} />
           <InfoItem label="Số đơn hàng" value={asset.orderNumber ?? ''} />
-          <InfoItem label="Cấp phát gần nhất" value={formatDateTimeShort(asset.lastCheckout)} />
-          <InfoItem label="Thu hồi gần nhất" value={formatDateTimeShort(asset.lastCheckin)} />
-          <InfoItem label="Kiểm kê kế tiếp" value={formatDate(asset.nextAuditDate)} />
+          <InfoItem label="Cấp phát gần nhất" value={asset.lastCheckout ? formatDateTimeShort(asset.lastCheckout) : "—"} nowrap />
+          <InfoItem label="Thu hồi gần nhất" value={asset.lastCheckin ? formatDateTimeShort(asset.lastCheckin) : "—"} nowrap />
+          <InfoItem label="Kiểm kê kế tiếp" value={asset.nextAuditDate ? formatDate(asset.nextAuditDate) : "—"} nowrap />
         </div>
         {asset.notes && (
           <div className="asset-notes">
@@ -269,7 +280,7 @@ export default function AssetTimelinePrintPage() {
                 {event.isCorrection && <span className="correction-tag"> [Đã đính chính]</span>}
               </td>
               <td>{event.details ?? ''}</td>
-              <td className="col-actor">{event.actorName ?? '—'}</td>
+              <td className="col-actor">{actorLabel(event)}</td>
             </tr>
           ))}
         </tbody>
@@ -281,6 +292,25 @@ export default function AssetTimelinePrintPage() {
           người dùng ghi nhận.
         </p>
       )}
+
+      {/* [LL-6] Khối chữ ký cuối bản in — `break-inside: avoid` để không bị tách khỏi trang cuối. */}
+      <section className="signature-block">
+        <div className="signature-date">…………, ngày …… tháng …… năm ………</div>
+        <div className="signature-grid">
+          <div className="signature-cell">
+            <div className="signature-title">Người lập</div>
+            <div className="signature-hint">(Ký, ghi rõ họ tên)</div>
+            <div className="signature-space" />
+            <div className="signature-name">Họ và tên: .................................</div>
+          </div>
+          <div className="signature-cell">
+            <div className="signature-title">Phụ trách đơn vị</div>
+            <div className="signature-hint">(Ký, ghi rõ họ tên)</div>
+            <div className="signature-space" />
+            <div className="signature-name">Họ và tên: .................................</div>
+          </div>
+        </div>
+      </section>
 
       <footer className="print-footer">
         <span>Người in: {printer}</span>

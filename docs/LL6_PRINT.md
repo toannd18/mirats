@@ -64,26 +64,27 @@ Quyền: `assets.view`. Thiết bị ngoài phạm vi công ty / không tồn t�
 
 ## 5. Kiểm chứng thật (GĐ3 + bổ sung 2026-10-20)
 
-### 5.1. Bộ dữ liệu lớn (217 sự kiện)
+### 5.1. Bộ dữ liệu lớn (216 sự kiện)
 
-**Môi trường:** DB tạm (container Postgres riêng) + API `127.0.0.1:5514` + Vite **5180**; fixture tạo qua API:
-1 thiết bị + **215 lần cập nhật** + 1 lần tạo + 1 lần cấp phát tới vị trí hệ thống = **217 sự kiện**.
+**Môi trường:** DB tạm (container Postgres riêng) + API `127.0.0.1:5518` + Vite **5184**; fixture tạo qua API:
+1 thiết bị + **215 lần cập nhật** + 1 lần tạo = **216 sự kiện**.
 
-| Tiêu chí | Chrome 155 | Edge 155 |
-|---|---|---|
-| Số trang | **7** | **7** |
-| Khổ giấy | 209,9 × 297,0 mm (A4) | 209,9 × 297,0 mm (A4) |
-| `<thead>` lặp mỗi trang | **7/7** | **7/7** |
-| Chân trang (người in/thời điểm in) | **7/7** | **7/7** |
-| Số trang `Trang x / y` | `1/7` … `7/7` | `1/7` … `7/7` |
-| Tổng số dòng in ra | **217** (215 cập nhật + 1 tạo + 1 cấp phát) | **217** |
-| Dòng bị cắt đôi | **0** (mọi cặp "old → new" nằm trọn 1 trang; không có mảnh `→` lẻ) | **0** |
-| Thứ tự | dòng đầu = sự kiện **cũ nhất** ("Tạo mới") | giống |
+| Tiêu chí | Chrome 155 |
+|---|---|
+| Số trang | **7** |
+| Khổ giấy | 209,9 × 297,0 mm (A4) |
+| `<thead>` lặp mỗi trang | **7/7** |
+| Chân trang (người in/thời điểm in) | **7/7** |
+| Số trang `Trang x / y` | `1/7` … `7/7` |
+| Tổng số dòng in ra | **216** (215 cập nhật + 1 tạo) |
+| Dòng bị cắt đôi | **0** (mọi cặp "old → new" nằm trọn 1 trang) |
+| Thứ tự | dòng đầu = sự kiện **cũ nhất** ("Tạo mới") |
+| Khối chữ ký | có, nằm trọn **trang 7** (trang cuối) |
 
 ### 5.2. PDF mẫu thứ hai — đủ dấu hiệu `≈` và `[Đã đính chính]`
 
-**Môi trường:** DB tạm MỚI (container riêng) + API `127.0.0.1:5516` + Vite **5182**; in ở chế độ
-**"Sự kiện chính"** (`types=INSTALL,REMOVE,MAINTENANCE,MAINTENANCE_CAMPAIGN`).
+**Môi trường:** cùng stack tạm ở §5.1; in ở chế độ **"Sự kiện chính"**
+(`types=INSTALL,REMOVE,MAINTENANCE,MAINTENANCE_CAMPAIGN`).
 
 Fixture:
 1. Cấp phát thiết bị tới một **vị trí hệ thống** (tạo dòng lý lịch đang mở, `Source = Api`).
@@ -91,7 +92,8 @@ Fixture:
    ⇒ dòng mới `Source = Correction`, `CorrectsEntryId != null` ⇒ timeline trả `isCorrection = true`.
 3. **Một dòng backfill:** ⚠️ **NGOẠI LỆ FIXTURE** — dòng `Source = Backfill` được **INSERT thẳng bằng SQL**
    trên **DB TẠM** (hệ thống không có API tạo backfill; dữ liệu thật chỉ sinh từ lần chuyển dữ liệu LL-1).
-   Dùng khoảng **đã đóng trong quá khứ** (`2026-01-01 08:00→09:00Z`) để không vi phạm exclusion constraint.
+   Dùng khoảng **đã đóng trong quá khứ** (`2026-01-01 08:00→09:00Z`) để không vi phạm exclusion constraint;
+   **`LoggedById` + `LoggedByName` = NULL** (giống dữ liệu thật).
 
 Kết quả timeline "Sự kiện chính": **3 sự kiện** (INSTALL backfill `isEstimated=true`, REMOVE kết thúc backfill,
 INSTALL đính chính `isCorrection=true`).
@@ -101,17 +103,31 @@ INSTALL đính chính `isCorrection=true`).
 | Số trang / khổ | **1** / **A4** (209,9 × 297,0 mm) |
 | Dấu `≈` trên dòng thời điểm | **CÓ** (`≈ 01/01/2026 15:00 …`) |
 | Chú thích cuối bảng | **CÓ** ("≈ Thời điểm ước tính — được suy ra khi chuyển dữ liệu cũ sang lý lịch (backfill)…") |
-| `[Đã đính chính]` | **CÓ** (dòng `Lắp đặt tại: Ke LL6B… [Đã đính chính]`) |
+| `[Đã đính chính]` | **CÓ** (dòng `Lắp đặt tại: … [Đã đính chính]`) |
+| Người thực hiện khi trống + ước tính | **CÓ** — "Chuyển dữ liệu tự động" |
+| Khối chữ ký | **CÓ** — "……, ngày …… tháng …… năm ………", "Người lập", "Phụ trách đơn vị", dòng "Họ và tên" |
 | `<thead>` / số trang | **1/1** / `Trang 1 / 1` |
 
 > Ghi chú: `≈` gắn với **sự kiện INSTALL của dòng backfill** (mốc bắt đầu). Sự kiện REMOVE suy ra từ
 > `EndedAt` của cùng dòng hiện không mang `≈` (hành vi sẵn có của timeline API, không thuộc phạm vi LL-6).
 
-### 5.3. Ảnh/PDF mẫu (thư mục `screenshots/`, gitignored)
+### 5.3. Trình bày bản in (v2 — 2026-10-20)
 
-`ll6-print-button-1440.png` · `ll6-print-page-1440.png` (full-page 1440) · `ll6-print-sample.pdf`
-(Chrome, 217 sự kiện / 7 trang) · **`ll6-print-sample2.pdf`** (Chrome, "Sự kiện chính", có `≈` + chú thích +
-`[Đã đính chính]`).
+| Yêu cầu | Cách làm | Bằng chứng |
+|---|---|---|
+| Mã tài sản in **nguyên văn** (`-` ASCII) | **Không có biến đổi ký tự trong code.** Nguyên nhân PDF cũ có `U+2212` là do in **trước khi font tải xong** (fallback font → ToUnicode khác). Nay trang chờ `document.fonts.ready` | Cả 2 PDF v2: **không còn `U+2212`** ở bất kỳ đâu; dòng mã là `LL6C-122923` / `LL6D-122923` (ASCII `-`) |
+| Người thực hiện khi trống | `actorLabel()`: `actorName` rỗng + `isEstimated` ⇒ **"Chuyển dữ liệu tự động"**; còn lại "—" | PDF mẫu 2: dòng INSTALL backfill hiện "Chuyển dữ liệu tự động" |
+| Khối thông tin 2 cột + ngày giờ không xuống dòng | `.asset-info-grid` 2 cột; `.asset-info-value.nowrap { white-space: nowrap }` cho ngày/giờ | DOM check: `gridColumns=2`, `dateWhiteSpace=nowrap` |
+| Tiêu đề "Người thực hiện" không ngắt | nới `.col-actor` 16% → **20%** + `th { white-space: nowrap }` | DOM check: `actorHeaderRects=1` (một dòng) |
+| Khoảng trắng trước "Bộ lọc" | tiêu đề phụ đổi sang flex + `gap` giữa các cụm | subtitle: `Mã: … · May in … · Bộ lọc: …` |
+| Ô trống dùng "—" | thống nhất `—` (InfoItem, assignedTo, ngày/giá trống, actor) | PDF: "Công ty: —", "Ngày mua: —" … |
+| Khối chữ ký cuối bản in | `.signature-block` sau chú thích, `break-inside: avoid` | Có trên **trang cuối** của cả 2 PDF |
+
+### 5.4. Ảnh/PDF mẫu (thư mục `screenshots/`, gitignored)
+
+`ll6-print-button-1440.png` · `ll6-print-page-1440.png` (full-page 1440) · **`ll6-print-sample.pdf`**
+(Chrome, 216 sự kiện / 7 trang, v2) · **`ll6-print-sample2.pdf`** (Chrome, "Sự kiện chính", có `≈` + chú thích +
+`[Đã đính chính]` + "Chuyển dữ liệu tự động" + khối chữ ký, v2).
 
 ## 6. Test tự động
 
