@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -41,10 +42,17 @@ public class GetLowStockQueryHandler : IRequestHandler<GetLowStockQuery, IReadOn
             .Select(a => new LowStockItemDto(a.Id, a.Name, a.Qty, a.MinAmt, a.Qty - a.Checkouts.Sum(ch => (int?)(ch.AssignedQty - ch.ReturnedQty) ?? 0), "Accessory"))
             .Take(10).ToListAsync(cancellationToken);
 
-        var components = await _context.Components.Include(c => c.Assignments).AsNoTracking()
+        var components = await _context.Components.AsNoTracking()
             .Where(c => (userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value)
-                        && (c.Qty - c.Assignments.Sum(a => (int?)a.AssignedQty ?? 0)) <= c.MinAmt)
-            .Select(c => new LowStockItemDto(c.Id, c.Name, c.Qty, c.MinAmt, c.Qty - c.Assignments.Sum(a => (int?)a.AssignedQty ?? 0), "Component"))
+                        && (c.TrackingType == TrackingType.Serial
+                            ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
+                            : c.Qty - c.Assignments.Sum(a => (int?)a.AssignedQty ?? 0)) <= c.MinAmt)
+            .Select(c => new LowStockItemDto(
+                c.Id, c.Name, c.Qty, c.MinAmt,
+                c.TrackingType == TrackingType.Serial
+                    ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
+                    : c.Qty - c.Assignments.Sum(a => (int?)a.AssignedQty ?? 0),
+                "Component"))
             .Take(10).ToListAsync(cancellationToken);
 
         var all = consumables.Concat(accessories).Concat(components).ToList();

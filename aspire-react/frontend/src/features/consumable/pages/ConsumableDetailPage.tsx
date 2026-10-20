@@ -350,7 +350,7 @@ const ConsumableDetailPage: React.FC = () => {
             <DollarOutlined style={{ marginRight: 4 }} />
             {formatMoney(detail.purchaseCost)}
           </Descriptions.Item>
-          <Descriptions.Item label="Ghi chú" span={{ xs: 1, sm: 2 }}>
+          <Descriptions.Item label="Ghi chú"> 
             {detail.notes || '-'}
           </Descriptions.Item>
         </Descriptions>

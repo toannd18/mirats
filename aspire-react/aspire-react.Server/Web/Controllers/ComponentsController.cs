@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using aspire_react.Server.Application.ActionLogs.Queries;
 using aspire_react.Server.Application.Components.Commands;
 using aspire_react.Server.Application.Components.Queries;
 using aspire_react.Server.Domain.Enums;
@@ -55,6 +56,27 @@ public class ComponentsController : ControllerBase
         var c = await _mediator.Send(new GetComponentByIdQuery(id));
         if (c == null) return NotFound(new { status = "error", message = "Component not found." });
         return Ok(new { status = "success", data = c });
+    }
+
+    /// <summary>
+    /// Audit history for one component. The frontend calls this route from the detail "Lịch sử"
+    /// tab; it did not exist server-side (the tab silently rendered empty). Uses the shared
+    /// GetActionLogsQuery (company-scope + target-name resolution) and applies the same
+    /// {status,data,total} envelope as other paged history endpoints.
+    /// </summary>
+    [HttpGet("{id:guid}/action-logs")]
+    [Authorize(Policy = "components.view")]
+    public async Task<IActionResult> GetActionLogs(Guid id, [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+    {
+        var logs = await _mediator.Send(new GetActionLogsQuery(ItemType.Component, id));
+        if (logs == null)
+            return NotFound(new { status = "error", message = "Không tìm thấy lịch sử." });
+
+        var currentPage = Math.Max(1, page);
+        var size = Math.Clamp(pageSize, 1, 100);
+        var total = logs.Count;
+        var data = logs.Skip((currentPage - 1) * size).Take(size).ToList();
+        return Ok(new { status = "success", data, total });
     }
 
     [HttpPost]

@@ -58,7 +58,11 @@ public class GetDashboardSummaryQueryHandler : IRequestHandler<GetDashboardSumma
 
         var lowConsumables = await consumables.CountAsync(c => (c.Qty - c.Checkouts.Sum(ch => (int?)ch.Quantity ?? 0)) <= c.MinAmt, cancellationToken);
         var lowAccessories = await accessories.CountAsync(a => (a.Qty - a.Checkouts.Sum(ch => (int?)(ch.AssignedQty - ch.ReturnedQty) ?? 0)) <= a.MinAmt, cancellationToken);
-        var lowComponents = await components.CountAsync(c => (c.Qty - c.Assignments.Sum(a => (int?)a.AssignedQty ?? 0)) <= c.MinAmt, cancellationToken);
+        var lowComponents = await components.CountAsync(c =>
+            (c.TrackingType == TrackingType.Serial
+                ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
+                : c.Qty - c.Assignments.Sum(a => (int?)a.AssignedQty ?? 0)) <= c.MinAmt,
+            cancellationToken);
 
         // [MC-4] Systems with an overdue maintenance schedule — same company-scoped count pattern as
         // overdueAudits. A system is "quá hạn" when its next maintenance due date is in the past

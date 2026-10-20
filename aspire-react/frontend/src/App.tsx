@@ -119,6 +119,27 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   } else if (location.pathname.startsWith('/systems')) {
     crumbSegs.push({ title: 'Hệ thống' });
     crumbSegs.push({ title: 'Chi tiết' });
+  } else if (location.pathname.startsWith('/components')) {
+    crumbSegs.push({ title: 'Vật tư' });
+    crumbSegs.push({ title: 'Linh kiện' });
+    crumbSegs.push({ title: 'Chi tiết' });
+  } else if (location.pathname.startsWith('/consumables')) {
+    crumbSegs.push({ title: 'Vật tư' });
+    crumbSegs.push({ title: 'Vật tư tiêu hao' });
+    crumbSegs.push({ title: 'Chi tiết' });
+  } else if (location.pathname.startsWith('/accessories')) {
+    crumbSegs.push({ title: 'Vật tư' });
+    crumbSegs.push({ title: 'Phụ kiện' });
+    crumbSegs.push({ title: 'Chi tiết' });
+  } else if (location.pathname.startsWith('/licenses')) {
+    crumbSegs.push({ title: 'Bản quyền' });
+    crumbSegs.push({ title: 'Chi tiết' });
+  } else if (location.pathname.startsWith('/maintenance/campaigns')) {
+    crumbSegs.push({ title: 'Đợt bảo dưỡng' });
+    crumbSegs.push({ title: 'Chi tiết' });
+  } else if (location.pathname.startsWith('/maintenance/templates')) {
+    crumbSegs.push({ title: 'Mẫu bảo dưỡng' });
+    crumbSegs.push({ title: 'Chi tiết' });
   } else if (location.pathname.startsWith('/admin')) {
     crumbSegs.push({ title: 'Quản trị' });
   } else {

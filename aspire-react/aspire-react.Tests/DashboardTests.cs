@@ -81,6 +81,50 @@ public class DashboardTests
         Assert.True(dto.TotalAssets >= 0);
     }
 
+    [Fact]
+    public async Task LowStock_SerialComponent_UsesInStockUnits_NotBulkQty()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(LowStock_SerialComponent_UsesInStockUnits_NotBulkQty));
+        var company = new Company { Code = "LS", Name = "Serial Co" };
+        db.Companies.Add(company);
+        var component = new Component
+        {
+            Name = "Serial RAM",
+            TrackingType = TrackingType.Serial,
+            Qty = 5,
+            MinAmt = 1,
+            CompanyId = company.Id
+        };
+        db.Components.Add(component);
+        await db.SaveChangesAsync();
+
+        db.ComponentUnits.AddRange(
+            Enumerable.Range(1, 1).Select(i => new ComponentUnit
+            {
+                ComponentId = component.Id,
+                SerialNo = $"SN-{i}",
+                Status = ComponentUnitStatus.InStock
+            }));
+        db.ComponentUnits.AddRange(
+            Enumerable.Range(2, 4).Select(i => new ComponentUnit
+            {
+                ComponentId = component.Id,
+                SerialNo = $"SN-{i}",
+                Status = ComponentUnitStatus.Allocated
+            }));
+        await db.SaveChangesAsync();
+
+        var lowStock = await new GetLowStockQueryHandler(db, new TestHelpers.FakeScope { Super = true })
+            .Handle(new GetLowStockQuery(null), CancellationToken.None);
+
+        var row = Assert.Single(lowStock, x => x.Type == "Component");
+        Assert.Equal(1, row.Remaining); // 1 InStock unit, not Qty (5) - Assignments (0)
+        Assert.Equal(1, row.MinAmt);
+
+        var summary = await RunSummary(db, true, null);
+        Assert.Equal(1, summary.LowStockCount); // would be 0 with the old bulk formula
+    }
+
     // ==================== [BUG-J FIX] monthly-checkout-trend ====================
 
     private static GetMonthlyCheckoutTrendQueryHandler TrendCtx(AppDbContext db, bool super, Guid? companyId)

@@ -234,7 +234,7 @@ const AccessoryDetailPage: React.FC = () => {
           <Descriptions.Item label="Order No.">{detail.orderNumber || '-'}</Descriptions.Item>
           <Descriptions.Item label="Ngày mua"><CalendarOutlined style={{ marginRight: 4 }} />{formatDate(detail.purchaseDate)}</Descriptions.Item>
           <Descriptions.Item label="Đơn giá"><DollarOutlined style={{ marginRight: 4 }} />{formatMoney(detail.purchaseCost)}</Descriptions.Item>
-          <Descriptions.Item label="Ghi chú" span={{ xs: 1, sm: 2 }}>{detail.notes || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Ghi chú">{detail.notes || '-'}</Descriptions.Item>
         </Descriptions>
       </Card>
 
