@@ -82,6 +82,48 @@ public class ProxyHeadersTests
     }
 
     [Fact]
+    public async Task ConfigB_TwoProxyLayers_ResolveRealClientIp()
+    {
+        // (b) Browser -> NPM -> frontend nginx -> backend.
+        // XFF at backend: "client, npm" (frontend appended NPM's address).
+        // Known networks = Mirats internal + NPM external; ForwardLimit = 2.
+        var ctx = Context(Frontend);
+        ctx.Request.Headers["X-Forwarded-For"] = $"{Client}, {Npm}";
+        ctx.Request.Headers["X-Forwarded-Proto"] = "https";
+        var options = new ProxyOptions
+        {
+            KnownNetworks = "172.22.0.0/16,10.9.0.0/16",
+            ForwardLimit = 2,
+        };
+
+        await RunPairAsync(ctx, options);
+
+        Assert.Equal(Client, ctx.Connection.RemoteIpAddress);
+    }
+
+    [Fact]
+    public async Task ConfigB_TwoProxyLayers_SchemeStaysHttps_WhenNpmSendsXfpHttpPlusSchemeHttps()
+    {
+        // NPM may send XFP=http (its downstream hop) but XS=https (terminated scheme).
+        // Frontend forwards both unchanged; backend repairs the scheme from XS.
+        var ctx = Context(Frontend);
+        ctx.Request.Headers["X-Forwarded-For"] = $"{Client}, {Npm}";
+        ctx.Request.Headers["X-Forwarded-Proto"] = "http";
+        ctx.Request.Headers["X-Forwarded-Scheme"] = "https";
+        ctx.Request.Scheme = "http";
+        var options = new ProxyOptions
+        {
+            KnownNetworks = "172.22.0.0/16,10.9.0.0/16",
+            ForwardLimit = 2,
+        };
+
+        await RunPairAsync(ctx, options);
+
+        Assert.Equal(Client, ctx.Connection.RemoteIpAddress);
+        Assert.Equal("https", ctx.Request.Scheme);
+    }
+
+    [Fact]
     public async Task ConfigA_DirectViaFrontendContainer_ResolvesBrowserIp()
     {
         // (a) Browser → frontend nginx → backend. Peer = frontend container (known),

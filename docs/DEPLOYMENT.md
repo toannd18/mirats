@@ -33,6 +33,7 @@
 <repo root>/
 ├── .env.example                    # template biến môi trường (bắt buộc copy → .env)
 ├── docker-compose.yml              # stack production (5 services: postgres/redis/server/backup/frontend)
+├── docker-compose.npm.yml          # production overlay: chỉ frontend join mạng NPM, KHÔNG publish port
 ├── docker-compose.debug.yml        # overlay debug: pgAdmin (bắt buộc PGADMIN_PASSWORD)
 ├── deploy/backup/                  # Dockerfile + backup.sh (official postgres base + age/rsync)
 ├── scripts/
@@ -219,9 +220,10 @@ Frontend container chỉ serve **HTTP** (Nginx). Nhưng:
 (hoặc LB/TLS terminator):
 
 ```nginx
-add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
+add_header Strict-Transport-Security "max-age=15552000" always;
 ```
 
+Dùng **không kèm `includeSubDomains`** cho domain nội bộ (tránh ép HTTPS cho các subdomain khác trên cùng zone).
 Kiểm tra bằng `curl -sI https://<domain> | grep -i strict-transport-security`. Khi đổi domain hoặc tạm thời
 bỏ HTTPS, nhớ xoá HSTS trên proxy để tránh trình duyệt ép HTTPS trong thời gian dài.
 
@@ -399,7 +401,7 @@ Script sẽ:
 | Backup | `BACKUP_TIMEZONE`, `BACKUP_SCHEDULE_HOUR`, `BACKUP_SCHEDULE_MINUTE`, `BACKUP_RETENTION_DAYS`, `BACKUP_HOST_DIR` | `Asia/Ho_Chi_Minh`, `1`, `0`, `30`, `./backup-data` |
 | Backup remote (tùy chọn) | `BACKUP_REMOTE`, `BACKUP_REMOTE_SSH_KEY` | rỗng (TẮT) |
 | pgAdmin (chỉ `docker-compose.debug.yml`) | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_PASSWORD`, `PGADMIN_PORT` | `pgadmin@example.com`, **(bắt buộc — không default)**, `5050` |
-| NPM (chỉ `docker-compose.npm.yml`) | `NPM_NETWORK_NAME`, `PROXY_KNOWN_NETWORKS`, `PROXY_FORWARD_LIMIT`, `WEBAUTHN_RPID`, `WEBAUTHN_ORIGINS` | (không default — bắt buộc, trừ `PROXY_FORWARD_LIMIT=2`) |
+| NPM (chỉ `docker-compose.npm.yml`) | `NPM_NETWORK`, `MIRATS_NETWORK`, `PROXY_KNOWN_NETWORKS`, `PROXY_FORWARD_LIMIT`, `WEBAUTHN_RPID`, `WEBAUTHN_ORIGINS` | `MIRATS_NETWORK=mirats-internal`; còn lại bắt buộc (trừ `PROXY_FORWARD_LIMIT=2`) |
 
 > Ghi chú security: `CORS_ALLOWED_ORIGINS` được backend đọc khi khởi động (Program.cs) — đổi xong nhớ
 > `docker compose restart server`. `VITE_*` là build-time — đổi xong phải rebuild frontend (§4.4).
@@ -476,38 +478,81 @@ Zabbix theo dõi **readiness** (không dùng `/api/v1/health` để cảnh báo 
    ngưỡng brute-force theo IP (30 lỗi/phút → `ACCOUNT_LOCKED` toàn bộ user) có
    thể khóa đăng nhập cả hệ thống.
 
-### 11.2 Chuyển từ (a) sang (b) — NPM + domain nội bộ
+### 11.2 Kết nối NPM — mô hình chốt (chỉ mạng nội bộ)
 
-> **Tuyến khuyến nghị cho (b): NPM → frontend nginx → backend** (đã đo header
-> đầy đủ ở bước 6). Không dùng tuyến NPM → backend trực tiếp: tuyến đó đòi
-> CORS + phải serve static bundle ở chỗ khác, trong khi frontend nginx đã làm
-> sẵn same-origin (`/api` proxy về `server:5000`, giữ `Host`/`XFF`, giữ XFP
-> gốc) — một origin duy nhất cho browser, không CORS prod.
+> **Luồng:** Browser --HTTPS--> **NPM** (TLS terminate, Force SSL + HSTS) --HTTP-->
+> **mirats-frontend:80** (nginx) --`/api`, `/health`--> **server:5000**.
+> Chỉ `frontend` join mạng external của NPM; `server`/`postgres`/`redis`/`backup` chỉ ở mạng nội bộ
+> Mirats. **Không publish cổng nào ra host.**
 
-1. **Cloudflare API token** (quyền Edit zone DNS) — chỉ dùng để NPM xin chứng chỉ
-   Let's Encrypt qua **DNS challenge**, không public gì.
-2. **Bản ghi A trên DNS NỘI BỘ** (split DNS, VD Pi-hole/AD DNS) trỏ domain về IP
-   NPM. KHÔNG tạo bản ghi trên Cloudflare public DNS.
-3. **NPM → Proxy Hosts → Add**: domain + scheme `http`, forward host/IP NPM thấy
-   được container frontend (cùng docker network — xem bước 5), port 80; tab
-   **Custom locations** thêm location `/api` trỏ cùng upstream (frontend nginx
-   proxy `/api` về `server:5000` sẵn); tab **SSL**: DNS challenge Cloudflare
-   (credentials = API token bước 1), bật **Force SSL**. Không cần custom Nginx
-   config: NPM mặc định ghi đè `X-Forwarded-Proto` thành `http` (đã kiểm chứng
-   bằng nginx cùng hành vi), nhưng NPM luôn gửi kèm `X-Forwarded-Scheme: https`
-   (scheme nó terminate) — backend tự suy `Scheme=https` từ header này khi
-   `X-Forwarded-Proto` vắng/không phải https (đã unit-test). Giữ
-   `Host` nguyên (mặc định NPM) — backend dùng `Host` để sinh URL QR Labels.
-4. **NPM KHÔNG rewrite Host** (mặc định giữ nguyên) — backend dùng `Host` để sinh
-   URL QR Labels; rewrite Host sẽ làm QR sai domain.
-5. **Dựng Mirats bằng override**: `docker compose -f docker-compose.yml -f
-   docker-compose.npm.yml up -d --build` (frontend + server join network
-   external của NPM, gỡ publish port trực tiếp, bơm `Proxy__*` +
-   `Auth__WebAuthn__*`). Yêu cầu **Docker Compose ≥ 2.24** (file override dùng
-   tag `!reset` để gỡ `ports` — bản cũ hơn không hiểu tag này và fail khi parse).
-6. Verify: `https://<domain>/api/v1/health` → 200 (liveness) và `https://<domain>/api/v1/health/ready` → 200
-   (readiness Postgres + Redis); login → refresh tự gia hạn; brute-force 2 IP khác nhau đếm riêng; ActionLog
-   `RemoteIp` = IP client thật.
+#### Bước 1 — Tìm mạng NPM và subnet của 2 mạng proxy
+
+```bash
+docker network ls
+docker network inspect <npm-network> -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+
+# Mạng nội bộ Mirats được tạo ở lần `up` đầu tiên (MIRATS_NETWORK, mặc định mirats-internal):
+docker network inspect mirats-internal -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+```
+
+> Lần đầu có thể `up` trước (server sẽ fail-closed, bỏ qua header proxy), lấy subnet rồi điền
+> `PROXY_KNOWN_NETWORKS` và `docker compose ... up -d --force-recreate server`.
+
+#### Bước 2 — `.env` cho NPM
+
+```dotenv
+NPM_NETWORK=<tên network NPM>
+MIRATS_NETWORK=mirats-internal
+# ĐÚNG 2 mạng proxy: Mirats internal + NPM external (CSV CIDR)
+PROXY_KNOWN_NETWORKS=<mirats-subnet>,<npm-subnet>
+PROXY_FORWARD_LIMIT=2
+CORS_ALLOWED_ORIGINS=https://<domain-noi-bo>
+WEBAUTHN_RPID=<domain-noi-bo>
+WEBAUTHN_ORIGINS=https://<domain-noi-bo>
+```
+
+Cookie refresh vẫn `Secure` vì browser chỉ nói chuyện HTTPS với NPM; nginx nội bộ chỉ HTTP.
+
+#### Bước 3 — Proxy Host trong NPM
+
+| Trường | Giá trị |
+|---|---|
+| Domain Names | `<domain-noi-bo>` |
+| Scheme | `http` |
+| Forward Hostname / IP | **`mirats-frontend`** (container_name cố định) |
+| Forward Port | `80` |
+| Block Common Exploits | bật |
+| Websockets Support | bật (an toàn; app hiện không cần) |
+| SSL | **Custom** certificate (CA nội bộ) |
+| Force SSL | **bật** |
+| HSTS Enabled | **bật** — **KHÔNG** chọn `Subdomains` |
+| HTTP/2 Support | **bật** |
+
+- **Không** thêm Custom Location cho `/api` — frontend nginx đã proxy `/api` và `/health`.
+- **Không** trỏ NPM trực tiếp vào `server` (sẽ mất static bundle + same-origin).
+- Giữ Host nguyên (NPM mặc định) và không bật “custom Nginx configuration” ghi đè header.
+
+#### Bước 4 — Dựng stack
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.npm.yml up -d --build
+```
+
+Yêu cầu **Docker Compose ≥ 2.24** (`!reset` để gỡ `ports`).
+
+#### Bước 5 — Checklist sau khi nối
+
+- [ ] `docker compose -f docker-compose.yml -f docker-compose.npm.yml config` **không còn mục `ports:`** của service nào.
+- [ ] `docker ps`: chỉ **`mirats-frontend`** nằm trên mạng NPM; server/postgres/redis/backup không join mạng NPM.
+- [ ] `https://<domain>/` → 200 (trang chủ tải được, không lỗi mixed content).
+- [ ] `https://<domain>/api/v1/health` + `/api/v1/health/ready` → 200.
+- [ ] Đăng nhập OK; refresh token hoạt động (cookie `Secure`, `HttpOnly`; reload sau 15 phút vẫn gia hạn).
+- [ ] `ActionLog.RemoteIp` / `auth_login_attempts.IpAddress` = **IP người dùng thật**, không phải IP container.
+- [ ] 31 lần sai mật khẩu từ 1 IP → `ACCOUNT_LOCKED`; IP khác vẫn đăng nhập được.
+- [ ] Upload Excel **> 1 MB** không bị 413 (nginx `client_max_body_size 30m`; backend Kestrel ~30 MB).
+- [ ] Passkey đăng ký được (nếu bật `auth.passkeys.enabled`) — WebAuthn RP/origin đúng domain HTTPS.
+- [ ] Header `Strict-Transport-Security` có `max-age=...` và **KHÔNG** có `includeSubDomains`.
+- [ ] Từ máy host: `curl http://<host>:5000`, `:5432`, `:6379` **không kết nối được**.
 
 ### 11.3 Chuyển từ (b) sang (c) — thêm Cloudflare Tunnel
 
@@ -555,11 +600,12 @@ Zabbix theo dõi **readiness** (không dùng `/api/v1/health` để cảnh báo 
 | Biến | (a) trực tiếp | (b) NPM | (c) + tunnel |
 |---|---|---|---|
 | `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `AUTH_SIGNING_KEY`, `AUTH_BOOTSTRAP_ADMIN_PASSWORD`, `CORS_ALLOWED_ORIGINS` | Bắt buộc | Bắt buộc | Bắt buộc |
-| `NPM_NETWORK_NAME` | — | Bắt buộc | Bắt buộc |
-| `PROXY_KNOWN_NETWORKS` | Khuyến nghị (mặc định loopback = bỏ qua header) | Bắt buộc | Bắt buộc (+ IP cloudflared) |
+| `NPM_NETWORK` | — | Bắt buộc | Bắt buộc |
+| `MIRATS_NETWORK` | — | Tùy chọn (`mirats-internal`) | Tùy chọn |
+| `PROXY_KNOWN_NETWORKS` | Khuyến nghị (mặc định loopback = bỏ qua header) | Bắt buộc — **đúng 2 subnet** (Mirats + NPM) | Bắt buộc (+ IP cloudflared) |
 | `PROXY_FORWARD_LIMIT` | 1 | 2 | 3 |
 | `PROXY_TRUST_CLOUDFLARE` | `false` | `false` | `true` (chỉ khi NPM tunnel-only, có firewall) |
 | `WEBAUTHN_RPID`, `WEBAUTHN_ORIGINS` | — (passkey không chạy trên IP) | Bắt buộc | Bắt buộc |
-| `FRONTEND_PORT`, `BACKEND_PORT` | Mở (truy cập IP) | Bị gỡ bởi override (đóng cửa IP) | Bị gỡ |
+| `FRONTEND_PORT`, `BACKEND_PORT` | Mở (truy cập IP) | **Không publish** (override `!reset []`) | **Không publish** |
 
 *Hết hướng dẫn triển khai.*

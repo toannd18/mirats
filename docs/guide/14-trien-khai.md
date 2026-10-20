@@ -32,26 +32,27 @@ Quy tắc backend (fail-closed): chỉ tin header proxy từ `Proxy__KnownNetwor
 
 ## 4. Chuyển đổi và biến môi trường
 
-- a→b: DNS nội bộ + NPM proxy host + SSL DNS-challenge + override compose
-  (join network NPM, gỡ publish ports) — xem `DEPLOYMENT.md` §11.2.
+- a→b: DNS nội bộ + NPM proxy host + SSL Custom/Force SSL/HSTS + override compose
+  (**chỉ frontend** join network NPM, gỡ publish ports) — xem `DEPLOYMENT.md` §11.2.
 - b→c: Public Hostname trỏ `https://<NPM>:443` + `originServerName`, **không**
   `noTLSVerify`; cloudflared→NPM bằng HTTP sẽ bị NPM `301` (đã đo) — xem §11.3
   và sự cố lặp chuyển hướng của trình duyệt (§8.8).
 - Bảng biến theo cấu hình: `DEPLOYMENT.md` §11.4 (bắt buộc: secrets DB/Redis/
-  auth/CORS + `NPM_NETWORK_NAME`, `PROXY_KNOWN_NETWORKS`,
-  `WEBAUTHN_RPID/ORIGINS`; `PROXY_FORWARD_LIMIT` 1/2/3).
+  auth/CORS + `NPM_NETWORK`, `PROXY_KNOWN_NETWORKS`, `WEBAUTHN_RPID/ORIGINS`;
+  `PROXY_FORWARD_LIMIT` 1/2/3).
 
 ## 5. Biến môi trường bắt buộc theo cấu hình (đối chiếu `.env.example`)
 
 | Biến | (a) | (b) | (c) | Nguồn sự thật |
 |---|---|---|---|---|
 | `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `AUTH_SIGNING_KEY`, `AUTH_BOOTSTRAP_ADMIN_PASSWORD`, `CORS_ALLOWED_ORIGINS` | Bắt buộc | Bắt buộc | Bắt buộc | `docker-compose.yml:30,48,74,79,83` |
-| `NPM_NETWORK_NAME` | — | Bắt buộc | Bắt buộc | `docker-compose.npm.yml` (network external) |
+| `NPM_NETWORK` | — | Bắt buộc | Bắt buộc | `docker-compose.npm.yml` (network external) |
+| `MIRATS_NETWORK` | — | Tùy chọn (`mirats-internal`) | Tùy chọn | `docker-compose.npm.yml` |
 | `PROXY_KNOWN_NETWORKS` | Khuyến nghị | Bắt buộc | Bắt buộc (+ IP cloudflared) | `ProxyOptions.cs` (mặc định loopback) |
 | `PROXY_FORWARD_LIMIT` | 1 | 2 | 3 | `ProxyOptions.cs` (mặc định 2) |
 | `PROXY_TRUST_CLOUDFLARE` | `false` | `false` | `true` (NPM tunnel-only) | `ProxyOptions.cs` (mặc định false) |
 | `WEBAUTHN_RPID`, `WEBAUTHN_ORIGINS` | — | Bắt buộc | Bắt buộc | `Fido2Service.cs:36-38` |
-| `FRONTEND_PORT`, `BACKEND_PORT` | Mở | Bị gỡ (override) | Bị gỡ | `docker-compose.npm.yml` (`ports: !reset []`) |
+| `FRONTEND_PORT`, `BACKEND_PORT` | Mở | **Không publish** (override) | **Không publish** | `docker-compose.npm.yml` (`ports: !reset []`) |
 
 ## Nguồn tham chiếu
 

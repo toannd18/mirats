@@ -1151,7 +1151,7 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
 |---|---|---|
 | P0-1 | **Backup DB tự động + diễn tập restore** (`pg_dump -Fc` hằng ngày, mã hoá, retention 30 ngày, offsite) | ✅ **XONG (GĐ1)** — đã diễn tập restore DB trắng, số dòng khớp, login OK; remote copy cấu hình được (mặc định TẮT) |
 | P0-2 | **Backup trước migrate + runbook nâng cấp/rollback** (snapshot trước `Database.Migrate()`, image tag cũ để rollback) | 🟡 **Một phần** — `scripts/deploy.sh` đã backup trước build/up + in rollback; runbook có; **chưa diễn tập nâng cấp thật** trên bản sao |
-| P0-5 | **TLS/HSTS tại NPM** (HSTS `max-age=15552000; includeSubDomains`, HTTP→HTTPS, đóng port backend) | ❌ Chưa — `curl -sI https://<domain>` có HSTS; `http://<IP>:5000` không truy cập được |
+| P0-5 | **TLS/HSTS tại NPM** (mô hình NPM → mirats-frontend; HSTS `max-age=15552000` **không** `includeSubDomains`, HTTP→HTTPS, không publish port backend) | 🟡 **Đã có compose/docs + evidence tạm**; cần xác nhận trên NPM thật: `curl -sI https://<domain>` có HSTS; `http://<IP>:5000` không truy cập được |
 
 ### P1 — tuần 1–2 sau go-live
 
