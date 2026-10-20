@@ -4183,3 +4183,31 @@ Helper `Common/Validation/OptionalForeignKey.cs`. Ba trạng thái:
 ### 5. Gates & test
 - `precommit-gates.ps1`: **PASS 6/6**.
 - ThrowawayDb trên **DB TRẮNG**: **742/742 PASS** (`logs/trx/guidp3-throwaway2.trx`).
+
+## 2026-10-20 — LL-6 GĐ1: trang in lý lịch (route riêng) + tải đủ sự kiện + nút "In lý lịch"
+
+> Commit **`8e63939`**. Quyết định đã chốt với người dùng: trang in RIÊNG, tab mới, tự `window.print()`,
+> giới hạn **5.000** sự kiện (vượt ⇒ KHÔNG in), bố cục A4, quyền `assets.view`.
+
+### Đã làm (GĐ1)
+- **Route riêng** `/assets/:id/ly-lich/in?types=…` — ngoài `AppLayout` (không sidebar/menu), `ProtectedRoute`
+  (`assets.view`); asset ngoài phạm vi/không tồn tại ⇒ trang "Không tìm thấy thiết bị".
+- **`AssetTimelinePrintPage`**: nạp asset detail + toàn bộ timeline, hiển thị khung bảng; trạng thái
+  loading / error (có "Thử lại") / tooLarge / notFound / ready; nút "In lại". (Bố cục A4 + CSS in hoàn
+  thiện ở GĐ2, auto-print đặt ở GĐ2 sau khi layout xong.)
+- **`utils/timelinePrint.ts`** (logic thuần):
+  - `PRINT_PAGE_LIMIT = 200` (bằng max server), cursor pagination, đảo **CŨ → MỚI**;
+  - `PRINT_MAX_EVENTS = 5000`: vượt (hoặc đúng mốc mà còn trang) ⇒ `TimelineTooLargeError` — trang in
+    **không** gọi print, hiện thông báo gợi ý "Sự kiện chính"; **không bao giờ in bản cắt bớt**;
+  - khử trùng id + chặn cursor lặp.
+- **Nút "In lý lịch"** cạnh Segmented "Sự kiện chính / Tất cả" ở tab Lịch sử; mở tab mới, truyền đúng
+  filter (`types=INSTALL,REMOVE,MAINTENANCE,MAINTENANCE_CAMPAIGN` hoặc không có `types`).
+- **Test**: `frontend/tests/timelinePrint.test.ts` — **7 test** (Node 24 type-stripping, không thêm
+  dependency): nhiều trang/cursor/limit, đúng 5.000 (in được), vượt 5.000 (ném lỗi), lỗi mạng, cursor lặp,
+  khử trùng id. Chạy: `cd aspire-react/frontend && node --test tests/timelinePrint.test.ts`.
+- **audit-sweeps Sweep 4**: đổi sang `-cmatch` — chỉ bắt component antd `<Table`/`<ProTable>`; bảng HTML
+  `<table>` của bản in không bị báo nhầm (không nới luật cho component thật).
+
+### Gates
+- `precommit-gates.ps1`: **PASS 6/6**.
+- Chưa verify UI thật ở GĐ1 (theo kế hoạch: GĐ3 mới kiểm Chrome/Edge + PDF + ảnh).
