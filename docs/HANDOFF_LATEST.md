@@ -4345,3 +4345,48 @@ File mới (gitignored): `screenshots/ll6-print-sample.pdf` (390.912 bytes),
 
 ### Gates
 - `precommit-gates.ps1`: **PASS 6/6**. Test loader/format: **8/8 PASS** (không đổi).
+
+---
+
+## 2026-10-20 — READY GĐ0: fail-fast secret + security headers (commit `44b3cf7`)
+
+> Duyệt READY Bước 1. Chỉ làm phần **không phụ thuộc môi trường triển khai**; backup/TLS-readiness nằm ở P0 còn lại
+> (đã ghi `docs/BACKLOG.md`).
+
+### Thay đổi
+1. **Fail-fast `Auth:SigningKey`**: `AddAppAuthentication` đo **UTF-8 bytes** đúng cách `TokenService`/JwtBearer dùng khóa;
+   < 32 byte ⇒ `InvalidOperationException` rõ ràng, server không khởi động. Test: 16 byte, thiếu key, 33 byte đa byte (pass),
+   30 byte đa byte (fail) — chứng minh đo theo byte, không theo ký tự.
+2. **Bootstrap admin policy** (`BootstrapAdminSeeder`): chỉ khi tạo admin trên DB trắng — mật khẩu **≥ 12 ký tự** và
+   **khác username** ⇒ nếu không đạt `BootstrapAdminConfigurationException` (startup abort, không bị nuốt bởi `catch {}`).
+   Admin đã tồn tại: **không kiểm tra/không ghi đè** (kể cả trường hợp có sẵn nhưng chưa có hash).
+3. **Compose**: `PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?required}` (bỏ default `pgadmin`). Lưu ý: compose validate
+   interpolation **trước khi lọc profile** ⇒ biến này phải có giá trị kể cả khi không bật `--profile debug` (đã ghi docs).
+4. **Security headers**:
+   - Frontend `nginx.conf`: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+     `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: geolocation=(), microphone=(), camera=()`;
+     lặp lại ở location static (do `add_header` không kế thừa); `proxy_hide_header` ở `/api/` + `/health` để tránh trùng header.
+   - API: `SecurityHeadersMiddleware` (đăng ký sau `UseProxyHeaders`, trước `UseExceptionHandler`).
+   - **HSTS: KHÔNG đặt trong app/frontend** — ghi `docs/DEPLOYMENT.md §4.5` cấu hình tại NPM (TLS terminator).
+   - **CSP: P1** (rủi ro vỡ style antd).
+5. **Docs/backlog**: `DEPLOYMENT.md` cập nhật §3.2/§4.5/§5.1/§7/§9/§10; `.env.example` cập nhật điều kiện key/password;
+   `BACKLOG.md` thêm mục READY với P0 còn lại / P1 / P2 — giám sát dùng **Zabbix** (health, 5xx, đĩa) + **Wazuh** (log).
+
+### Bằng chứng thật
+- **Key 16 byte**: `dotnet run` → `Unhandled exception. System.InvalidOperationException: Auth:SigningKey must be at least
+  32 bytes (256 bits) when UTF-8 encoded; the configured value is only 16 bytes...` (exit ≠ 0).
+- **Bootstrap 11 ký tự** trên Postgres tạm (DB trắng, migrate xong): `BootstrapAdminConfigurationException: ... must be at
+  least 12 characters when creating the first admin (configured value: 11 characters)` (exit ≠ 0). Khởi động lại với 12+
+  ký tự → log `Bootstrap admin 'admin' created (local auth, must change password at first login)`; DB `users = 1`.
+- **API** (`127.0.0.1:5519`, Production, Postgres/Redis container tạm): `GET /api/v1/health` 200 trả đủ 4 header, **không**
+  có `Strict-Transport-Security`.
+- **Frontend** (`nginx:1.27-alpine` container tạm, cổng 5186, mount `nginx.conf` + `dist`): `nginx -t` OK; `GET /` và
+  `GET /assets/*.js` trả đủ 4 header (asset còn giữ `Cache-Control`), **không** có HSTS.
+- **Compose**: thiếu `PGADMIN_PASSWORD` → `error while interpolating services.pgadmin.environment.PGADMIN_DEFAULT_PASSWORD:
+  required variable PGADMIN_PASSWORD is missing a value`; có biến → `docker compose config` exit 0.
+- **Tests**: 716 passed / 37 skipped; **11 test mới** cho GĐ0 (9 startup policy + 2 middleware).
+- **Gates**: `precommit-gates.ps1` **PASS 6/6** (format/build/test/lint/build/audit-sweeps).
+
+### Còn lại (P0, chưa làm — theo backlog)
+Backup tự động + diễn tập restore; backup trước migrate + runbook nâng cấp/rollback; readiness health DB/Redis + compose
+healthcheck HTTP; log rotation/retention; TLS/HSTS tại NPM + đóng port backend.
