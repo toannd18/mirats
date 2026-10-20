@@ -4135,3 +4135,51 @@ Helper `Common/Validation/OptionalForeignKey.cs`. Ba trạng thái:
 - Nhóm ThrowawayDb trên **DB TRẮNG** (container mới, không khởi động API): **740/740 PASS**
   (`logs/trx/guidp2-throwaway.trx`).
 - Fixture tạo qua API; container tạm đã xóa.
+
+## 2026-10-20 — FIX-GUID-EMPTY phần 2 (tiếp): response lỗi FK gọn + đối chiếu FE ↔ backend
+
+> Commit **`292b8df`**. Hai chỉnh theo review, cộng 1 flake test phát hiện trên DB thật.
+
+### 1. Response lỗi FK không còn lộ schema
+- `ForeignKeyViolationExceptionHandler`: body CHỈ còn `{ status, message, error_code }`.
+  **Bỏ** `constraint`/`table` khỏi response; chi tiết (constraint, table, SQLSTATE, MessageText) chỉ ghi
+  **warning log** để chẩn đoán.
+- Test cập nhật: thêm `CapturingLogger` để khẳng định constraint **có trong log**, đồng thời assert response
+  **không** có property `constraint`/`table` (cả nhánh 400 và 409). `ERROR_CODES.md` §1.8 sửa theo.
+
+### 2. Đối chiếu 12 cặp form FE ↔ lệnh Update backend
+| Form FE (gửi `Guid.Empty` khi bỏ chọn) | Lệnh Update backend hỗ trợ |
+|---|---|
+| `UserFormModal` (company/department/location) | `UpdateUserCommand` |
+| `CompanyListPage` (parentId) | `UpdateCompanyCommand` |
+| `AssetEditModal` (model/location/supplier/company) | `UpdateAssetCommand` |
+| `ComponentFormModal` (supplier/manufacturer/location) | `UpdateComponentCommand` |
+| `ConsumableFormModal` (category/manufacturer/supplier/location/company) | `UpdateConsumableCommand` |
+| **`AccessoryFormModal`** (5 FK) | **`UpdateAccessoryCommand` — TRƯỚC THIẾU, đã bổ sung** |
+| `LicenseFormModal` (supplier/manufacturer) | `UpdateLicenseCommand` |
+| `MaintenanceCompleteModal` (supplier) | `UpdateMaintenanceCommand` |
+| `LocationListPage` (parent/company/manager) | `UpdateLocationCommand` |
+| `DepartmentListPage` (company/manager) | `UpdateDepartmentCommand` |
+| `SystemInfoListPage` (company) | `UpdateSystemInfoCommand` |
+| **`AssetModelListPage`** (manufacturer/category/depreciation/fieldset) | `UpdateModelCommand` — backend có sẵn, **FE trước thiếu, đã sửa** |
+
+- **Accessory**: bổ sung `OptionalForeignKey` + kiểm tồn tại 5 FK (400 `RESOURCE_NOT_FOUND`), chuẩn hoá cả
+  so sánh `FIELD_LOCKED` công ty; +2 test.
+- **Model (FE)**: dùng `withOptionalFkCleared(values, ['manufacturerId','categoryId','depreciationId','fieldsetId'])`
+  khi Update.
+
+### 3. Verify UI thật (DB tạm, cổng tạm)
+- API `127.0.0.1:5512`, Vite **5178**, container Postgres riêng.
+- Form **Sửa phụ kiện** → bấm X ở "Nhà cung cấp" → **Cập nhật** ⇒ DB `accessories."SupplierId" = NULL`;
+  mở lại form thấy trống. Ảnh 1440: `screenshots/guidp3-accessory-before-1440.png` /
+  `guidp3-accessory-after-1440.png`.
+- Log API xác nhận guard chạy TRƯỚC khi ghi: `SELECT EXISTS (… suppliers WHERE Id = @newSupplierId)`.
+
+### 4. Flake test phát hiện khi chạy ThrowawayDb trên DB thật
+- `InstallationCorrectionTests` dùng `Company.Code = "LL5" + 3 ký tự` ⇒ trùng `IX_companies_Code` khi chạy
+  song song (FAIL thật, 23505). Sửa fixture: dùng đủ 8 ký tự suffix (11 ký tự, dưới max 20) + code
+  system/position 6 ký tự. Không đổi code sản phẩm.
+
+### 5. Gates & test
+- `precommit-gates.ps1`: **PASS 6/6**.
+- ThrowawayDb trên **DB TRẮNG**: **742/742 PASS** (`logs/trx/guidp3-throwaway2.trx`).
