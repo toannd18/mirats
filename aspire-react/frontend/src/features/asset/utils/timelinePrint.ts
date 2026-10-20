@@ -113,3 +113,20 @@ export async function loadAllTimelineEvents(
   const events = [...collected].reverse();
   return { events, total: events.length, requests };
 }
+
+/**
+ * [LL-6] Nhãn thời điểm của một sự kiện trên bản in: thêm tiền tố `≈` khi mốc thời gian là ƯỚC TÍNH
+ * (dòng lý lịch backfill) để người đọc không nhầm là mốc do người dùng ghi nhận.
+ *
+ * Tự format `dd/MM/yyyy HH:mm` theo giờ máy (giống `utils/format.ts#formatDateTimeShort`) để module này
+ * giữ được tính THUẦN — test chạy trực tiếp bằng Node (type stripping) không cần bundler/alias.
+ */
+export function formatEventTime(event: AssetTimelineEvent): string {
+  const value = new Date(event.occurredAt);
+  if (Number.isNaN(value.getTime())) return String(event.occurredAt);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const time =
+    `${pad(value.getDate())}/${pad(value.getMonth() + 1)}/${value.getFullYear()} ` +
+    `${pad(value.getHours())}:${pad(value.getMinutes())}`;
+  return event.isEstimated ? `≈ ${time}` : time;
+}

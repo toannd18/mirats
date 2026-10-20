@@ -1096,17 +1096,22 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
 
 ---
 
-## LL-6 — Xuất PDF (lý lịch/báo cáo) bằng chức năng IN của trình duyệt (HOÃN — làm SAU LL-5)
+## LL-6 — Xuất PDF (lý lịch/báo cáo) bằng chức năng IN của trình duyệt (✅ XONG 2026-10-20)
 
-- **Trạng thái: HOÃN (backlog)** — chốt 2026-10-18 theo yêu cầu người dùng: **làm sau LL-5** (đính chính lý lịch lắp đặt).
-- **Mục tiêu:** xuất PDF bằng `window.print()` + CSS `@media print` (KHÔNG thêm thư viện render PDF phía server),
-  tối thiểu cho **trang chi tiết thiết bị (kèm tab Lý lịch)**; báo cáo khác (nếu cần) tính sau.
-- **Vì sao hoãn:** ưu tiên LL-5 trước; phần in cần CSS in riêng cho từng màn (ẩn sidebar/bộ lọc/nút, ngắt trang,
-  header/footer, xử lý màu antd token khi in) nên chỉ nên làm khi luồng lý lịch đã ổn định (tránh thiết kế CSS in 2 lần).
-- **Ghi chú kỹ thuật dự kiến (chưa chốt):** nút "In / Xuất PDF" ở đầu trang chi tiết; chặn in khi đang tải (Skeleton);
-  cân nhắc chỉ in phần đang xem (tab hiện hành) hay in cả 2 tab; kiểm tra cỡ A4 dọc.
-- **Tiêu chí nghiệm thu (dự kiến):** 1 lần bấm in ra PDF có đủ thông tin thiết bị + lý lịch; không có menu/bộ lọc/nút;
-  không tràn ngang; kiểm chứng bằng PDF thật (không chỉ ảnh chụp màn hình).
+- **Trạng thái: ✅ XONG** (GĐ1 route + tải dữ liệu · GĐ2 bố cục A4/CSS in · GĐ3 kiểm chứng Chrome+Edge).
+  Tài liệu: **`docs/LL6_PRINT.md`** (cách in, giới hạn 5.000 sự kiện, số trang + dự phòng, kết quả đo).
+- **Đã làm:** trang in RIÊNG `/assets/:id/ly-lich/in?types=…` (tab mới, không sidebar/menu, quyền
+  `assets.view`); nút **"In lý lịch"** ở tab Lý lịch (cạnh bộ lọc Sự kiện chính/Tất cả, truyền đúng filter);
+  tải đủ timeline (limit 200/cursor, đảo **CŨ → MỚI**), **vượt 5.000 ⇒ KHÔNG in** + thông báo gợi ý
+  "Sự kiện chính" (không bao giờ in bản cắt bớt); tự `window.print()` + nút "In lại" (ẩn khi in);
+  bố cục A4 (tiêu đề, khối thông tin thiết bị, bảng sự kiện, `≈` + footnote, `[Đã đính chính]`, nhãn bộ lọc,
+  footer người in/thời điểm in, số trang `x / y` bằng `@page` margin box + footer fixed dự phòng).
+- **Kiểm chứng thật (2026-10-20):** Chrome 155 + Edge 155 trên DB tạm với **217 sự kiện** ⇒ **7 trang A4**;
+  `thead` lặp **7/7**, footer **7/7**, số trang `1/7 … 7/7`, **0 dòng bị cắt**, đủ **217** dòng, dòng đầu là
+  sự kiện cũ nhất. Ảnh + PDF mẫu: `screenshots/ll6-*` (gitignored). Test loader: `node --test
+  tests/timelinePrint.test.ts` (8 test).
+- **Ghi chú:** `≈` chỉ xuất hiện với dòng lý lịch `Source = Backfill` (dữ liệu lịch sử từ LL-1, không có API
+  tạo mới) ⇒ DB trắng không có mẫu; logic được phủ bằng unit test `formatEventTime`.
 
 ---
 

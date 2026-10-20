@@ -11,6 +11,7 @@ import {
   PRINT_MAX_EVENTS,
   PRINT_PAGE_LIMIT,
   TimelineTooLargeError,
+  formatEventTime,
   loadAllTimelineEvents,
   type TimelinePageLike,
 } from '../utils/timelinePrint';
@@ -248,10 +249,7 @@ export default function AssetTimelinePrintPage() {
         <tbody>
           {events.map((event) => (
             <tr key={event.id}>
-              <td className="col-time">
-                {event.isEstimated && <span className="estimated-mark">≈ </span>}
-                {formatDateTimeShort(event.occurredAt)}
-              </td>
+              <td className="col-time">{formatEventTime(event)}</td>
               <td className="col-event">
                 {event.title}
                 {event.isCorrection && <span className="correction-tag"> [Đã đính chính]</span>}

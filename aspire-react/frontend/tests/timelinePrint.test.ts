@@ -4,6 +4,7 @@ import {
   PRINT_MAX_EVENTS,
   PRINT_PAGE_LIMIT,
   TimelineTooLargeError,
+  formatEventTime,
   loadAllTimelineEvents,
   type FetchTimelinePage,
   type TimelinePageLike,
@@ -117,4 +118,11 @@ test('khử trùng id giữa các trang (server trả trùng do race)', async ()
   };
   const result = await loadAllTimelineEvents(fetchPage);
   assert.deepEqual(result.events.map((event) => event.id), ['actionLog:0', 'actionLog:1', 'actionLog:2']);
+});
+
+test('formatEventTime: thời điểm ước tính có tiền tố ≈, bình thường thì không', () => {
+  const estimated = { ...makeEvent(1), isEstimated: true };
+  const normal = { ...makeEvent(2), isEstimated: false };
+  assert.match(formatEventTime(estimated), /^≈ \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/);
+  assert.doesNotMatch(formatEventTime(normal), /≈/);
 });
