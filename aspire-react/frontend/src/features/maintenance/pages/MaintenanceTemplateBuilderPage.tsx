@@ -148,7 +148,7 @@ export default function MaintenanceTemplateBuilderPage() {
       setVersion(res.data.data);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
-      message.error(e?.response?.data?.message || 'Lỗi tải version');
+      message.error(e?.response?.data?.message || 'Lỗi tải phiên bản');
       setVersion(null);
     } finally {
       setLoading(false);
@@ -285,7 +285,7 @@ export default function MaintenanceTemplateBuilderPage() {
       // datetime-local → chuỗi local "YYYY-MM-DDTHH:mm" → parse theo múi giờ máy → UTC ISO.
       if (values.effectiveFrom) payload.effectiveFrom = new Date(values.effectiveFrom).toISOString();
       const res = await apiClient.post(`/maintenance/templates/${templateId}/versions`, payload);
-      message.success('Đã tạo version nháp mới');
+      message.success('Đã tạo phiên bản nháp mới');
       setNewVerOpen(false);
       newVerForm.resetFields();
       await loadTemplate();
@@ -293,7 +293,7 @@ export default function MaintenanceTemplateBuilderPage() {
     } catch (err: unknown) {
       const e = err as { errorFields?: unknown; response?: { data?: { message?: string } } };
       if (e?.errorFields) return;
-      message.error(e?.response?.data?.message || 'Lỗi tạo version');
+      message.error(e?.response?.data?.message || 'Lỗi tạo phiên bản');
     }
   };
 
@@ -302,12 +302,12 @@ export default function MaintenanceTemplateBuilderPage() {
     setPublishing(true);
     try {
       await apiClient.post(`/maintenance/templates/${templateId}/versions/${version.id}/publish`);
-      message.success(`Đã publish version ${version.versionNumber}`);
+      message.success(`Đã công bố phiên bản ${version.versionNumber}`);
       await loadTemplate();
       await loadVersion(version.id);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
-      message.error(e?.response?.data?.message || 'Lỗi publish');
+      message.error(e?.response?.data?.message || 'Lỗi công bố');
     } finally {
       setPublishing(false);
     }
@@ -321,7 +321,7 @@ export default function MaintenanceTemplateBuilderPage() {
   if (!template) {
     return (
       <div>
-        <Alert type="warning" showIcon title="Template không tồn tại hoặc ngoài phạm vi công ty của bạn." />
+        <Alert type="warning" showIcon title="Mẫu bảo dưỡng không tồn tại hoặc ngoài phạm vi công ty của bạn." />
         <Button icon={<ArrowLeftOutlined />} style={{ marginTop: 16 }} onClick={() => navigate('/maintenance/templates')}>
           Quay lại danh sách
         </Button>
@@ -337,7 +337,7 @@ export default function MaintenanceTemplateBuilderPage() {
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/maintenance/templates')} />
         <Text strong style={{ fontSize: 16 }}>{template.name}</Text>
         <Tag icon={<ClusterOutlined />}>{template.systemInfo.name} ({template.systemInfo.code})</Tag>
-        {template.company ? <Tag>{template.company.name}</Tag> : <Tag>Floater</Tag>}
+        {template.company ? <Tag>{template.company.name}</Tag> : <Tag>Không thuộc công ty</Tag>}
         {!template.isActive && <Tag color="orange">Ngừng kích hoạt</Tag>}
       </Space>
 
@@ -630,13 +630,13 @@ export default function MaintenanceTemplateBuilderPage() {
       {/* New version modal */}
       <Modal
         open={newVerOpen}
-        title="Tạo version mới (nháp)"
+        title="Tạo phiên bản mới (nháp)"
         onOk={newVerForm.submit}
         onCancel={() => setNewVerOpen(false)}
         destroyOnHidden
       >
         <Form form={newVerForm} layout="vertical" onFinish={createVersion}>
-          <Form.Item label="Hiệu lực từ" name="effectiveFrom" tooltip="Bỏ trống = lấy thời điểm publish">
+          <Form.Item label="Hiệu lực từ" name="effectiveFrom" tooltip="Bỏ trống = lấy thời điểm công bố">
             <Input type="datetime-local" />
           </Form.Item>
         </Form>

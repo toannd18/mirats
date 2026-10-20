@@ -58,19 +58,19 @@ export default function LicenseDetailModal({ open, licenseId, onClose, onSaved }
 
   const handleCheckin = (seat: LicenseSeatDto) => {
     modal.confirm({
-      title: `Thu hồi seat #${seat.seatNumber}?`,
-      content: 'Seat sẽ trở lại trạng thái trống và có thể cấp lại cho đối tượng khác.',
+      title: `Thu hồi ghế #${seat.seatNumber}?`,
+      content: 'Ghế sẽ trở lại trạng thái trống và có thể cấp lại cho đối tượng khác.',
       okText: 'Thu hồi',
       cancelText: 'Hủy',
       onOk: async () => {
         try {
           await licensesApi.checkin(licenseId!, seat.id);
-          message.success('Đã thu hồi seat');
+          message.success('Đã thu hồi ghế');
           void load();
           onSaved();
         } catch (err: unknown) {
           const e = err as { response?: { data?: { message?: string } } };
-          message.error(e?.response?.data?.message || 'Không thể thu hồi seat');
+          message.error(e?.response?.data?.message || 'Không thể thu hồi ghế');
         }
       },
     });

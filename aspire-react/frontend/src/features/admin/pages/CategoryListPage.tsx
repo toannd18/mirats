@@ -170,7 +170,7 @@ export default function CategoryListPage() {
           <Switch />
         </Form.Item>
 
-        <Form.Item label="Gửi Email khi Checkin" name="checkinEmail" valuePropName="checked">
+        <Form.Item label="Gửi email khi thu hồi" name="checkinEmail" valuePropName="checked">
           <Switch />
         </Form.Item>
 

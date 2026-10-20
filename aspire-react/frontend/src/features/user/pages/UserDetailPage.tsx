@@ -69,7 +69,7 @@ export default function UserDetailPage() {
           </Descriptions.Item>
         </Descriptions>
       </Card>
-      <Card title="License đang sử dụng" style={{ marginBottom: 16 }}>
+      <Card title="Bản quyền đang sử dụng" style={{ marginBottom: 16 }}>
         <LicenseUsageTable scope={{ type: 'user', id: user.id }} />
       </Card>
       {/* [AUDIT-LOG B6a] Nhật ký hoạt động của người dùng — dùng chung ActionLogTable để mọi định dạng

@@ -547,7 +547,7 @@ export default function MaintenanceCampaignDetailPage() {
         )}
       </Card>
 
-      <Card size="small" title="Kết quả checklist (theo hạng mục)">
+      <Card size="small" title="Kết quả kiểm tra (theo hạng mục)">
         {campaign.snapshots.length === 0 && (
           <Alert type="info" showIcon title="Hệ thống không có tài sản nào tại thời điểm tạo đợt — không có kết quả cần ghi." />
         )}

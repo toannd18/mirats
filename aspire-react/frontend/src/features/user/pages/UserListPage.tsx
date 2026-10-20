@@ -134,7 +134,7 @@ const UserListPage: React.FC = () => {
 
   // ST7b — action buttons dùng chung cột Thao tác (desktop) và Card (mobile).
   const renderActions = (record: UserDto): ReactNode[] => [
-    <Tooltip key="detail" title="Chi tiết & License đang sử dụng">
+    <Tooltip key="detail" title="Chi tiết & bản quyền đang sử dụng">
       <Button
         type="link"
         size="small"

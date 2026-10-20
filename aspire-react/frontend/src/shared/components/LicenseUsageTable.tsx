@@ -65,7 +65,7 @@ export default function LicenseUsageTable({ scope }: LicenseUsageTableProps) {
           <Card key={`${r.licenseId}-${r.seatNumber}`} size="small" style={{ borderRadius: 10, marginBottom: 12 }}>
             <div style={{ marginBottom: 8 }}>
               <Text strong style={{ fontSize: 14, marginRight: 8 }}>{r.licenseName}</Text>
-              <Tag color="blue" style={{ marginInlineEnd: 0 }}>seat #{r.seatNumber}</Tag>
+              <Tag color="blue" style={{ marginInlineEnd: 0 }}>ghế #{r.seatNumber}</Tag>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 10px' }}>
               <Text type="secondary" style={{ fontSize: 12 }}>Ngày cấp</Text>

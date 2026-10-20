@@ -104,28 +104,28 @@ export default function MaintenanceTemplateListPage() {
       const values = await form.validateFields();
       if (editingId) {
         await apiClient.put(`/maintenance/templates/${editingId}`, values);
-        message.success('Đã cập nhật template');
+        message.success('Đã cập nhật mẫu bảo dưỡng');
       } else {
         await apiClient.post('/maintenance/templates', values);
-        message.success('Đã tạo template');
+        message.success('Đã tạo mẫu bảo dưỡng');
       }
       handleClose();
       actionRef.current?.reload();
     } catch (err: unknown) {
       const e = err as { errorFields?: unknown; response?: { data?: { message?: string; error_code?: string } } };
       if (e?.errorFields) return;
-      message.error(e?.response?.data?.message || 'Lỗi lưu template');
+      message.error(e?.response?.data?.message || 'Lỗi lưu mẫu bảo dưỡng');
     }
   };
 
   const handleDelete = async (record: TemplateDto) => {
     try {
       await apiClient.delete(`/maintenance/templates/${record.id}`);
-      message.success('Đã xóa template');
+      message.success('Đã xóa mẫu bảo dưỡng');
       actionRef.current?.reload();
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
-      message.error(e?.response?.data?.message || 'Không thể xóa template');
+      message.error(e?.response?.data?.message || 'Không thể xóa mẫu bảo dưỡng');
     }
   };
 
@@ -149,7 +149,7 @@ export default function MaintenanceTemplateListPage() {
       </Tooltip>
     ),
     canManage && (
-      <Popconfirm key="del" title="Xóa template?" onConfirm={() => handleDelete(record)}>
+      <Popconfirm key="del" title="Xóa mẫu bảo dưỡng?" onConfirm={() => handleDelete(record)}>
         <Tooltip title="Xóa">
           <Button size="small" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()} />
         </Tooltip>
@@ -159,7 +159,7 @@ export default function MaintenanceTemplateListPage() {
 
   const columns: ProColumns<TemplateDto>[] = [
     {
-      title: 'Tên template', dataIndex: 'name', key: 'name', width: 220,
+      title: 'Tên mẫu', dataIndex: 'name', key: 'name', width: 220,
       // [FE-R4] Click-cả-row mở detail (onRow ở ProTable) — cột tên là text thường, không còn <a> riêng.
       render: (_, r) => <Text strong>{r.name}</Text>,
     },
@@ -223,7 +223,7 @@ export default function MaintenanceTemplateListPage() {
           name="name"
           rules={[{ required: true, message: 'Vui lòng nhập tên mẫu' }]}
         >
-          <Input placeholder="VD: Checklist bảo dưỡng định kỳ" maxLength={255} />
+          <Input placeholder="VD: Danh mục kiểm tra bảo dưỡng định kỳ" maxLength={255} />
         </Form.Item>
         <Form.Item
           label="Hệ thống áp dụng"
@@ -284,7 +284,7 @@ export default function MaintenanceTemplateListPage() {
               return { data, success: true, total: data.length };
             } catch (err: unknown) {
               const e = err as { response?: { data?: { message?: string } } };
-              message.error(e?.response?.data?.message || 'Lỗi tải danh sách template');
+              message.error(e?.response?.data?.message || 'Lỗi tải danh sách mẫu bảo dưỡng');
               return { data: [], success: false, total: 0 };
             }
           }}
@@ -355,7 +355,7 @@ export default function MaintenanceTemplateListPage() {
             return { data, success: true, total: data.length };
           } catch (err: unknown) {
             const e = err as { response?: { data?: { message?: string } } };
-            message.error(e?.response?.data?.message || 'Lỗi tải danh sách template');
+            message.error(e?.response?.data?.message || 'Lỗi tải danh sách mẫu bảo dưỡng');
             return { data: [], success: false, total: 0 };
           }
         }}
