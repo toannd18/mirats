@@ -4475,3 +4475,50 @@ Backup DB tự động + diễn tập restore; backup trước migrate + runbook
 
 ### Còn lại (P0)
 TLS/HSTS tại NPM + đóng port backend; **diễn tập nâng cấp/rollback thật** (deploy.sh + runbook đã có, chưa chạy upgrade drill).
+
+---
+
+## 2026-10-20 — NPM production model: internal-only + 2-layer proxy/IP thật (commit `904e715`)
+
+### Thay đổi
+1. **`docker-compose.npm.yml` hoàn thiện**:
+   - Chỉ **frontend** join mạng external NPM (`NPM_NETWORK` bắt buộc); server/postgres/redis/backup chỉ ở
+     mạng nội bộ (`MIRATS_NETWORK`, mặc định `mirats-internal`).
+   - **Không publish port** nào (`ports: !reset []` cho server/frontend; DB/Redis/backup vốn không có).
+   - `container_name: mirats-frontend` cố định để NPM trỏ tới.
+   - Backend vẫn nhận `Proxy__KnownNetworks` (đúng 2 subnet), `Proxy__ForwardLimit=2`, WebAuthn RP/origin.
+2. **`frontend/nginx.conf`**:
+   - `map` giữ nguyên `X-Forwarded-Proto` từ NPM (fallback `$scheme` chỉ khi không có proxy header),
+     `Host $http_host`, forward `X-Forwarded-Scheme`, nối `X-Forwarded-For`.
+   - `client_max_body_size 30m` + `client_body_timeout 300s`; `proxy_read_timeout`/`proxy_send_timeout` 300s.
+   - **Fix phát hiện khi test:** thêm `proxy_http_version 1.1` + `Connection ""` — nếu không, POST **không body**
+     (refresh/logout) bị Kestrel trả 400 vì HTTP/1.1 thiếu Content-Length/TE.
+3. **Docs**: `DEPLOYMENT.md §11.2` viết lại thành **"Kết nối NPM — mô hình chốt"** (tìm mạng/subnet, `.env`,
+   Proxy Host: `mirats-frontend:80`, scheme http, SSL Custom, Force SSL, HSTS **không** subdomains, HTTP/2, checklist);
+   §11.4/guide cập nhật `NPM_NETWORK` + `MIRATS_NETWORK`; `.env.example` cập nhật.
+4. **Test**: thêm 2 test `ProxyHeadersTests` cho chuỗi 2 lớp XFF `client, NPM` + `ForwardLimit=2` và scheme
+   `XFP=http + XS=https` → IP thật + scheme https.
+
+### Bằng chứng (stack tạm, NPM giả lập bằng nginx gửi đúng bộ header NPM, TLS CA tạm)
+- **Chọn cách:** dùng **nginx** (không dùng image NPM) với header NPM thật: `Host` gốc, `X-Forwarded-Proto: https`,
+  `X-Forwarded-Scheme: https`, `X-Forwarded-For: 203.0.113.10/11`; TLS cert ký bằng CA tạm (SAN `mirats.internal`).
+- **HTTPS qua proxy** (verify CA, `ssl_verify_result=0`): `/` = 200, `/api/v1/health` = 200,
+  `/api/v1/health/ready` = 200.
+- **Login + refresh:** login 200, `Set-Cookie: refreshToken=...; secure; httponly; samesite=lax; path=/api/v1/auth`;
+  refresh bằng cookie = **200** (sau fix HTTP/1.1; trước fix là 400).
+- **Passkey:** bật `auth.passkeys.enabled`, `POST /auth/passkeys/register/options` = 200 với
+  `rp.id = mirats.internal`; chưa đăng ký credential thật vì không có authenticator trong môi trường CLI
+  (không có browser/virtual authenticator), đã tắt lại setting.
+- **IP thật (2 lớp):** `ActionLog.RemoteIp` = `203.0.113.10` / `203.0.113.11`; `auth_login_attempts` nhóm theo
+  IP `.10` (39) / `.11` (6). Không phải IP nginx.
+- **Brute-force:** 31 lần sai liên tiếp từ IP A (mỗi lần username khác) → 30 `INVALID_CREDENTIALS`, lần 31 vẫn
+  `INVALID_CREDENTIALS` (queue ghi nhận), **request kế tiếp từ IP A** (admin) → `ACCOUNT_LOCKED`; **IP B đăng nhập OK**.
+- **Upload >1 MB:** file XLSX **1.315.931 bytes** → `POST /api/v1/import/reference` = **200** (không 413).
+- **Port host:** `5000`, `5432`, `6379` đều **không kết nối được**; `docker compose config` có **0** dòng `ports:`.
+- **Mạng:** `ready-npm` chỉ có `npm-proxy` (giả lập NPM) + `mirats-frontend`; server/Postgres chỉ ở `ready-mirats`.
+- **Gates:** `precommit-gates.ps1` **PASS 6/6**; test **723 passed / 37 skipped** (+2 proxy-layer tests).
+- Stack tạm/proxy/echo/volume/network/image đã dọn sạch.
+
+### Còn lại (P0)
+- Xác nhận trên **NPM thật** (certificate nội bộ, domain thật, HSTS không subdomains).
+- Diễn tập nâng cấp/rollback thật (`scripts/deploy.sh` + runbook đã có).
