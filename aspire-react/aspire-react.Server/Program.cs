@@ -6,6 +6,8 @@ using aspire_react.Server.Infrastructure.Caching;
 using aspire_react.Server.Infrastructure.Persistence;
 using aspire_react.Server.Web;
 using aspire_react.Server.Web.ExceptionHandlers;
+using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
 using System.Text.Json.Serialization;
 
 using aspire_react.Server.Infrastructure.Networking;
@@ -111,11 +113,56 @@ app.MapDefaultEndpoints();
 // API routes placeholder
 var api = app.MapGroup("/api/v1");
 
-// Health endpoint (anonymous)
+// Liveness endpoint (anonymous): process is up. Does NOT touch dependencies — keep it cheap and
+// stable so it stays useful when Postgres/Redis are down. Callers: frontend nginx `/health`
+// passthrough (nginx.conf), DEPLOYMENT.md verification, API.md.
 api.MapGet("health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
    .WithName("ApiHealth")
    .ExcludeFromDescription()
    .AllowAnonymous();
+
+// [READY GĐ2] Readiness endpoint (anonymous): REAL Postgres + Redis checks, 200 only when both are
+// reachable. The response exposes per-component status ONLY — never connection strings, exception
+// messages or other internal details. Each check is capped (DB 5s, Redis 3s) so a dead dependency
+// cannot hang the healthcheck.
+api.MapGet("health/ready", async (AppDbContext db, IConnectionMultiplexer redis, CancellationToken cancellationToken) =>
+{
+    var postgresHealthy = false;
+    try
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        postgresHealthy = await db.Database.CanConnectAsync(timeout.Token)
+            .WaitAsync(TimeSpan.FromSeconds(6), cancellationToken);
+    }
+    catch { }
+
+    var redisHealthy = false;
+    try
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(3));
+        await redis.GetDatabase().PingAsync().WaitAsync(TimeSpan.FromSeconds(4), cancellationToken);
+        redisHealthy = true;
+    }
+    catch { }
+
+    var healthy = postgresHealthy && redisHealthy;
+    var payload = new
+    {
+        status = healthy ? "healthy" : "unhealthy",
+        checks = new Dictionary<string, string>
+        {
+            ["postgres"] = postgresHealthy ? "healthy" : "unhealthy",
+            ["redis"] = redisHealthy ? "healthy" : "unhealthy"
+        }
+    };
+
+    return Results.Json(payload, statusCode: healthy ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+})
+.WithName("ApiHealthReady")
+.ExcludeFromDescription()
+.AllowAnonymous();
 
 app.UseFileServer();
 

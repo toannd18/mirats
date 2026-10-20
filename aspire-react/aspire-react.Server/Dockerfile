@@ -43,10 +43,10 @@ COPY --from=build /app .
 ENV ASPNETCORE_URLS=http://+:5000
 EXPOSE 5000
 
-# Healthcheck: TCP-connect to :5000 (same as docker-compose.yml). Do NOT use HTTP
-# /health: (1) aspnet:10.0 has no wget/curl; (2) ServiceDefaults /health only exists in
-# Development, and prod runs Production where it returns 404. bash /dev/tcp works everywhere.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/5000' || exit 1
+# [READY GĐ2] HTTP readiness probe (Postgres + Redis). bash + /dev/tcp + grep exist in
+# aspnet:10.0 (no wget/curl); /api/v1/health/ready exists in Production (unlike ServiceDefaults
+# /health, which is Development-only).
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=2 \
+  CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/5000 && printf "GET /api/v1/health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && grep -q "200 OK" <&3' || exit 1
 
 ENTRYPOINT ["dotnet", "aspire-react.Server.dll"]

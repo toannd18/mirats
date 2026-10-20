@@ -13,8 +13,9 @@ Tất cả endpoint yêu cầu header `Authorization: Bearer <token>` trừ các
 
 | Method | Route | Auth | Mô tả |
 |--------|-------|------|-------|
-| `GET` | `/health` | None | Health check tổng |
-| `GET` | `/api/v1/health` | None | API health |
+| `GET` | `/health` | None | Health check tổng (ServiceDefaults — **chỉ Development**) |
+| `GET` | `/api/v1/health` | None | API liveness (process; không kiểm tra DB/Redis) |
+| `GET` | `/api/v1/health/ready` | None | API readiness: Postgres + Redis thật; 200 đủ / 503 thiếu |
 
 ---
 

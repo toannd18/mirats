@@ -20,7 +20,7 @@
 | **Docker Compose** | v2 (đi kèm Docker Desktop / plugin compose của Docker) |
 | **HĐH** | Windows (Docker Desktop) hoặc Linux/macOS. Các lệnh `bash scripts/*.sh` cần `bash`; Windows dùng `scripts/*.ps1`. |
 | **Tài nguyên** | 4 GB RAM khả dụng trở lên (stack gồm Postgres + Redis + .NET API + Nginx). |
-| **Port trống** | `5000` (API, đổi được qua `BACKEND_PORT`), `80` (Frontend, đổi qua `FRONTEND_PORT`), `5050` chỉ khi bật profile debug. |
+| **Port trống** | `5000` (API, đổi được qua `BACKEND_PORT`), `80` (Frontend, đổi qua `FRONTEND_PORT`), `5050` chỉ khi dùng overlay debug. |
 | **TLS (bắt buộc cho domain thật)** | Xem §4.5 — refresh cookie là `Secure`, và passkey/WebAuthn yêu cầu secure context. |
 
 **Không bắt buộc:** .NET SDK, Node.js. Mọi thứ build trong image (multi-stage). Bạn chỉ cần Docker.
@@ -32,7 +32,8 @@
 ```
 <repo root>/
 ├── .env.example                    # template biến môi trường (bắt buộc copy → .env)
-├── docker-compose.yml              # stack production (4 services + pgadmin profile debug)
+├── docker-compose.yml              # stack production (4 services; pgAdmin KHÔNG nằm ở đây)
+├── docker-compose.debug.yml        # overlay debug: pgAdmin (bắt buộc PGADMIN_PASSWORD)
 ├── scripts/
 │   ├── docker-reset.sh             # reset dữ liệu stack (Linux/macOS)
 │   └── docker-reset.ps1            # reset dữ liệu stack (Windows)
@@ -68,9 +69,9 @@ cp .env.example .env
 
 Các biến TÙY CHỌN đã có default hợp lý: `AUTH_ISSUER` (`aspire-react`), `AUTH_AUDIENCE` (`aspire-react-api`), `INITIAL_ADMIN_USERNAME` (`admin`), `INITIAL_ADMIN_EMAIL` (`admin@localhost`), `VITE_API_BASE_URL` (`/api/v1`), `BACKEND_PORT` (`5000`), `FRONTEND_PORT` (`80`), `ASPNETCORE_URLS`, `ASPNETCORE_ENVIRONMENT`, `POSTGRES_DB/USER/PORT`, `REDIS_PORT`.
 
-> ⚠️ `PGADMIN_PASSWORD` **không còn default** (`pgadmin`): compose đọc/validate toàn bộ file trước khi lọc profile,
-> nên biến này phải có giá trị ngay cả khi **không** bật `--profile debug` — nếu thiếu, `docker compose` báo lỗi
-> interpolation. Chỉ dùng khi bật pgAdmin (§5.1).
+> ⚠️ **pgAdmin đã tách khỏi stack production**: `PGADMIN_PASSWORD` **không** còn nằm trong danh sách bắt buộc của
+> `docker-compose.yml`. Chỉ cần set khi dùng overlay debug (`docker-compose.debug.yml`, §5.1) — file đó vẫn bắt buộc
+> biến này (`${PGADMIN_PASSWORD:?required}`).
 
 > ⚠️ **Không commit `.env`.** File này chứa secret thật và đã có trong `.gitignore`.
 
@@ -125,10 +126,11 @@ Bootstrap admin 'admin' created (local auth).
 3. Vào trang Dashboard → phải hiển thị dữ liệu (migrate + seed đã tự chạy lúc server khởi động).
 4. **(Khuyến nghị)** vào **Hồ sơ tài khoản → Đổi mật khẩu** để thay mật khẩu bootstrap bằng mật khẩu riêng.
 
-> **Xác minh nhanh API:** `GET http://localhost:5000/api/v1/health` → `200`. Với token hợp lệ (đăng nhập
+> **Xác minh nhanh API:** `GET http://localhost:5000/api/v1/health` → `200` (liveness). `GET
+> http://localhost:5000/api/v1/health/ready` → `200` khi Postgres + Redis sẵn sàng. Với token hợp lệ (đăng nhập
 > qua `POST /api/v1/auth/login`), `GET http://localhost:5000/api/v1/dashboard/summary` → `200`.
 >
-> ⚠️ **Lưu ý `/health` vs `/api/v1/health`:** `GET /health` và `GET /alive` (từ ServiceDefaults `MapDefaultEndpoints`) **chỉ được map khi `ASPNETCORE_ENVIRONMENT=Development`**. Trong compose prod (`Production`) 2 endpoint này KHÔNG tồn tại → truy cập `/health` trả **404**. Endpoint health đúng của prod là **`/api/v1/health`** (anonymous, luôn có). Healthcheck container dùng TCP-connect (không cần endpoint HTTP) nên container vẫn healthy.
+> ⚠️ **Lưu ý `/health` vs `/api/v1/health`:** `GET /health` và `GET /alive` (từ ServiceDefaults `MapDefaultEndpoints`) **chỉ được map khi `ASPNETCORE_ENVIRONMENT=Development`**. Trong compose prod (`Production`) 2 endpoint này KHÔNG tồn tại → truy cập `/health` trả **404**. Endpoint health đúng của prod là **`/api/v1/health`** (liveness) và **`/api/v1/health/ready`** (readiness DB/Redis, anonymous). Healthcheck container gọi HTTP `/api/v1/health/ready`.
 
 ---
 
@@ -223,14 +225,17 @@ bỏ HTTPS, nhớ xoá HSTS trên proxy để tránh trình duyệt ép HTTPS tr
 
 ## 5. Debug / Development
 
-### 5.1 Bật pgAdmin (profile `debug`)
+### 5.1 Bật pgAdmin (overlay `docker-compose.debug.yml`)
 
 ```bash
-docker compose --profile debug up -d pgadmin
-# BẮT BUỘC set PGADMIN_PASSWORD trong .env (không còn default "pgadmin")
+# Production KHÔNG cần PGADMIN_PASSWORD; overlay debug thì bắt buộc:
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d pgadmin
 # truy cập http://localhost:5050  (login: PGADMIN_DEFAULT_EMAIL / PGADMIN_PASSWORD từ .env)
 # host DB để kết nối trong pgAdmin: tên service `postgres` (cần map cổng — xem §5.2)
 ```
+
+> pgAdmin nằm **hoàn toàn ngoài** `docker-compose.yml`; nếu chạy stack production chỉ với file gốc thì không có
+> container pgAdmin và không cần biến `PGADMIN_PASSWORD`.
 
 ### 5.2 Expose Postgres/Redis ra host khi debug (docker-compose.override.yml)
 
@@ -293,6 +298,8 @@ Script sẽ:
 |---|---|
 | **TLS** | Stack không tự terminate TLS — **phải** đặt reverse proxy/LB phía trước (§4.5) |
 | **Security headers** | API + frontend Nginx đã gửi `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy` / `Permissions-Policy`; **HSTS đặt tại NPM** (nơi kết thúc TLS); CSP để P1 |
+| **Health** | `/api/v1/health` = liveness (process), `/api/v1/health/ready` = readiness (Postgres + Redis thật, 503 khi thiếu); compose healthcheck server gọi HTTP `/ready` |
+| **Logging** | Docker `json-file` + rotation **10 MB × 5 file** mỗi service (§10); chưa có thu thập tập trung (Zabbix/Wazuh ở P1) |
 | **Backup** | Chưa có backup tự động. Cần `pg_dump` định kỳ + backup secret (`AUTH_SIGNING_KEY`, `.env`) |
 | **Rotate khóa ký** | Thủ công: đổi `AUTH_SIGNING_KEY` + `docker compose up -d server` (mọi access token cũ vô hiệu) |
 | **Rate limit tầng ngoài** | Chống brute-force trong app là per-username/per-IP process-local; nên thêm rate limit ở reverse proxy |
@@ -312,7 +319,9 @@ Script sẽ:
 
 - **Triệu chứng:** healthcheck của Server **fail vĩnh viễn** (`Unhealthy`) dù service hoạt động; log healthcheck `wget: not found`.
 - **Nguyên nhân:** `mcr.microsoft.com/dotnet/aspnet:10.0` không cài wget/curl.
-- **Khắc phục:** healthcheck dùng **bash `/dev/tcp`**: `bash -c 'exec 3<>/dev/tcp/127.0.0.1/5000'`. Frontend (nginx:alpine) có busybox `wget` nên dùng wget được. Đã áp dụng cho CẢ `docker-compose.yml` LẪN `aspire-react.Server/Dockerfile`.
+- **Khắc phục:** healthcheck dùng **bash `/dev/tcp`** để gửi HTTP request (không cần wget/curl):
+  `bash -c 'exec 3<>/dev/tcp/127.0.0.1/5000 && printf "GET /api/v1/health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && grep -q "200 OK" <&3'`.
+  Frontend (nginx:alpine) có busybox `wget` nên dùng wget được. Đã áp dụng cho CẢ `docker-compose.yml` LẪN `aspire-react.Server/Dockerfile`.
 
 ### 8.3 Build frontend fail: "Dev HTTPS certificates not found"
 
@@ -371,8 +380,7 @@ Script sẽ:
 > Nguồn chính thức: `.env.example` (giữ comment chi tiết). Bảng dưới là tóm tắt.
 
 **BẮT BUỘC (compose fail nếu thiếu):** `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `AUTH_SIGNING_KEY`,
-`AUTH_BOOTSTRAP_ADMIN_PASSWORD`, `CORS_ALLOWED_ORIGINS`, `PGADMIN_PASSWORD` (validate ở bước đọc file — xem
-ghi chú §3 Bước 2).
+`AUTH_BOOTSTRAP_ADMIN_PASSWORD`, `CORS_ALLOWED_ORIGINS`.
 
 **TÙY CHỌN (có default):**
 
@@ -384,7 +392,7 @@ ghi chú §3 Bước 2).
 | Server | `ASPNETCORE_URLS`, `ASPNETCORE_ENVIRONMENT` | `http://+:5000`, `Production` |
 | Frontend | `VITE_API_BASE_URL` | `/api/v1` |
 | Ports | `BACKEND_PORT`, `FRONTEND_PORT` | `5000`, `80` |
-| pgAdmin (debug) | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_PASSWORD`, `PGADMIN_PORT` | `pgadmin@example.com`, **(bắt buộc — không default)**, `5050` |
+| pgAdmin (chỉ `docker-compose.debug.yml`) | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_PASSWORD`, `PGADMIN_PORT` | `pgadmin@example.com`, **(bắt buộc — không default)**, `5050` |
 | NPM (chỉ `docker-compose.npm.yml`) | `NPM_NETWORK_NAME`, `PROXY_KNOWN_NETWORKS`, `PROXY_FORWARD_LIMIT`, `WEBAUTHN_RPID`, `WEBAUTHN_ORIGINS` | (không default — bắt buộc, trừ `PROXY_FORWARD_LIMIT=2`) |
 
 > Ghi chú security: `CORS_ALLOWED_ORIGINS` được backend đọc khi khởi động (Program.cs) — đổi xong nhớ
@@ -398,17 +406,41 @@ ghi chú §3 Bước 2).
 
 ## 10. Health Checks & Monitoring (tóm tắt)
 
-- **Liveness/readiness:** `/api/v1/health` → 200 (prod). `/health` + `/alive` chỉ tồn tại khi
-  `ASPNETCORE_ENVIRONMENT=Development`. Healthcheck compose dùng TCP-connect: Postgres `pg_isready`,
-  Redis `redis-cli ping`, Server `/dev/tcp/5000`, Frontend `wget`. `aspire-react.Server/Dockerfile`
-  cũng dùng TCP `/dev/tcp/5000` (không dùng HTTP `/health` — image không có wget + `/health` không tồn tại ở Production).
-- **Logs:** `docker compose logs -f` (mọi service). OpenTelemetry/traces chỉ hoạt động khi chạy dưới Aspire
-  AppHost (dev) — compose prod không có Aspire Dashboard; logs lấy từ stdout container.
+- **Liveness:** `GET /api/v1/health` → 200 (prod, anonymous) — chỉ kiểm tra process, **không** chạm DB/Redis.
+  `/health` + `/alive` (ServiceDefaults) chỉ tồn tại khi `ASPNETCORE_ENVIRONMENT=Development`.
+- **Readiness:** `GET /api/v1/health/ready` (anonymous) → **200** khi **Postgres + Redis** đều truy cập được;
+  **503** khi thiếu một thành phần. Response chỉ có trạng thái từng thành phần (`postgres`, `redis`) —
+  không chứa connection string/chi tiết lỗi nội bộ. Healthcheck compose + Dockerfile gọi HTTP endpoint này
+  (bash `/dev/tcp`, không cần `wget`/`curl`). Postgres `pg_isready`, Redis `redis-cli ping`, frontend `wget` vẫn giữ.
+- **Logs:** Docker `json-file` + rotation **`max-size=10m`, `max-file=5`** cho mọi service (compose gốc + debug overlay).
+  Xem: `docker compose logs -f server` (hoặc `postgres` / `redis` / `frontend`);
+  đường dẫn file trên host: `docker inspect --format '{{.LogPath}}' <container>`
+  (Linux: `/var/lib/docker/containers/<id>/<id>-json.log`; Docker Desktop: nằm trong VM).
+  Log container **KHÔNG** thay thế ActionLog trong DB.
 - **Security headers:** API (`SecurityHeadersMiddleware`) và frontend Nginx gửi `X-Content-Type-Options: nosniff`,
   `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` tối thiểu.
   **HSTS cấu hình tại NPM** (§4.5) — KHÔNG đặt trong app/frontend (chỉ chạy HTTP nội bộ). CSP: P1.
 - **Backup (khuyến nghị):** Postgres — `pg_dump` định kỳ; secret — backup `.env` (đặc biệt `AUTH_SIGNING_KEY`).
   Xem §7.
+
+### 10.1 Giám sát bằng Zabbix
+
+Zabbix theo dõi **readiness** (không dùng `/api/v1/health` để cảnh báo phụ thuộc):
+
+1. **Item HTTP agent**
+   - URL: `https://<domain>/api/v1/health/ready`
+   - Request type: `GET`, timeout: `5s`, không cần auth (endpoint anonymous)
+   - Value: HTTP status code (200/503) — có thể thêm item JSON để đọc `checks.postgres` / `checks.redis`.
+2. **Trigger**
+   - `last(/<host>/health.ready.status)<>200` kéo dài **2 phút** ⇒ cảnh báo (bao trùm cả 503 lẫn timeout).
+   - Khuyến nghị mức **High**; gửi email/Telegram tới người vận hành.
+3. **Kiểm tra định kỳ**: 1 phút/lần. Khi trigger bật, xem nhanh:
+   `docker compose ps` (server healthy?), `docker compose logs --tail=100 server`,
+   `docker compose logs --tail=100 postgres` / `redis`.
+4. **Phân biệt**
+   - `/api/v1/health` = liveness: process còn sống (dùng cho container/upgrade).
+   - `/api/v1/health/ready` = readiness: DB + Redis thật (dùng cho Zabbix và compose healthcheck).
+5. **P1**: thu thập log tập trung bằng **Wazuh** (thay Loki/ELK) — xem `docs/BACKLOG.md`.
 
 ---
 
@@ -461,8 +493,9 @@ ghi chú §3 Bước 2).
    external của NPM, gỡ publish port trực tiếp, bơm `Proxy__*` +
    `Auth__WebAuthn__*`). Yêu cầu **Docker Compose ≥ 2.24** (file override dùng
    tag `!reset` để gỡ `ports` — bản cũ hơn không hiểu tag này và fail khi parse).
-6. Verify: `https://<domain>/api/v1/health` → 200; login → refresh tự gia hạn;
-   brute-force 2 IP khác nhau đếm riêng; ActionLog `RemoteIp` = IP client thật.
+6. Verify: `https://<domain>/api/v1/health` → 200 (liveness) và `https://<domain>/api/v1/health/ready` → 200
+   (readiness Postgres + Redis); login → refresh tự gia hạn; brute-force 2 IP khác nhau đếm riêng; ActionLog
+   `RemoteIp` = IP client thật.
 
 ### 11.3 Chuyển từ (b) sang (c) — thêm Cloudflare Tunnel
 

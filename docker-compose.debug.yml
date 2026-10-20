@@ -1,0 +1,33 @@
+# Mirats / AspireReact — Docker Compose DEBUG overlay (pgAdmin).
+#
+# Production stack = docker-compose.yml ONLY (no pgAdmin, no PGADMIN_PASSWORD needed).
+# This overlay is opt-in and must be passed explicitly:
+#   cp .env.example .env          # set PGADMIN_PASSWORD (required by this file)
+#   docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d pgadmin
+#
+# Access: http://localhost:${PGADMIN_PORT:-5050}
+# DB host inside pgAdmin: the compose service name `postgres` (web UI runs inside the compose network).
+#
+# [READY GĐ0/GĐ2] Split from the base file so production compose never requires pgAdmin secrets.
+# Log rotation mirrors the base stack (json-file 10m × 5).
+
+services:
+  pgadmin:
+    image: dpage/pgadmin4:9.15.0
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-pgadmin@example.com}
+      # No default password — the debug overlay must never come up with "pgadmin".
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?PGADMIN_PASSWORD is required — set it in .env (debug overlay)}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
