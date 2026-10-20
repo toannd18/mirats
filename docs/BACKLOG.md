@@ -1063,10 +1063,20 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
   DepartmentListPage, SystemInfoListPage. Verify UI thật (DB tạm, Vite 5176): xóa "Nhà cung cấp" trên form
   sửa bản quyền ⇒ DB `licenses."SupplierId" = NULL`; ảnh 1440 `screenshots/guidp2-license-before-1440.png` /
   `guidp2-license-after-1440.png`.
-- **Ghi chú 409 qua HTTP:** rà toàn bộ endpoint DELETE hiện tại — **tất cả** đã có guard mềm trả 400 với mã
+- **✅ Ghi chú 409 qua HTTP:** rà toàn bộ endpoint DELETE hiện tại — **tất cả** đã có guard mềm trả 400 với mã
   riêng (`LOCATION_IN_USE`, `ASSET_HAS_*`, `POSITION_IN_USE_*`, `COMPANY_HAS_*`…), nên **không còn** endpoint
   nào để tái hiện 409 bằng fixture thường. Nhánh 409 của lưới an toàn được chứng minh bằng test Postgres
   thật (xóa `locations` cha còn con → `23001` → handler trả 409) và sẽ bảo vệ các race/future endpoint.
+- **✅ Đối chiếu FE ↔ backend (2026-10-20, sau review):** lập bảng 12 cặp form ↔ lệnh Update; phát hiện 2 lệch:
+  (a) **Accessory** — FE `AccessoryFormModal` đã gửi `Guid.Empty` nhưng `UpdateAccessoryCommand` **chưa** hỗ trợ
+  quy ước ⇒ bỏ chọn supplier sẽ ghi `Guid.Empty` vào FK (500). Đã bổ sung `OptionalForeignKey` + kiểm tồn tại
+  cho 5 FK (category/manufacturer/supplier/location/company) + 2 test.
+  (b) **Model** — backend `UpdateModelCommand` đã hỗ trợ nhưng FE `AssetModelListPage` gửi `values` thô (undefined
+  ⇒ không xóa được liên kết). Đã sửa FE gửi `Guid.Empty` cho 4 FK.
+  Verify UI thật trên **Accessory**: bỏ chọn "Nhà cung cấp" → Lưu ⇒ DB `accessories."SupplierId" = NULL`;
+  ảnh 1440 `screenshots/guidp3-accessory-before-1440.png` / `guidp3-accessory-after-1440.png`.
+- **Response lỗi FK (chốt 2026-10-20):** body chỉ có `status`/`message`/`error_code` — **không** trả tên
+  constraint/bảng; chi tiết chỉ ghi warning log (test đã cập nhật theo).
 
 ---
 

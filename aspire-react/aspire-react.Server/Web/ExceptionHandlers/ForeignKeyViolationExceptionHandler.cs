@@ -66,9 +66,7 @@ public sealed class ForeignKeyViolationExceptionHandler(
             {
                 status = "error",
                 message = "Bản ghi đang được sử dụng bởi dữ liệu khác nên không thể xóa hoặc thay đổi.",
-                error_code = ResourceInUseCode,
-                constraint,
-                table
+                error_code = ResourceInUseCode
             }, cancellationToken);
             return true;
         }
@@ -83,9 +81,7 @@ public sealed class ForeignKeyViolationExceptionHandler(
         {
             status = "error",
             message = "Dữ liệu tham chiếu không tồn tại hoặc đã bị xóa.",
-            error_code = ReferenceNotFoundCode,
-            constraint,
-            table
+            error_code = ReferenceNotFoundCode
         }, cancellationToken);
         return true;
     }

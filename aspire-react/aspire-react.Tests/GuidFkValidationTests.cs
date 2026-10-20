@@ -210,6 +210,56 @@ public class GuidFkValidationTests
         Assert.True(validation.IsValid, string.Join("; ", validation.Errors.Select(e => $"{e.PropertyName}:{e.ErrorMessage}")));
     }
 
+    // ==================== Accessory (bổ sung sau đối chiếu FE ↔ backend) ====================
+
+    [Fact]
+    public async Task UpdateAccessory_GuidEmpty_Clears_Supplier_Link()
+    {
+        await using var ctx = TestHelpers.CreateContext(nameof(UpdateAccessory_GuidEmpty_Clears_Supplier_Link));
+        var supplier = new Supplier { Code = "ACC-CLR", Name = "NCC phụ kiện" };
+        ctx.Suppliers.Add(supplier);
+        await ctx.SaveChangesAsync();
+        var accessory = new Accessory { Name = "Chuột", Qty = 5, MinAmt = 1, SupplierId = supplier.Id };
+        ctx.Accessories.Add(accessory);
+        await ctx.SaveChangesAsync();
+
+        var handler = new aspire_react.Server.Application.Accessories.Commands.UpdateAccessoryCommandHandler(
+            ctx, new TestHelpers.SuperUserScope());
+
+        var result = await handler.Handle(new aspire_react.Server.Application.Accessories.Commands.UpdateAccessoryCommand
+        {
+            Id = accessory.Id,
+            SupplierId = Guid.Empty,
+            CurrentUserId = ActorId
+        }, CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        var reloaded = await ctx.Accessories.AsNoTracking().SingleAsync(a => a.Id == accessory.Id);
+        Assert.Null(reloaded.SupplierId);
+    }
+
+    [Fact]
+    public async Task UpdateAccessory_Unknown_Supplier_Returns_400_ResourceNotFound()
+    {
+        await using var ctx = TestHelpers.CreateContext(nameof(UpdateAccessory_Unknown_Supplier_Returns_400_ResourceNotFound));
+        var accessory = new Accessory { Name = "Bàn phím", Qty = 2, MinAmt = 1 };
+        ctx.Accessories.Add(accessory);
+        await ctx.SaveChangesAsync();
+
+        var handler = new aspire_react.Server.Application.Accessories.Commands.UpdateAccessoryCommandHandler(
+            ctx, new TestHelpers.SuperUserScope());
+
+        var result = await handler.Handle(new aspire_react.Server.Application.Accessories.Commands.UpdateAccessoryCommand
+        {
+            Id = accessory.Id,
+            SupplierId = Guid.NewGuid(),
+            CurrentUserId = ActorId
+        }, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("RESOURCE_NOT_FOUND", result.ErrorCode);
+    }
+
     // ==================== hạ tầng ====================
 
     private static async Task<AppDbContext> CreatePostgresContextAsync()

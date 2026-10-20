@@ -139,10 +139,10 @@ Endpoint duy nhất của UsersController dùng **`error_code` snake** (không p
 | `23503` + "update or delete on table … violates foreign key constraint" | **409** | `RESOURCE_IN_USE` | Xóa/sửa bản ghi cha nhưng vẫn còn hàng con tham chiếu |
 | `23001` (restrict_violation — FK `ON DELETE RESTRICT`) | **409** | `RESOURCE_IN_USE` | Như trên (PostgreSQL dùng mã riêng cho RESTRICT) |
 
-Body: `{ "status":"error", "message":"…", "error_code":"…", "constraint":"<tên FK>", "table":"<bảng>" }`
-(kèm **warning log** có tên constraint để chẩn đoán). Các SQLSTATE khác (`23505` unique, `23514` check…)
-**không** bị handler này nuốt. Các chỗ đã có xử lý riêng (mã lỗi cụ thể) vẫn thắng vì chúng chặn trước
-khi exception được ném ra.
+Body: `{ "status":"error", "message":"…", "error_code":"…" }` — **KHÔNG** trả tên constraint/bảng ra response;
+chi tiết đó chỉ nằm trong **warning log** (`Reference violation <SqlState> … table …, constraint …`) để chẩn đoán.
+Các SQLSTATE khác (`23505` unique, `23514` check…) **không** bị handler này nuốt. Các chỗ đã có xử lý riêng
+(mã lỗi cụ thể) vẫn thắng vì chúng chặn trước khi exception được ném ra.
 
 ---
 

@@ -560,7 +560,7 @@ public class InstallationCorrectionTests
     private static async Task<Fixture> SeedAsync(AppDbContext db)
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
-        var company = new Company { Name = $"Công ty LL5 {suffix}", Code = $"LL5{suffix[..3].ToUpperInvariant()}" };
+        var company = new Company { Name = $"Công ty LL5 {suffix}", Code = $"LL5{suffix.ToUpperInvariant()}" };
         var actor = new User
         {
             Username = $"qa-ll5-{suffix}",
@@ -568,9 +568,9 @@ public class InstallationCorrectionTests
             FirstName = "Kiểm",
             LastName = "Thử"
         };
-        var system = new SystemInfo { Code = $"LL5A-2026-{suffix[..3].ToUpperInvariant()}", Name = $"Hệ thống LL5 {suffix}" };
-        var posA = new SystemPosition { Code = $"POSA-2026-{suffix[..3].ToUpperInvariant()}", Name = $"Kệ A {suffix}", SystemInfoId = system.Id };
-        var posB = new SystemPosition { Code = $"POSB-2026-{suffix[..3].ToUpperInvariant()}", Name = $"Kệ B {suffix}", SystemInfoId = system.Id };
+        var system = new SystemInfo { Code = $"LL5A-2026-{suffix[..6].ToUpperInvariant()}", Name = $"Hệ thống LL5 {suffix}" };
+        var posA = new SystemPosition { Code = $"POSA-2026-{suffix[..6].ToUpperInvariant()}", Name = $"Kệ A {suffix}", SystemInfoId = system.Id };
+        var posB = new SystemPosition { Code = $"POSB-2026-{suffix[..6].ToUpperInvariant()}", Name = $"Kệ B {suffix}", SystemInfoId = system.Id };
         var asset = new Asset
         {
             AssetTag = $"LL5-AST-{suffix}",

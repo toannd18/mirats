@@ -4,6 +4,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
+import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 
@@ -110,7 +111,16 @@ export default function AssetModelListPage() {
   const save = async () => {
     try {
       const values = await form.validateFields();
-      if (editingId) { await apiClient.put(`/models/${editingId}`, values); message.success('Đã cập nhật Model'); }
+      if (editingId) {
+        // [FIX-GUID-EMPTY phần 2] Bỏ chọn FK (khấu hao/fieldset/hãng/danh mục) ⇒ Guid.Empty để backend
+        // XÓA liên kết; gửi undefined sẽ bị hiểu là "không gửi" (quy ước: docs/API.md).
+        const payload = {
+          ...values,
+          ...withOptionalFkCleared(values, ['manufacturerId', 'categoryId', 'depreciationId', 'fieldsetId']),
+        };
+        await apiClient.put(`/models/${editingId}`, payload);
+        message.success('Đã cập nhật Model');
+      }
       else { await apiClient.post('/models', values); message.success('Đã tạo Model'); }
       handleClose(); actionRef.current?.reload();
     } catch (err: unknown) {

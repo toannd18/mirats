@@ -3,6 +3,7 @@ using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Validation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -94,7 +95,7 @@ public class UpdateAccessoryCommandHandler : IRequestHandler<UpdateAccessoryComm
 
         // CompanyId-lock after any checkout history (mirrors Consumable/License): past checkouts were
         // tied to the old company. Patch-aware — only when CompanyId is explicitly sent and differs.
-        if (r.CompanyId.HasValue && r.CompanyId.Value != a.CompanyId
+        if (r.CompanyId.HasValue && OptionalForeignKey.Cleared(r.CompanyId) != a.CompanyId
             && await _context.AccessoryCheckouts.AnyAsync(ch => ch.AccessoryId == r.Id, cancellationToken))
             return new UpdateAccessoryResult(false,
                 "Phụ kiện đã từng được cấp phát — không thể đổi công ty.", ErrorCode: "FIELD_LOCKED");
@@ -104,6 +105,29 @@ public class UpdateAccessoryCommandHandler : IRequestHandler<UpdateAccessoryComm
         if (hasActiveCheckouts)
             // Verbatim: this body has NO error_code (only status + message).
             return new UpdateAccessoryResult(false, "Không thể sửa phụ kiện đang có thiết bị đang được cấp phát.");
+
+        // [FIX-GUID-EMPTY phần 2 — 2026-10-20] FK TÙY CHỌN: vắng (null) = giữ nguyên; Guid.Empty = XÓA liên
+        // kết (null); id thật phải TỒN TẠI — trước đây id lạ/Guid.Empty ghi thẳng vào cột FK ⇒ 23503 ⇒ 500.
+        var newCategoryId = OptionalForeignKey.Cleared(r.CategoryId);
+        var newManufacturerId = OptionalForeignKey.Cleared(r.ManufacturerId);
+        var newSupplierId = OptionalForeignKey.Cleared(r.SupplierId);
+        var newLocationId = OptionalForeignKey.Cleared(r.LocationId);
+        var newCompanyId = OptionalForeignKey.Cleared(r.CompanyId);
+        if (newCategoryId is not null
+            && !await _context.Categories.AnyAsync(x => x.Id == newCategoryId, cancellationToken))
+            return new UpdateAccessoryResult(false, OptionalForeignKey.NotFoundMessage("categoryId"), ErrorCode: "RESOURCE_NOT_FOUND");
+        if (newManufacturerId is not null
+            && !await _context.Manufacturers.AnyAsync(x => x.Id == newManufacturerId, cancellationToken))
+            return new UpdateAccessoryResult(false, OptionalForeignKey.NotFoundMessage("manufacturerId"), ErrorCode: "RESOURCE_NOT_FOUND");
+        if (newSupplierId is not null
+            && !await _context.Suppliers.AnyAsync(x => x.Id == newSupplierId, cancellationToken))
+            return new UpdateAccessoryResult(false, OptionalForeignKey.NotFoundMessage("supplierId"), ErrorCode: "RESOURCE_NOT_FOUND");
+        if (newLocationId is not null
+            && !await _context.Locations.AnyAsync(x => x.Id == newLocationId, cancellationToken))
+            return new UpdateAccessoryResult(false, OptionalForeignKey.NotFoundMessage("locationId"), ErrorCode: "RESOURCE_NOT_FOUND");
+        if (newCompanyId is not null
+            && !await _context.Companies.AnyAsync(x => x.Id == newCompanyId, cancellationToken))
+            return new UpdateAccessoryResult(false, OptionalForeignKey.NotFoundMessage("companyId"), ErrorCode: "RESOURCE_NOT_FOUND");
 
         // [AUDIT-LOG B6a] helper dùng chung: Track BEFORE mutation (giá trị cũ), Set AFTER (giá trị mới).
         var changes = new ActionLogChanges()
@@ -128,11 +152,11 @@ public class UpdateAccessoryCommandHandler : IRequestHandler<UpdateAccessoryComm
         if (r.ItemNo is not null) a.ItemNo = r.ItemNo;
         if (r.Qty.HasValue) a.Qty = r.Qty.Value;
         if (r.MinAmt.HasValue) a.MinAmt = r.MinAmt.Value;
-        if (r.CategoryId is not null) a.CategoryId = r.CategoryId;
-        if (r.ManufacturerId is not null) a.ManufacturerId = r.ManufacturerId;
-        if (r.SupplierId is not null) a.SupplierId = r.SupplierId;
-        if (r.LocationId is not null) a.LocationId = r.LocationId;
-        if (r.CompanyId.HasValue) a.CompanyId = r.CompanyId.Value;
+        if (r.CategoryId is not null) a.CategoryId = newCategoryId;
+        if (r.ManufacturerId is not null) a.ManufacturerId = newManufacturerId;
+        if (r.SupplierId is not null) a.SupplierId = newSupplierId;
+        if (r.LocationId is not null) a.LocationId = newLocationId;
+        if (r.CompanyId.HasValue) a.CompanyId = newCompanyId;
         if (r.ModelNumber is not null) a.ModelNumber = r.ModelNumber;
         if (r.OrderNumber is not null) a.OrderNumber = r.OrderNumber;
         if (r.PurchaseCost is not null) a.PurchaseCost = r.PurchaseCost;

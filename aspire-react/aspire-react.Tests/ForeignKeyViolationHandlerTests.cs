@@ -9,7 +9,6 @@ using aspire_react.Server.Web.ExceptionHandlers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Xunit;
 
@@ -53,7 +52,7 @@ public class ForeignKeyViolationHandlerTests
         db.Assets.Add(asset);
         var exception = await CaptureAsync(() => db.SaveChangesAsync());
 
-        var (handler, http) = CreateHandler();
+        var (handler, http, logger) = CreateHandler();
         var handled = await handler.TryHandleAsync(http, exception, CancellationToken.None);
 
         Assert.True(handled);
@@ -62,9 +61,11 @@ public class ForeignKeyViolationHandlerTests
         Assert.Equal("error", payload.GetProperty("status").GetString());
         Assert.Equal(ForeignKeyViolationExceptionHandler.ReferenceNotFoundCode,
             payload.GetProperty("error_code").GetString());
-        // Log warning kèm tên constraint: response cũng phơi tên constraint để chẩn đoán.
-        Assert.Contains("locations", payload.GetProperty("constraint").GetString()!, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("assets", payload.GetProperty("table").GetString());
+        // Response KHÔNG lộ tên constraint/bảng (chỉ error_code + message); log warning thì CÓ để chẩn đoán.
+        Assert.False(payload.TryGetProperty("constraint", out _));
+        Assert.False(payload.TryGetProperty("table", out _));
+        Assert.Contains(logger.Messages, m => m.Contains("FK_assets_locations_LocationId", StringComparison.Ordinal));
+        Assert.Contains(logger.Messages, m => m.Contains("23503", StringComparison.Ordinal));
     }
 
     [ThrowawayDbFact]
@@ -97,7 +98,7 @@ public class ForeignKeyViolationHandlerTests
         db.Locations.Remove(new Location { Id = parentId });
         var exception = await CaptureAsync(() => db.SaveChangesAsync());
 
-        var (handler, http) = CreateHandler();
+        var (handler, http, logger) = CreateHandler();
         var handled = await handler.TryHandleAsync(http, exception, CancellationToken.None);
 
         Assert.True(handled);
@@ -106,7 +107,9 @@ public class ForeignKeyViolationHandlerTests
         Assert.Equal("error", payload.GetProperty("status").GetString());
         Assert.Equal(ForeignKeyViolationExceptionHandler.ResourceInUseCode,
             payload.GetProperty("error_code").GetString());
-        Assert.False(string.IsNullOrWhiteSpace(payload.GetProperty("constraint").GetString()));
+        Assert.False(payload.TryGetProperty("constraint", out _));
+        Assert.False(payload.TryGetProperty("table", out _));
+        Assert.Contains(logger.Messages, m => m.Contains("FK_locations", StringComparison.Ordinal));
 
         // dọn fixture (con trước, cha sau)
         await using var cleanup = await CreatePostgresContextAsync();
@@ -119,7 +122,7 @@ public class ForeignKeyViolationHandlerTests
     [Fact]
     public async Task Other_SqlStates_Are_Not_Handled_So_Existing_Mappings_Keep_Working()
     {
-        var (handler, http) = CreateHandler();
+        var (handler, http, logger) = CreateHandler();
 
         var uniqueViolation = new PostgresException(
             "duplicate key value violates unique constraint \"IX_x\"", "ERROR", "ERROR",
@@ -137,7 +140,7 @@ public class ForeignKeyViolationHandlerTests
     [Fact]
     public async Task ForeignKeyViolation_Handler_Ignores_When_Response_Already_Started()
     {
-        var (handler, http) = CreateHandler();
+        var (handler, http, logger) = CreateHandler();
         http.Features.Set<Microsoft.AspNetCore.Http.Features.IHttpResponseFeature>(new StartedResponseFeature());
 
         var pg = new PostgresException(
@@ -228,7 +231,7 @@ public class ForeignKeyViolationHandlerTests
         return db;
     }
 
-    private static (ForeignKeyViolationExceptionHandler Handler, DefaultHttpContext Http) CreateHandler()
+    private static (ForeignKeyViolationExceptionHandler Handler, DefaultHttpContext Http, CapturingLogger<ForeignKeyViolationExceptionHandler> Logger) CreateHandler()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -237,9 +240,24 @@ public class ForeignKeyViolationHandlerTests
         var http = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
         http.Response.Body = new MemoryStream();
 
-        var handler = new ForeignKeyViolationExceptionHandler(
-            NullLogger<ForeignKeyViolationExceptionHandler>.Instance);
-        return (handler, http);
+        var logger = new CapturingLogger<ForeignKeyViolationExceptionHandler>();
+        var handler = new ForeignKeyViolationExceptionHandler(logger);
+        return (handler, http, logger);
+    }
+
+    /// <summary>Logger giữ lại message để test khẳng định chi tiết chẩn đoán (constraint/SQLSTATE) nằm ở LOG.</summary>
+    private sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+    {
+        public List<string> Messages { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+            => Messages.Add(formatter(state, exception));
     }
 
     private static async Task<Exception> CaptureAsync(Func<Task> action)
