@@ -43,6 +43,28 @@ Tất cả endpoint yêu cầu header `Authorization: Bearer <token>` trừ các
 | `DELETE` | `/api/v1/users/{id:guid}` | `users.delete` |
 | `PUT` | `/api/v1/users/{id:guid}/groups` | `admin` | Gán nhóm cho user (thay thế toàn bộ); **chống self-lockout** (`SELF_LOCKOUT`) + ghi ActionLog |
 
+### Quy ước chung — trường KHÓA NGOẠI trong lệnh Update (patch semantics)
+
+> **[FIX-GUID-EMPTY phần 2, 2026-10-20]** Áp dụng cho **mọi endpoint Update** (Asset, Component,
+> Consumable, License, Location, Department, SystemInfo, Maintenance, Model, User…). User là nơi quy ước
+> này được dùng đầu tiên (mục dưới); nay chuẩn hoá cho toàn bộ.
+
+| Giá trị client gửi cho field FK **tùy chọn** (`Guid?`) | Ý nghĩa |
+|---|---|
+| *(không có field trong JSON)* | **Giữ nguyên** liên kết hiện có |
+| `"00000000-0000-0000-0000-000000000000"` (`Guid.Empty`) | **XÓA liên kết** (gán `null`) — FE gửi giá trị này khi người dùng bấm X (allowClear) trên ô select |
+| GUID thật | Gán liên kết; id **phải tồn tại**, nếu không → `400` `RESOURCE_NOT_FOUND` |
+
+- Trường FK **BẮT BUỘC** trên entity (VD `system_positions."SystemInfoId"`,
+  `asset_maintenances."CompanyId"`): `Guid.Empty` là **KHÔNG hợp lệ** → `400` với mã lỗi riêng của
+  endpoint (VD `SYSTEM_INFO_REQUIRED`); **không** được xóa thành `null`.
+- **Lưới an toàn toàn cục** (`ForeignKeyViolationExceptionHandler`) cho mọi endpoint chưa có guard riêng:
+  Postgres `23503` / `23001` →
+  `insert or update … violates foreign key` ⇒ **400** `REFERENCE_NOT_FOUND`;
+  `update or delete … violates …` (hoặc `23001` `restrict_violation`) ⇒ **409** `RESOURCE_IN_USE`.
+  Các chỗ đã có xử lý riêng (mã lỗi cụ thể như `RESOURCE_NOT_FOUND`, `LOCATION_REQUIRED`,
+  `INVALID_SUPPLIER`, `ASSET_ARCHIVED`…) **giữ nguyên**, vì chúng chặn trước khi exception được ném.
+
 ### `PUT /api/v1/users/{id:guid}` — patch semantics & sentinel `Guid.Empty`
 
 > Policy của endpoint này là **`admin`** (không phải `users.edit` — `UsersController.UpdateUser`),

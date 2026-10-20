@@ -1,5 +1,6 @@
 using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Validation;
 using aspire_react.Server.Application.SystemInfos;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -71,12 +72,18 @@ public class UpdateSystemInfoCommandHandler : IRequestHandler<UpdateSystemInfoCo
                 return new SystemInfoResult(false, "Mã hệ thống đã tồn tại.");
         }
 
+        // [FIX-GUID-EMPTY phần 2] FK TÙY CHỌN: vắng = giữ; Guid.Empty = xóa liên kết (null); id thật phải tồn tại.
+        var newCompanyId = OptionalForeignKey.Cleared(request.CompanyId);
+        if (newCompanyId is not null
+            && !await _context.Companies.AnyAsync(x => x.Id == newCompanyId, cancellationToken))
+            return new SystemInfoResult(false, OptionalForeignKey.NotFoundMessage("companyId"), "RESOURCE_NOT_FOUND");
+
         // [SEC-FIX P1] FIELD_LOCKED CompanyId — once the system is referenced by a child Position
         // (where Assets can be parked) or targeted by a LicenseSeat, moving it to another company
         // would silently re-scope those references. Mirrors Consumable-có-lịch-sử
         // (ConsumablesController FIELD_LOCKED) / License convention. Patch-aware: only
         // triggers when CompanyId is EXPLICITLY sent and DIFFERS — re-saving the same value passes.
-        if (request.CompanyId.HasValue && request.CompanyId.Value != s.CompanyId
+        if (request.CompanyId.HasValue && OptionalForeignKey.Cleared(request.CompanyId) != s.CompanyId
             && (await _context.SystemPositions.AnyAsync(p => p.SystemInfoId == request.Id, cancellationToken)
                 || await _context.LicenseSeats.AnyAsync(ls => ls.SystemInfoId == request.Id, cancellationToken)))
             return new SystemInfoResult(false,
@@ -93,7 +100,7 @@ public class UpdateSystemInfoCommandHandler : IRequestHandler<UpdateSystemInfoCo
         if (normalizedCode != null) s.Code = normalizedCode.ToUpper();
         if (!string.IsNullOrWhiteSpace(request.Name)) s.Name = request.Name;
         if (request.Description is not null) s.Description = request.Description;
-        if (request.CompanyId.HasValue) s.CompanyId = request.CompanyId;
+        if (request.CompanyId.HasValue) s.CompanyId = newCompanyId;
         await _context.SaveChangesAsync(cancellationToken);
 
         var logMeta = changes

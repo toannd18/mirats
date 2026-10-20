@@ -59,6 +59,9 @@ builder.Services.AddControllers()
 builder.Services.AddProblemDetails();
 // Maps FluentValidation.ValidationException (from ValidationBehavior) to a clean 400 response.
 builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
+// [FIX-GUID-EMPTY phần 2] Safety net: Postgres 23503 → 400 REFERENCE_NOT_FOUND / 409 RESOURCE_IN_USE
+// (keeps the specific error codes already produced by validators/handlers, which never throw).
+builder.Services.AddExceptionHandler<ForeignKeyViolationExceptionHandler>();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();

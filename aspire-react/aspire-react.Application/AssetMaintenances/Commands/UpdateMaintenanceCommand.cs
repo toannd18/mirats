@@ -1,5 +1,6 @@
 using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Validation;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -102,7 +103,11 @@ public class UpdateMaintenanceCommandHandler : IRequestHandler<UpdateMaintenance
             return new UpdateMaintenanceResult(false, "Ngày hoàn thành không được trước ngày bắt đầu.", "COMPLETION_BEFORE_START");
         if (request.Cost.HasValue && request.Cost.Value < 0)
             return new UpdateMaintenanceResult(false, "Chi phí không được âm.", "INVALID_COST");
-        if (request.SupplierId.HasValue && !await _context.Suppliers.AnyAsync(s => s.Id == request.SupplierId.Value, cancellationToken))
+        // [FIX-GUID-EMPTY phần 2 — 2026-10-20] FK TÙY CHỌN: vắng = giữ; Guid.Empty = xóa liên kết (null);
+        // id thật phải TỒN TẠI. Giữ mã lỗi cũ INVALID_SUPPLIER cho trường hợp id không tồn tại.
+        var newSupplierId = OptionalForeignKey.Cleared(request.SupplierId);
+        if (newSupplierId is not null
+            && !await _context.Suppliers.AnyAsync(s => s.Id == newSupplierId, cancellationToken))
             return new UpdateMaintenanceResult(false, "Nhà cung cấp không hợp lệ.", "INVALID_SUPPLIER");
 
         // [AUDIT-LOG B2 — BUG-S] Chụp giá trị CŨ TRƯỚC khi gán (LogMeta.changes). Danh sách assignee
@@ -131,7 +136,7 @@ public class UpdateMaintenanceCommandHandler : IRequestHandler<UpdateMaintenance
         if (!string.IsNullOrWhiteSpace(request.Title)) m.Title = request.Title.Trim();
         if (request.Notes is not null) m.Notes = request.Notes;
         if (request.Type.HasValue) m.Type = request.Type.Value;
-        if (request.SupplierId.HasValue) m.SupplierId = request.SupplierId;
+        if (request.SupplierId.HasValue) m.SupplierId = newSupplierId;
         if (request.CompletionDate.HasValue) m.CompletionDate = DateTime.SpecifyKind(request.CompletionDate.Value, DateTimeKind.Unspecified);
         if (request.Cost.HasValue) m.Cost = request.Cost;
         if (request.IsWarranty.HasValue) m.IsWarranty = request.IsWarranty.Value;

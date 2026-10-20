@@ -7,6 +7,7 @@ import { LockOutlined, SaveOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { assetService, type UpdateAssetPayload } from '../services/asset.service';
+import { fkForUpdate } from '../../../shared/utils/fk';
 import { ASSET_STATUS_LABELS, normalizeAssetStatus, type AssetDetailDto } from '../types/asset';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
@@ -102,10 +103,12 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
       // Locked fields (confirmed) vẫn gửi giá trị hiện tại để gate so bằng không chặn nhầm.
       const payload: UpdateAssetPayload = { name: values.name };
       if (values.serial) payload.serial = values.serial;
-      if (values.modelId) payload.modelId = values.modelId;
-      if (values.locationId) payload.locationId = values.locationId;
-      if (values.supplierId) payload.supplierId = values.supplierId;
-      if (values.companyId) payload.companyId = values.companyId;
+      // [FIX-GUID-EMPTY phần 2] FK tùy chọn: ô bị xóa (undefined) ⇒ EMPTY_GUID để backend XÓA liên kết;
+      // gửi undefined/null sẽ bị hiểu là "không gửi" ⇒ không xóa được (quy ước: docs/API.md).
+      payload.modelId = fkForUpdate(values.modelId);
+      payload.locationId = fkForUpdate(values.locationId);
+      payload.supplierId = fkForUpdate(values.supplierId);
+      payload.companyId = fkForUpdate(values.companyId);
       if (values.purchaseCost !== undefined) payload.purchaseCost = values.purchaseCost;
       if (values.purchaseDate) payload.purchaseDate = values.purchaseDate.toISOString();
       if (values.warrantyMonths !== undefined) payload.warrantyMonths = values.warrantyMonths;

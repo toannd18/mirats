@@ -1,5 +1,6 @@
 using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Validation;
 using aspire_react.Server.Application.Licenses;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -44,10 +45,21 @@ public class UpdateLicenseCommandHandler : IRequestHandler<UpdateLicenseCommand,
             return new LicenseResult(false, "License not found.", "NOT_FOUND");
 
         // Locked structural fields (same whitelist principle as Component/Maintenance).
-        if (request.CategoryId.HasValue && request.CategoryId.Value != l.CategoryId)
+        if (request.CategoryId.HasValue && OptionalForeignKey.Cleared(request.CategoryId) != l.CategoryId)
             return new LicenseResult(false, "Không thể đổi danh mục sau khi tạo.", "FIELD_LOCKED");
-        if (request.CompanyId.HasValue && request.CompanyId != l.CompanyId)
+        if (request.CompanyId.HasValue && OptionalForeignKey.Cleared(request.CompanyId) != l.CompanyId)
             return new LicenseResult(false, "Không thể đổi công ty sau khi tạo.", "FIELD_LOCKED");
+
+        // [FIX-GUID-EMPTY phần 2 — 2026-10-20] FK TÙY CHỌN: vắng = giữ; Guid.Empty = xóa liên kết (null);
+        // id thật phải TỒN TẠI (trước đây ⇒ Postgres 23503 ⇒ 500).
+        var newSupplierId = OptionalForeignKey.Cleared(request.SupplierId);
+        var newManufacturerId = OptionalForeignKey.Cleared(request.ManufacturerId);
+        if (newSupplierId is not null
+            && !await _context.Suppliers.AnyAsync(s => s.Id == newSupplierId, cancellationToken))
+            return new LicenseResult(false, OptionalForeignKey.NotFoundMessage("supplierId"), "RESOURCE_NOT_FOUND");
+        if (newManufacturerId is not null
+            && !await _context.Manufacturers.AnyAsync(m => m.Id == newManufacturerId, cancellationToken))
+            return new LicenseResult(false, OptionalForeignKey.NotFoundMessage("manufacturerId"), "RESOURCE_NOT_FOUND");
 
         // [AUDIT-LOG B2] Chụp giá trị CŨ trước mọi mutation (kể cả khối seats bên dưới).
         // `serial` = trường NHẠY CẢM: LogMeta chỉ ghi {"changed":true}, KHÔNG ghi giá trị.
@@ -99,8 +111,8 @@ public class UpdateLicenseCommandHandler : IRequestHandler<UpdateLicenseCommand,
         if (request.OrderNumber is not null) l.OrderNumber = request.OrderNumber;
         l.Notes = request.Notes ?? l.Notes;
         if (request.MinSeats.HasValue) l.MinSeats = request.MinSeats.Value;
-        if (request.SupplierId is not null) l.SupplierId = request.SupplierId;
-        if (request.ManufacturerId is not null) l.ManufacturerId = request.ManufacturerId;
+        if (request.SupplierId is not null) l.SupplierId = newSupplierId;
+        if (request.ManufacturerId is not null) l.ManufacturerId = newManufacturerId;
         l.UpdatedAt = DateTime.UtcNow;
 
         // [AUDIT-LOG B2] Giá trị MỚI sau khi gán → LogMeta.changes (null khi không field nào đổi).

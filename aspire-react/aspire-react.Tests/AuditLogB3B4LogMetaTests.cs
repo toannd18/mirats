@@ -89,8 +89,12 @@ public class AuditLogB3B4LogMetaTests
     {
         await using var ctx = TestHelpers.CreateContext(nameof(UpdateConsumable_Confirmed_LogsOnlyLocationAndNotes_WithChangesWrapper));
         var actor = Guid.NewGuid();
-        var oldLocation = Guid.NewGuid();
-        var newLocation = Guid.NewGuid();
+        // [FIX-GUID-EMPTY phần 2] Cả 2 location phải TỒN TẠI (handler kiểm tồn tại FK trước khi gán).
+        var locOld = new Location { Name = "Kho cũ" };
+        var locNew = new Location { Name = "Kho mới" };
+        ctx.Locations.AddRange(locOld, locNew);
+        var oldLocation = locOld.Id;
+        var newLocation = locNew.Id;
         var c = new Consumable { Name = "Giấy A4", Qty = 10, MinAmt = 3, Status = ConsumableStatus.Confirmed, LocationId = oldLocation, Notes = "cũ" };
         ctx.Consumables.Add(c);
         await ctx.SaveChangesAsync();
@@ -117,7 +121,10 @@ public class AuditLogB3B4LogMetaTests
     {
         await using var ctx = TestHelpers.CreateContext(nameof(UpdateConsumable_Confirmed_SameValues_LogsNoChanges));
         var actor = Guid.NewGuid();
-        var location = Guid.NewGuid();
+        // [FIX-GUID-EMPTY phần 2] LocationId phải trỏ tới Location CÓ THẬT (handler kiểm tồn tại FK).
+        var loc = new Location { Name = "Kho A4" };
+        ctx.Locations.Add(loc);
+        var location = loc.Id;
         var c = new Consumable { Name = "Giấy A4", Status = ConsumableStatus.Confirmed, LocationId = location, Notes = "cũ" };
         ctx.Consumables.Add(c);
         await ctx.SaveChangesAsync();

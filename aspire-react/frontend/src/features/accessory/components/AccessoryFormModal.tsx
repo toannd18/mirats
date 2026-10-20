@@ -8,6 +8,7 @@ import apiClient from '../../../services/api-client';
 import { accessoriesApi } from '../services/accessories.service';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
+import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
 interface AccessoryFormModalProps {
@@ -100,10 +101,13 @@ export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved
   const submit = async (values: Record<string, unknown>) => {
     setSaving(true);
     try {
-      // Same payload contract as the old AccessoryFormPage (backend whitelists via
-      // UpdateAccessoryRequest patch semantics — Task M2 keeps fields not sent untouched).
+      // [FIX-GUID-EMPTY phần 2] Update: FK tùy chọn bị xóa ⇒ EMPTY_GUID (backend xóa liên kết),
+      // KHÔNG gửi undefined/null (backend hiểu là "không gửi" ⇒ giữ nguyên).
       const payload = {
         ...values,
+        ...(isEdit && accessoryId
+          ? withOptionalFkCleared(values, ['categoryId', 'manufacturerId', 'supplierId', 'locationId', 'companyId'])
+          : {}),
         purchaseDate: values.purchaseDate ? dayjs(values.purchaseDate as dayjs.Dayjs).toISOString() : undefined,
       };
       if (isEdit && accessoryId) {

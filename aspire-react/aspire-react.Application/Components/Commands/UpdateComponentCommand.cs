@@ -1,5 +1,7 @@
 using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Validation;
+using Microsoft.EntityFrameworkCore;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -48,8 +50,8 @@ public class UpdateComponentCommandHandler : IRequestHandler<UpdateComponentComm
         // Reject when the payload carries a value DIFFERENT from the current one so the user
         // knows these fields are immutable (not silently ignored). Sending the same value is fine.
         var locked = new List<string>();
-        if (request.CategoryId.HasValue && request.CategoryId.Value != c.CategoryId) locked.Add("categoryId");
-        if (request.CompanyId.HasValue && request.CompanyId.Value != c.CompanyId) locked.Add("companyId");
+        if (request.CategoryId.HasValue && OptionalForeignKey.Cleared(request.CategoryId) != c.CategoryId) locked.Add("categoryId");
+        if (request.CompanyId.HasValue && OptionalForeignKey.Cleared(request.CompanyId) != c.CompanyId) locked.Add("companyId");
         if (request.TrackingType.HasValue && request.TrackingType.Value != c.TrackingType) locked.Add("trackingType");
         if (locked.Count > 0)
             return new ComponentOperationResult(false,
@@ -57,6 +59,21 @@ public class UpdateComponentCommandHandler : IRequestHandler<UpdateComponentComm
                 "FIELD_LOCKED");
 
         // [AUDIT-LOG B2] Chụp giá trị CŨ trước khi gán (Task M1 whitelist bên dưới) → LogMeta.changes.
+        // [FIX-GUID-EMPTY phần 2 — 2026-10-20] FK TÙY CHỌN: vắng = giữ; Guid.Empty = xóa liên kết (null);
+        // id thật phải TỒN TẠI ⇒ trước đây id lạ/Guid.Empty ghi thẳng vào cột FK ⇒ Postgres 23503 ⇒ 500.
+        var newSupplierId = OptionalForeignKey.Cleared(request.SupplierId);
+        var newManufacturerId = OptionalForeignKey.Cleared(request.ManufacturerId);
+        var newLocationId = OptionalForeignKey.Cleared(request.LocationId);
+        if (newSupplierId is not null
+            && !await _context.Suppliers.AnyAsync(s => s.Id == newSupplierId, cancellationToken))
+            return new ComponentOperationResult(false, OptionalForeignKey.NotFoundMessage("supplierId"), "RESOURCE_NOT_FOUND");
+        if (newManufacturerId is not null
+            && !await _context.Manufacturers.AnyAsync(m => m.Id == newManufacturerId, cancellationToken))
+            return new ComponentOperationResult(false, OptionalForeignKey.NotFoundMessage("manufacturerId"), "RESOURCE_NOT_FOUND");
+        if (newLocationId is not null
+            && !await _context.Locations.AnyAsync(l => l.Id == newLocationId, cancellationToken))
+            return new ComponentOperationResult(false, OptionalForeignKey.NotFoundMessage("locationId"), "RESOURCE_NOT_FOUND");
+
         var changes = new ActionLogChanges()
             .Track("name", c.Name)
             .Track("notes", c.Notes)
@@ -74,11 +91,11 @@ public class UpdateComponentCommandHandler : IRequestHandler<UpdateComponentComm
         // fields back to null/empty. Qty/Serial/ItemNo stay silently ignored (Qty is read-only).
         if (!string.IsNullOrWhiteSpace(request.Name)) c.Name = request.Name;
         c.Notes = request.Notes ?? c.Notes;
-        if (request.SupplierId is not null) c.SupplierId = request.SupplierId;
-        if (request.ManufacturerId is not null) c.ManufacturerId = request.ManufacturerId;
+        if (request.SupplierId is not null) c.SupplierId = newSupplierId;
+        if (request.ManufacturerId is not null) c.ManufacturerId = newManufacturerId;
         if (request.ModelNumber is not null) c.ModelNumber = request.ModelNumber;
         if (request.MinAmt.HasValue) c.MinAmt = request.MinAmt.Value;
-        if (request.LocationId is not null) c.LocationId = request.LocationId;
+        if (request.LocationId is not null) c.LocationId = newLocationId;
         if (request.OrderNumber is not null) c.OrderNumber = request.OrderNumber;
         if (request.PurchaseCost is not null) c.PurchaseCost = request.PurchaseCost;
         if (request.PurchaseDate is not null) c.PurchaseDate = request.PurchaseDate;

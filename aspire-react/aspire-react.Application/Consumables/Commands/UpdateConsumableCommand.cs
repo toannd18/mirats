@@ -1,5 +1,6 @@
 using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Validation;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -45,6 +46,38 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
         if (userCompanyId.HasValue && c.CompanyId.HasValue && c.CompanyId.Value != userCompanyId.Value)
             return new ConsumableResult(false, "Consumable not found.", "NOT_FOUND");
 
+        // [FIELD_LOCKED] Company change after checkout — phải chặn TRƯỚC khi kiểm tồn tại FK (nếu không,
+        // đổi công ty sau khi đã cấp phát sẽ trả RESOURCE_NOT_FOUND thay vì FIELD_LOCKED đúng nghiệp vụ).
+        // Patch-aware: chỉ khi CompanyId được gửi TƯỜNG MINH và khác hiện tại.
+        if (c.Status != ConsumableStatus.Confirmed
+            && request.CompanyId.HasValue && OptionalForeignKey.Cleared(request.CompanyId) != c.CompanyId
+            && await _context.ConsumableCheckouts.AnyAsync(ch => ch.ConsumableId == request.Id, cancellationToken))
+            return new ConsumableResult(false, "Vật tư đã từng được cấp phát — không thể đổi công ty.", "FIELD_LOCKED");
+
+        // [FIX-GUID-EMPTY phần 2 — 2026-10-20] FK TÙY CHỌN: vắng (null) = giữ nguyên; Guid.Empty = XÓA
+        // liên kết (null); id thật phải TỒN TẠI — trước đây id lạ/Guid.Empty ghi thẳng vào cột FK ⇒
+        // Postgres 23503 ⇒ HTTP 500. Kiểm tra SỚM, áp cho cả nhánh confirmed và nhánh full-patch.
+        var newCategoryId = OptionalForeignKey.Cleared(request.CategoryId);
+        var newManufacturerId = OptionalForeignKey.Cleared(request.ManufacturerId);
+        var newSupplierId = OptionalForeignKey.Cleared(request.SupplierId);
+        var newLocationId = OptionalForeignKey.Cleared(request.LocationId);
+        var newCompanyId = OptionalForeignKey.Cleared(request.CompanyId);
+        if (newCategoryId is not null
+            && !await _context.Categories.AnyAsync(x => x.Id == newCategoryId, cancellationToken))
+            return new ConsumableResult(false, OptionalForeignKey.NotFoundMessage("categoryId"), "RESOURCE_NOT_FOUND");
+        if (newManufacturerId is not null
+            && !await _context.Manufacturers.AnyAsync(x => x.Id == newManufacturerId, cancellationToken))
+            return new ConsumableResult(false, OptionalForeignKey.NotFoundMessage("manufacturerId"), "RESOURCE_NOT_FOUND");
+        if (newSupplierId is not null
+            && !await _context.Suppliers.AnyAsync(x => x.Id == newSupplierId, cancellationToken))
+            return new ConsumableResult(false, OptionalForeignKey.NotFoundMessage("supplierId"), "RESOURCE_NOT_FOUND");
+        if (newLocationId is not null
+            && !await _context.Locations.AnyAsync(x => x.Id == newLocationId, cancellationToken))
+            return new ConsumableResult(false, OptionalForeignKey.NotFoundMessage("locationId"), "RESOURCE_NOT_FOUND");
+        if (newCompanyId is not null
+            && !await _context.Companies.AnyAsync(x => x.Id == newCompanyId, cancellationToken))
+            return new ConsumableResult(false, OptionalForeignKey.NotFoundMessage("companyId"), "RESOURCE_NOT_FOUND");
+
         // ─── Confirmed consumables: ONLY Location + Notes remain editable (mirrors Task F Asset:
         // confirmed → only Name/Notes). Everything else is locked post-confirmation. Patch-aware:
         // sending the SAME value as current is allowed; only a DIFFERENT value on a locked field
@@ -56,10 +89,10 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
             if (request.ItemNo is not null && request.ItemNo != c.ItemNo) locked.Add("itemNo");
             if (request.Qty.HasValue && request.Qty.Value != c.Qty) locked.Add("qty");
             if (request.MinAmt.HasValue && request.MinAmt.Value != c.MinAmt) locked.Add("minAmt");
-            if (request.CategoryId is not null && request.CategoryId != c.CategoryId) locked.Add("categoryId");
-            if (request.ManufacturerId is not null && request.ManufacturerId != c.ManufacturerId) locked.Add("manufacturerId");
-            if (request.SupplierId is not null && request.SupplierId != c.SupplierId) locked.Add("supplierId");
-            if (request.CompanyId.HasValue && request.CompanyId.Value != c.CompanyId) locked.Add("companyId");
+            if (request.CategoryId is not null && OptionalForeignKey.Cleared(request.CategoryId) != c.CategoryId) locked.Add("categoryId");
+            if (request.ManufacturerId is not null && OptionalForeignKey.Cleared(request.ManufacturerId) != c.ManufacturerId) locked.Add("manufacturerId");
+            if (request.SupplierId is not null && OptionalForeignKey.Cleared(request.SupplierId) != c.SupplierId) locked.Add("supplierId");
+            if (request.CompanyId.HasValue && OptionalForeignKey.Cleared(request.CompanyId) != c.CompanyId) locked.Add("companyId");
             if (request.ModelNumber is not null && request.ModelNumber != c.ModelNumber) locked.Add("modelNumber");
             if (request.OrderNumber is not null && request.OrderNumber != c.OrderNumber) locked.Add("orderNumber");
             if (request.PurchaseCost.HasValue && request.PurchaseCost.Value != c.PurchaseCost) locked.Add("purchaseCost");
@@ -74,7 +107,7 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
             var changes = new ActionLogChanges()
                 .Track("locationId", c.LocationId)
                 .Track("notes", c.Notes);
-            if (request.LocationId is not null) c.LocationId = request.LocationId;
+            if (request.LocationId is not null) c.LocationId = newLocationId;
             if (request.Notes is not null) c.Notes = request.Notes;
             _actionLogService.LogAction(
                 itemType: ItemType.Consumable,
@@ -89,10 +122,7 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
         {
             // Field-lock company: a consumable that has ever been checked out cannot change company —
             // past checkouts were tied to the old company (mirrors License/Component's FIELD_LOCKED).
-            // Patch-aware: only trigger when CompanyId is EXPLICITLY sent and differs.
-            if (request.CompanyId.HasValue && request.CompanyId.Value != c.CompanyId
-                && await _context.ConsumableCheckouts.AnyAsync(ch => ch.ConsumableId == request.Id, cancellationToken))
-                return new ConsumableResult(false, "Vật tư đã từng được cấp phát — không thể đổi công ty.", "FIELD_LOCKED");
+            // (Đã kiểm tra ở trên, TRƯỚC khối existence-check FK.)
 
             // [AUDIT-LOG B3] Chụp giá trị CŨ của ĐỦ 15 field patch được TRƯỚC khi gán ⇒ LogMeta.changes.
             // [BUG-P FIX] `minAmt` trước đây chụp sau khi gán nên old == new (mất thông tin).
@@ -118,11 +148,11 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
             if (request.ItemNo is not null) c.ItemNo = request.ItemNo;
             if (request.Qty.HasValue) c.Qty = request.Qty.Value;
             if (request.MinAmt.HasValue) c.MinAmt = request.MinAmt.Value;
-            if (request.CategoryId is not null) c.CategoryId = request.CategoryId;
-            if (request.ManufacturerId is not null) c.ManufacturerId = request.ManufacturerId;
-            if (request.SupplierId is not null) c.SupplierId = request.SupplierId;
-            if (request.LocationId is not null) c.LocationId = request.LocationId;
-            if (request.CompanyId.HasValue) c.CompanyId = request.CompanyId.Value;
+            if (request.CategoryId is not null) c.CategoryId = newCategoryId;
+            if (request.ManufacturerId is not null) c.ManufacturerId = newManufacturerId;
+            if (request.SupplierId is not null) c.SupplierId = newSupplierId;
+            if (request.LocationId is not null) c.LocationId = newLocationId;
+            if (request.CompanyId.HasValue) c.CompanyId = newCompanyId;
             if (request.ModelNumber is not null) c.ModelNumber = request.ModelNumber;
             if (request.OrderNumber is not null) c.OrderNumber = request.OrderNumber;
             if (request.PurchaseCost is not null) c.PurchaseCost = request.PurchaseCost;

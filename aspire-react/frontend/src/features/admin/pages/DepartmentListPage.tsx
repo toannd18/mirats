@@ -3,6 +3,7 @@ import { Button, Space, Modal, Form, Input, Select, Card, Divider, Tag, Typograp
 import { PlusOutlined, EditOutlined, DeleteOutlined, PhoneOutlined, PrinterOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
+import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
@@ -77,7 +78,12 @@ export default function DepartmentListPage() {
   const save = async () => {
     try {
       const values = await form.validateFields();
-      if (editingId) { await apiClient.put(`/departments/${editingId}`, values); message.success('Đã cập nhật'); }
+      if (editingId) {
+        // [FIX-GUID-EMPTY phần 2] Ô FK bị xóa ⇒ Guid.Empty để backend XÓA liên kết (chuẩn API.md).
+        const payload = { ...values, ...withOptionalFkCleared(values, ['companyId', 'managerId']) };
+        await apiClient.put(`/departments/${editingId}`, payload);
+        message.success('Đã cập nhật');
+      }
       else { await apiClient.post('/departments', values); message.success('Đã tạo phòng ban'); }
       handleClose(); actionRef.current?.reload();
     } catch (err: unknown) {

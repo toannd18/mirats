@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   App, Col, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Switch,
 } from 'antd';
+import { fkForUpdate } from '../../../shared/utils/fk';
 import dayjs, { type Dayjs } from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { assetService, type AssetMaintenanceDto } from '../../asset/services/asset.service';
@@ -63,7 +64,8 @@ export default function MaintenanceCompleteModal({ record, onClose, onSaved }: M
       const payload = {
         completionDate: (vals.completionDate as Dayjs).toISOString(),
         cost: typeof vals.cost === 'number' ? vals.cost : null,
-        supplierId: vals.supplierId ? (vals.supplierId as string) : null,
+        // [FIX-GUID-EMPTY phần 2] Ô nhà cung cấp bị xóa ⇒ EMPTY_GUID (backend xóa liên kết).
+        supplierId: fkForUpdate(vals.supplierId),
         isWarranty: Boolean(vals.isWarranty),
         notes: (vals.notes as string | undefined)?.trim() || null,
       };

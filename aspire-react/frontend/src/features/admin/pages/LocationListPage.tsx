@@ -3,6 +3,7 @@ import { Button, Space, Modal, Form, Input, TreeSelect, Select, Card, Divider, T
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
+import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
@@ -160,7 +161,12 @@ export default function LocationListPage() {
     try {
       const values = await form.validateFields();
       if (editingId) {
-        await apiClient.put(`/locations/${editingId}`, values);
+        // [FIX-GUID-EMPTY phần 2] Ô FK bị xóa ⇒ Guid.Empty để backend XÓA liên kết (chuẩn API.md).
+        const payload = {
+          ...values,
+          ...withOptionalFkCleared(values, ['parentId', 'companyId', 'managerId']),
+        };
+        await apiClient.put(`/locations/${editingId}`, payload);
         message.success('Đã cập nhật');
       } else {
         await apiClient.post('/locations', values);

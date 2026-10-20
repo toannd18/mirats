@@ -8,6 +8,7 @@ import { licensesApi, type CreateLicensePayload, type LicenseDetailDto } from '.
 import { isSuperUser } from '../../../features/auth/services/auth';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
+import { fkForUpdate } from '../../../shared/utils/fk';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
 // CategoryType.License = 5 (must match Domain/Enums/CategoryType.cs)
@@ -154,8 +155,9 @@ export default function LicenseFormModal({ open, licenseId, onClose, onSaved }: 
         orderNumber: vals.orderNumber ? String(vals.orderNumber) : null,
         minSeats: typeof vals.minSeats === 'number' ? vals.minSeats : null,
         notes: vals.notes ? String(vals.notes) : null,
-        supplierId: vals.supplierId ? String(vals.supplierId) : null,
-        manufacturerId: vals.manufacturerId ? String(vals.manufacturerId) : null,
+        // [FIX-GUID-EMPTY phần 2] Update: ô bị xóa ⇒ EMPTY_GUID để backend XÓA liên kết (null = "không gửi").
+        supplierId: isEdit ? fkForUpdate(vals.supplierId) : (vals.supplierId ? String(vals.supplierId) : null),
+        manufacturerId: isEdit ? fkForUpdate(vals.manufacturerId) : (vals.manufacturerId ? String(vals.manufacturerId) : null),
       };
       if (isEdit && licenseId) {
         // Whitelist update — locked fields (categoryId/companyId) are intentionally NOT sent.

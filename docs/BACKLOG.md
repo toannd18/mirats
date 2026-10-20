@@ -1041,13 +1041,32 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
     "xanh giả" trong khi production vẫn 500.
 - **Bảng rà required-Guid FK (52 ứng viên):** 49 chỗ là id entity cha được **load + trả NOT_FOUND**
   (asset/component/unit/license/consumable/template/campaign/user…) ⇒ an toàn; **3 chỗ ghi thẳng FK** đã sửa.
-- **Còn mở (KHÔNG sửa lần này — ngoài phạm vi "trường Guid bắt buộc"):** field `Guid?` **không bắt buộc**
-  (VD `UpdateAssetCommand.ModelId/LocationId/SupplierId/CompanyId`, `UpdateComponentCommand.*Id`,
-  `UpdateConsumableCommand.*Id`, `UpdateLicenseCommand.SupplierId/ManufacturerId`, `UpdateLocationCommand.*Id`,
-  `UpdateDepartmentCommand.*Id`, `UpdateSystemInfoCommand.CompanyId`, `UpdateMaintenanceCommand.SupplierId`)
-  vẫn nhận `Guid.Empty` tường minh ⇒ FK 500; ngoài ra id **lạ** (không tồn tại) ở các handler Update chưa được
-  kiểm ⇒ cũng FK 500. Hướng xử lý cần quyết định sản phẩm: coi `Guid.Empty` là "clear" (như `UpdateCompanyCommand.ParentId`)
-  hay trả 400 `RESOURCE_NOT_FOUND`; nếu chọn 400 thì thêm rule dùng chung + existence check theo từng command.
+- **✅ ĐÃ XỬ LÝ tiếp (FIX-GUID-EMPTY phần 2 — 2026-10-20):** toàn bộ field `Guid?` **không bắt buộc** trong lệnh
+  Update nay theo quy ước 3 trạng thái (vắng = giữ; `Guid.Empty` = xóa liên kết; id thật phải tồn tại →
+  400 `RESOURCE_NOT_FOUND`). Đã áp cho: `UpdateAssetCommand` (Model/Location/Supplier/Company),
+  `UpdateComponentCommand` (Supplier/Manufacturer/Location), `UpdateConsumableCommand`
+  (Category/Manufacturer/Supplier/Location/Company, cả 2 nhánh confirmed/full-patch),
+  `UpdateLicenseCommand` (Supplier/Manufacturer), `UpdateLocationCommand` (Parent/Company/Manager),
+  `UpdateDepartmentCommand` (Company/Manager), `UpdateSystemInfoCommand` (Company),
+  `UpdateMaintenanceCommand` (Supplier, giữ mã `INVALID_SUPPLIER`), `UpdateModelCommand`
+  (Manufacturer/Category/Depreciation/Fieldset, giữ `RESOURCE_NOT_FOUND`). Helper:
+  `Common/Validation/OptionalForeignKey.cs`; so sánh field khóa cũng chuẩn hoá để `Guid.Empty` trên field
+  đang trống không bị báo `FIELD_LOCKED` nhầm.
+- **✅ Lưới an toàn toàn cục:** `ForeignKeyViolationExceptionHandler` map Postgres `23503`/`23001` chưa có
+  guard riêng → 400 `REFERENCE_NOT_FOUND` / 409 `RESOURCE_IN_USE` (log warning kèm constraint; xem
+  `docs/ERROR_CODES.md` §1.8). Test Postgres thật cho cả 2 nhánh:
+  `aspire-react.Tests/ForeignKeyViolationHandlerTests.cs`.
+- **✅ FE (2026-10-20):** trước đây bỏ chọn (allowClear) ⇒ gửi `undefined`/`null` ⇒ backend hiểu "không gửi"
+  ⇒ **không xóa được liên kết**. Nay helper `frontend/src/shared/utils/fk.ts` (`EMPTY_GUID`,
+  `fkForUpdate`, `withOptionalFkCleared`) được áp cho: AssetEditModal, ComponentFormModal,
+  ConsumableFormModal, AccessoryFormModal, LicenseFormModal, MaintenanceCompleteModal, LocationListPage,
+  DepartmentListPage, SystemInfoListPage. Verify UI thật (DB tạm, Vite 5176): xóa "Nhà cung cấp" trên form
+  sửa bản quyền ⇒ DB `licenses."SupplierId" = NULL`; ảnh 1440 `screenshots/guidp2-license-before-1440.png` /
+  `guidp2-license-after-1440.png`.
+- **Ghi chú 409 qua HTTP:** rà toàn bộ endpoint DELETE hiện tại — **tất cả** đã có guard mềm trả 400 với mã
+  riêng (`LOCATION_IN_USE`, `ASSET_HAS_*`, `POSITION_IN_USE_*`, `COMPANY_HAS_*`…), nên **không còn** endpoint
+  nào để tái hiện 409 bằng fixture thường. Nhánh 409 của lưới an toàn được chứng minh bằng test Postgres
+  thật (xóa `locations` cha còn con → `23001` → handler trả 409) và sẽ bảo vệ các race/future endpoint.
 
 ---
 

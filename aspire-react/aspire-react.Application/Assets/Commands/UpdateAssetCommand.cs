@@ -4,6 +4,7 @@ using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Validation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -76,10 +77,10 @@ public class UpdateAssetCommandHandler : IRequestHandler<UpdateAssetCommand, Ass
             // Only Name and Notes are editable after confirmation
             var blockedFields = new List<string>();
             if (request.Serial is not null && request.Serial != asset.Serial) blockedFields.Add("Serial");
-            if (request.ModelId is not null && request.ModelId != asset.ModelId) blockedFields.Add("ModelId");
-            if (request.LocationId is not null && request.LocationId != asset.LocationId) blockedFields.Add("LocationId");
-            if (request.SupplierId is not null && request.SupplierId != asset.SupplierId) blockedFields.Add("SupplierId");
-            if (request.CompanyId is not null && request.CompanyId != asset.CompanyId) blockedFields.Add("CompanyId");
+            if (request.ModelId is not null && OptionalForeignKey.Cleared(request.ModelId) != asset.ModelId) blockedFields.Add("ModelId");
+            if (request.LocationId is not null && OptionalForeignKey.Cleared(request.LocationId) != asset.LocationId) blockedFields.Add("LocationId");
+            if (request.SupplierId is not null && OptionalForeignKey.Cleared(request.SupplierId) != asset.SupplierId) blockedFields.Add("SupplierId");
+            if (request.CompanyId is not null && OptionalForeignKey.Cleared(request.CompanyId) != asset.CompanyId) blockedFields.Add("CompanyId");
             if (request.PurchaseCost is not null && request.PurchaseCost != asset.PurchaseCost) blockedFields.Add("PurchaseCost");
             if (request.PurchaseDate is not null && request.PurchaseDate != asset.PurchaseDate) blockedFields.Add("PurchaseDate");
             if (request.WarrantyMonths is not null && request.WarrantyMonths != asset.WarrantyMonths) blockedFields.Add("WarrantyMonths");
@@ -122,6 +123,26 @@ public class UpdateAssetCommandHandler : IRequestHandler<UpdateAssetCommand, Ass
             .Track("requestable", asset.Requestable)
             .Track("notes", asset.Notes);
 
+        // [FIX-GUID-EMPTY phần 2 — 2026-10-20] Quy ước FK TÙY CHỌN: vắng (null) = giữ nguyên;
+        // Guid.Empty = XÓA liên kết (null); id thật phải TỒN TẠI (nếu không → 400 RESOURCE_NOT_FOUND,
+        // thay vì để Postgres 23503 nổ ra 500). Xem Common/Validation/OptionalForeignKey.cs.
+        var newModelId = OptionalForeignKey.Cleared(request.ModelId);
+        var newLocationId = OptionalForeignKey.Cleared(request.LocationId);
+        var newSupplierId = OptionalForeignKey.Cleared(request.SupplierId);
+        var newCompanyId = OptionalForeignKey.Cleared(request.CompanyId);
+        if (newModelId is not null
+            && !await _context.Models.AnyAsync(m => m.Id == newModelId, cancellationToken))
+            return new AssetResult(false, OptionalForeignKey.NotFoundMessage("modelId"), ErrorCode: "RESOURCE_NOT_FOUND");
+        if (newLocationId is not null
+            && !await _context.Locations.AnyAsync(l => l.Id == newLocationId, cancellationToken))
+            return new AssetResult(false, OptionalForeignKey.NotFoundMessage("locationId"), ErrorCode: "RESOURCE_NOT_FOUND");
+        if (newSupplierId is not null
+            && !await _context.Suppliers.AnyAsync(s => s.Id == newSupplierId, cancellationToken))
+            return new AssetResult(false, OptionalForeignKey.NotFoundMessage("supplierId"), ErrorCode: "RESOURCE_NOT_FOUND");
+        if (newCompanyId is not null
+            && !await _context.Companies.AnyAsync(c => c.Id == newCompanyId, cancellationToken))
+            return new AssetResult(false, OptionalForeignKey.NotFoundMessage("companyId"), ErrorCode: "RESOURCE_NOT_FOUND");
+
         if (!string.IsNullOrEmpty(request.AssetTag) && request.AssetTag != asset.AssetTag)
         {
             asset.AssetTag = request.AssetTag;
@@ -143,19 +164,19 @@ public class UpdateAssetCommandHandler : IRequestHandler<UpdateAssetCommand, Ass
         }
         if (request.ModelId is not null && request.ModelId != asset.ModelId)
         {
-            asset.ModelId = request.ModelId;
+            asset.ModelId = newModelId;
         }
         if (request.LocationId is not null && request.LocationId != asset.LocationId)
         {
-            asset.LocationId = request.LocationId;
+            asset.LocationId = newLocationId;
         }
         if (request.SupplierId is not null && request.SupplierId != asset.SupplierId)
         {
-            asset.SupplierId = request.SupplierId;
+            asset.SupplierId = newSupplierId;
         }
         if (request.CompanyId is not null && request.CompanyId != asset.CompanyId)
         {
-            asset.CompanyId = request.CompanyId;
+            asset.CompanyId = newCompanyId;
         }
         if (request.PurchaseCost is not null && request.PurchaseCost != asset.PurchaseCost)
         {

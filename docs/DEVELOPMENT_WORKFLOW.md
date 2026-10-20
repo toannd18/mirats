@@ -191,6 +191,17 @@ curl -s "https://api.github.com/repos/toannd18/mirats/actions/runs/<run-id>/jobs
   - Handler CHỈ gán khi field **thực sự được gửi** (`request.X is not null` / `HasValue`). Field ABSENT (thiếu trong payload) **KHÔNG được** coi là "đã đổi" hay ghi đè bằng default/null.
   - Đã từng gây mất dữ liệu THẬT: full-replace ghi đè `Serial`/`AssetTag`/`Qty` thành null/0 khi client chỉ gửi payload một phần.
   - Field khóa sau tạo: so sánh patch-aware (`request.X.HasValue && khác hiện tại → chặn`), không chặn nhầm khi field absent.
+  - **[FIX-GUID-EMPTY phần 2, 2026-10-20] Trường KHÓA NGOẠI tùy chọn (`Guid?`) có 3 trạng thái:** vắng mặt
+    (`null`) = **giữ nguyên**; `Guid.Empty` = **XÓA liên kết** (gán `null`) — đây là giá trị FE gửi khi người
+    dùng bấm X trên ô select; GUID thật = gán, nhưng **phải kiểm tồn tại** trước khi gán
+    (`AnyAsync` → 400 `RESOURCE_NOT_FOUND`), nếu không Postgres `23503` sẽ nổ. Dùng helper
+    `Common/Validation/OptionalForeignKey.cs` (`Cleared`, `IsClearRequested`, `NotFoundMessage`).
+    Khi so sánh field khóa phải so trên giá trị **đã chuẩn hoá** (`OptionalForeignKey.Cleared(request.X)`),
+    nếu không client gửi `Guid.Empty` cho field đang trống sẽ bị báo `FIELD_LOCKED` nhầm.
+  - Trường FK **BẮT BUỘC** trên entity (VD `system_positions.SystemInfoId`, `asset_maintenances.CompanyId`):
+    `Guid.Empty` là **không hợp lệ** → 400 (mã lỗi riêng), tuyệt đối không gán `null`.
+  - Lưới an toàn toàn cục: `ForeignKeyViolationExceptionHandler` map `23503`/`23001` chưa có guard riêng thành
+    400 `REFERENCE_NOT_FOUND` / 409 `RESOURCE_IN_USE` (xem `docs/ERROR_CODES.md` §1.8).
 - Các field khóa chuẩn đã có: Component (`CategoryId`, `CompanyId`, `TrackingType`), License (`CategoryId`, `CompanyId`), Maintenance (`AssetId`, `CompanyId`, `StartDate`, toàn bộ `Snapshot*`, và mọi field sau khi `IsClosed`), Consumable (chặn Update/Delete khi `Status == Confirmed`, + `CompanyId` lock sau cấp phát).
 - Frontend phải hiển thị field khóa ở dạng disabled/locked, không cho bấm.
 

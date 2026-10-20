@@ -8,6 +8,7 @@ import apiClient from '../../../services/api-client';
 import { componentsApi, type CreateComponentPayload, type ComponentDto, type TrackingType } from '../services/components.service';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
+import { fkForUpdate } from '../../../shared/utils/fk';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
 const { Text } = Typography;
@@ -179,9 +180,12 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
         if (vals.name !== undefined) payload.name = vals.name;
         if (vals.notes !== undefined) payload.notes = vals.notes;
         if (vals.minAmt !== undefined) payload.minAmt = vals.minAmt;
-        if (vals.locationId !== undefined) payload.locationId = vals.locationId;
-        if (vals.supplierId !== undefined) payload.supplierId = vals.supplierId;
-        if (vals.manufacturerId !== undefined) payload.manufacturerId = vals.manufacturerId;
+        // [FIX-GUID-EMPTY phần 2] FK tùy chọn: ô bị xóa ⇒ EMPTY_GUID (backend xóa liên kết). Dùng
+        // `'key' in vals` để phân biệt "field đã đăng ký nhưng bị xóa" (key tồn tại, undefined) với
+        // "field không render" (không có key) — tránh xóa nhầm field ẩn.
+        if ('locationId' in vals) payload.locationId = fkForUpdate(vals.locationId);
+        if ('supplierId' in vals) payload.supplierId = fkForUpdate(vals.supplierId);
+        if ('manufacturerId' in vals) payload.manufacturerId = fkForUpdate(vals.manufacturerId);
         if (vals.modelNumber !== undefined) payload.modelNumber = vals.modelNumber;
         if (vals.orderNumber !== undefined) payload.orderNumber = vals.orderNumber;
         if (vals.purchaseCost !== undefined) payload.purchaseCost = vals.purchaseCost;

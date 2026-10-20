@@ -1,5 +1,7 @@
 using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Validation;
+using Microsoft.EntityFrameworkCore;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -69,6 +71,20 @@ public class UpdateLocationCommandHandler : IRequestHandler<UpdateLocationComman
             return new LocationResult(false, "Not found.", "NOT_FOUND");
 
         // Patch semantics (Task M2): only fields explicitly sent are applied (absent → keep current).
+        // [FIX-GUID-EMPTY phần 2 — 2026-10-20] FK TÙY CHỌN: vắng = giữ; Guid.Empty = xóa liên kết (null);
+        // id thật phải TỒN TẠI (trước đây ⇒ Postgres 23503 ⇒ 500).
+        var newParentId = OptionalForeignKey.Cleared(request.ParentId);
+        var newCompanyId = OptionalForeignKey.Cleared(request.CompanyId);
+        var newManagerId = OptionalForeignKey.Cleared(request.ManagerId);
+        if (newParentId is not null
+            && !await _context.Locations.AnyAsync(x => x.Id == newParentId, cancellationToken))
+            return new LocationResult(false, OptionalForeignKey.NotFoundMessage("parentId"), "RESOURCE_NOT_FOUND");
+        if (newCompanyId is not null
+            && !await _context.Companies.AnyAsync(x => x.Id == newCompanyId, cancellationToken))
+            return new LocationResult(false, OptionalForeignKey.NotFoundMessage("companyId"), "RESOURCE_NOT_FOUND");
+        if (newManagerId is not null
+            && !await _context.Users.AnyAsync(x => x.Id == newManagerId, cancellationToken))
+            return new LocationResult(false, OptionalForeignKey.NotFoundMessage("managerId"), "RESOURCE_NOT_FOUND");
         var before = new { l.Name, l.ParentId, l.CompanyId, l.ManagerId, l.Address, l.City, l.State, l.Country, l.Zip };
         // [AUDIT-LOG B6a] helper dùng chung: tên field snake_case, CHỈ field thực sự đổi.
         var changes = new ActionLogChanges()
@@ -82,9 +98,9 @@ public class UpdateLocationCommandHandler : IRequestHandler<UpdateLocationComman
             .Track("country", before.Country)
             .Track("zip", before.Zip);
         if (!string.IsNullOrWhiteSpace(request.Name)) l.Name = request.Name;
-        if (request.ParentId is not null) l.ParentId = request.ParentId;
-        if (request.CompanyId is not null) l.CompanyId = request.CompanyId;
-        if (request.ManagerId is not null) l.ManagerId = request.ManagerId;
+        if (request.ParentId is not null) l.ParentId = newParentId;
+        if (request.CompanyId is not null) l.CompanyId = newCompanyId;
+        if (request.ManagerId is not null) l.ManagerId = newManagerId;
         if (request.Address is not null) l.Address = request.Address;
         if (request.City is not null) l.City = request.City;
         if (request.State is not null) l.State = request.State;

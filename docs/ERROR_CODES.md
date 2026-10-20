@@ -128,6 +128,22 @@ Quy ước: **error_code gắn với lỗi có thể phân loại máy được*
 Endpoint duy nhất của UsersController dùng **`error_code` snake** (không phải `errorCode`) —
 `GROUP_NOT_FOUND` / `SELF_LOCKOUT` (verbatim M1-era quirk). Xem bảng section Users.
 
+### 1.8 Lưới an toàn toàn cục cho vi phạm khóa ngoại (`23503` / `23001`)
+
+**[FIX-GUID-EMPTY phần 2, 2026-10-20]** `ForeignKeyViolationExceptionHandler` (Server) bắt Postgres
+`23503` (foreign_key_violation) và `23001` (restrict_violation) mà **chưa** được guard riêng xử lý:
+
+| SQLSTATE / message | HTTP | `error_code` | Khi nào |
+|---|---|---|---|
+| `23503` + "insert or update on table … violates foreign key constraint" | **400** | `REFERENCE_NOT_FOUND` | Hàng đang ghi trỏ tới bản ghi **cha không tồn tại** (id lạ / `Guid.Empty` chưa được chặn) |
+| `23503` + "update or delete on table … violates foreign key constraint" | **409** | `RESOURCE_IN_USE` | Xóa/sửa bản ghi cha nhưng vẫn còn hàng con tham chiếu |
+| `23001` (restrict_violation — FK `ON DELETE RESTRICT`) | **409** | `RESOURCE_IN_USE` | Như trên (PostgreSQL dùng mã riêng cho RESTRICT) |
+
+Body: `{ "status":"error", "message":"…", "error_code":"…", "constraint":"<tên FK>", "table":"<bảng>" }`
+(kèm **warning log** có tên constraint để chẩn đoán). Các SQLSTATE khác (`23505` unique, `23514` check…)
+**không** bị handler này nuốt. Các chỗ đã có xử lý riêng (mã lỗi cụ thể) vẫn thắng vì chúng chặn trước
+khi exception được ném ra.
+
 ---
 
 ## 2. Tra cứu theo Controller

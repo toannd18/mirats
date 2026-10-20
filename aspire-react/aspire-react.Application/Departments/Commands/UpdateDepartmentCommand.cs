@@ -1,5 +1,6 @@
 using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Validation;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -79,6 +80,16 @@ public class UpdateDepartmentCommandHandler : IRequestHandler<UpdateDepartmentCo
             return new DepartmentResult(false, "Tên phòng ban đã tồn tại.");
 
         var before = new { d.Name, d.CompanyId, d.ManagerId, d.Phone, d.Fax };
+        // [FIX-GUID-EMPTY phần 2 — 2026-10-20] FK TÙY CHỌN: vắng = giữ; Guid.Empty = xóa liên kết (null);
+        // id thật phải TỒN TẠI (trước đây ⇒ Postgres 23503 ⇒ 500).
+        var newCompanyId = OptionalForeignKey.Cleared(request.CompanyId);
+        var newManagerId = OptionalForeignKey.Cleared(request.ManagerId);
+        if (newCompanyId is not null
+            && !await _context.Companies.AnyAsync(x => x.Id == newCompanyId, cancellationToken))
+            return new DepartmentResult(false, OptionalForeignKey.NotFoundMessage("companyId"), "RESOURCE_NOT_FOUND");
+        if (newManagerId is not null
+            && !await _context.Users.AnyAsync(x => x.Id == newManagerId, cancellationToken))
+            return new DepartmentResult(false, OptionalForeignKey.NotFoundMessage("managerId"), "RESOURCE_NOT_FOUND");
         // [AUDIT-LOG B6a] helper dùng chung: tên field snake_case, CHỈ field thực sự đổi.
         var changes = new ActionLogChanges()
             .Track("name", before.Name)
@@ -87,8 +98,8 @@ public class UpdateDepartmentCommandHandler : IRequestHandler<UpdateDepartmentCo
             .Track("phone", before.Phone)
             .Track("fax", before.Fax);
         if (request.Name != null) d.Name = request.Name;
-        if (request.CompanyId.HasValue) d.CompanyId = request.CompanyId;
-        if (request.ManagerId.HasValue) d.ManagerId = request.ManagerId;
+        if (request.CompanyId.HasValue) d.CompanyId = newCompanyId;
+        if (request.ManagerId.HasValue) d.ManagerId = newManagerId;
         if (request.Phone is not null) d.Phone = request.Phone;
         if (request.Fax is not null) d.Fax = request.Fax;
         await _context.SaveChangesAsync(cancellationToken);

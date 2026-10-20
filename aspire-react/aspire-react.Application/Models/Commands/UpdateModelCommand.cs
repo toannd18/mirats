@@ -1,5 +1,7 @@
 using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Validation;
+using Microsoft.EntityFrameworkCore;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -71,8 +73,14 @@ public class UpdateModelCommandHandler : IRequestHandler<UpdateModelCommand, Mod
             if (nameError != null)
                 return new ModelResult(false, nameError);
         }
+        // [FIX-GUID-EMPTY phần 2 — 2026-10-20] FK TÙY CHỌN: vắng = giữ; Guid.Empty = xóa liên kết (null);
+        // id thật phải TỒN TẠI (ModelValidation → 400 RESOURCE_NOT_FOUND).
+        var newManufacturerId = OptionalForeignKey.Cleared(request.ManufacturerId);
+        var newCategoryId = OptionalForeignKey.Cleared(request.CategoryId);
+        var newDepreciationId = OptionalForeignKey.Cleared(request.DepreciationId);
+        var newFieldsetId = OptionalForeignKey.Cleared(request.FieldsetId);
         var fkError = await ModelValidation.ValidateForeignKeysAsync(
-            _context, request.ManufacturerId, request.CategoryId, request.DepreciationId, request.FieldsetId, cancellationToken);
+            _context, newManufacturerId, newCategoryId, newDepreciationId, newFieldsetId, cancellationToken);
         if (fkError != null)
             return ModelValidation.FkNotFound(fkError);
 
@@ -89,10 +97,10 @@ public class UpdateModelCommandHandler : IRequestHandler<UpdateModelCommand, Mod
             .Track("requestable", m.Requestable);
         if (!string.IsNullOrWhiteSpace(request.Name)) m.Name = request.Name;
         if (request.ModelNumber is not null) m.ModelNumber = request.ModelNumber;
-        if (request.ManufacturerId is not null) m.ManufacturerId = request.ManufacturerId;
-        if (request.CategoryId is not null) m.CategoryId = request.CategoryId;
-        if (request.DepreciationId is not null) m.DepreciationId = request.DepreciationId;
-        if (request.FieldsetId is not null) m.FieldsetId = request.FieldsetId;
+        if (request.ManufacturerId is not null) m.ManufacturerId = newManufacturerId;
+        if (request.CategoryId is not null) m.CategoryId = newCategoryId;
+        if (request.DepreciationId is not null) m.DepreciationId = newDepreciationId;
+        if (request.FieldsetId is not null) m.FieldsetId = newFieldsetId;
         if (request.Eol is not null) m.Eol = request.Eol;
         if (request.Notes is not null) m.Notes = request.Notes;
         if (request.Requestable.HasValue) m.Requestable = request.Requestable.Value;

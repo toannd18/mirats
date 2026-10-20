@@ -4,6 +4,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Link } from 'react-router-dom';
+import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
@@ -62,7 +63,12 @@ export default function SystemInfoListPage() {
       const values = await form.validateFields();
       // Auto-uppercase code
       values.code = values.code.toUpperCase();
-      if (editingId) { await apiClient.put(`/system-infos/${editingId}`, values); message.success('Đã cập nhật'); }
+      if (editingId) {
+        // [FIX-GUID-EMPTY phần 2] Ô công ty bị xóa ⇒ Guid.Empty để backend XÓA liên kết (chuẩn API.md).
+        const payload = { ...values, ...withOptionalFkCleared(values, ['companyId']) };
+        await apiClient.put(`/system-infos/${editingId}`, payload);
+        message.success('Đã cập nhật');
+      }
       else { await apiClient.post('/system-infos', values); message.success('Đã tạo hệ thống'); }
       handleCloseSys(); actionRef.current?.reload();
     } catch (err: unknown) {
