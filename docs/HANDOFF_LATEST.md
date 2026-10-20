@@ -4211,3 +4211,27 @@ Helper `Common/Validation/OptionalForeignKey.cs`. Ba trạng thái:
 ### Gates
 - `precommit-gates.ps1`: **PASS 6/6**.
 - Chưa verify UI thật ở GĐ1 (theo kế hoạch: GĐ3 mới kiểm Chrome/Edge + PDF + ảnh).
+
+## 2026-10-20 — LL-6 GĐ2: bố cục A4 + CSS in (auto-print, footer, số trang, dấu ≈)
+
+> Commit **`213b560`**. Nối tiếp GĐ1 (`8e63939`).
+
+### Đã làm (GĐ2)
+- **CSS in** `AssetTimelinePrintPage.css`:
+  - `@page { size: A4 portrait; margin: 12mm 12mm 16mm 12mm; @bottom-center { "Trang x / y" } }` —
+    số trang bằng margin box (đo thật trên Chrome/Edge 155 ở GĐ3);
+  - `.print-footer { position: fixed; bottom: 0 }` khi in = **dự phòng** khi trình duyệt không hỗ trợ
+    margin box (vẫn có người in/thời điểm in, chỉ thiếu số trang);
+  - `thead { display: table-header-group }` (header bảng lặp mỗi trang), `tr { break-inside: avoid }`
+    (không cắt đôi dòng), ẩn toolbar/"In lại"/link quay lại khi in.
+- **Bố cục**: tiêu đề + dòng phụ (mã/tên/nhãn bộ lọc/tổng sự kiện), khối thông tin thiết bị 3 cột
+  (mã, tên, serial, model+modelNumber, danh mục, hãng, NCC, công ty, vị trí, trạng thái [+chưa xác nhận],
+  đang giữ, ngày mua, giá mua, bảo hành, số đơn, cấp phát/thu hồi gần nhất, kiểm kê kế tiếp; ghi chú),
+  bảng sự kiện **CŨ → MỚI**, `≈` + footnote cho thời điểm ước tính, `[Đã đính chính]`.
+  Footer: `Người in` (user đang đăng nhập) · `Thời điểm in` · nhãn bộ lọc.
+- **Auto-print**: tự gọi `window.print()` sau khi dữ liệu + layout sẵn sàng (500ms), mỗi lần tải 1 lần;
+  nút "In lại" cho lần in sau (ẩn khi in). `document.title` = "Lý lịch thiết bị <assetTag>".
+
+### Gates
+- `precommit-gates.ps1`: **PASS 6/6**.
+- Kiểm chứng thật (Chrome/Edge, PDF, header lặp, 0 dòng cắt, số trang, dấu ≈) = GĐ3.
