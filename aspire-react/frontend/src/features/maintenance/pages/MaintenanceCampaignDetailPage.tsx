@@ -7,8 +7,8 @@ import {
   ArrowLeftOutlined, CheckCircleOutlined, CarOutlined, ClusterOutlined, ExperimentOutlined, UserOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import dayjs from 'dayjs';
 import apiClient from '../../../services/api-client';
+import { formatDate, formatDateTime } from '../../../utils/format';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 // [FE-R3] Màu UI mới đi qua token dùng chung (T-TOKEN1) — không hard-code hex trong page.
@@ -265,7 +265,7 @@ export default function MaintenanceCampaignDetailPage() {
   }, [campaign, items]);
   const allRecorded = applicableTotal === 0 || recordedTotal >= applicableTotal;
 
-  const fmtDate = (v?: string | null) => (v ? dayjs(v).format('DD/MM/YYYY HH:mm') : '—');
+  const fmtDate = (v?: string | null) => formatDateTime(v);
 
   const panelDirty = useMemo(() => {
     const map = new Map<string, number>();
@@ -290,7 +290,7 @@ export default function MaintenanceCampaignDetailPage() {
     try {
       const res = await apiClient.post(`/maintenance/campaigns/${campaignId}/complete`);
       const due = res.data?.data?.nextMaintenanceDueDate;
-      message.success(`Đã hoàn thành đợt bảo dưỡng${due ? ` — lần bảo dưỡng tới: ${dayjs(due).format('DD/MM/YYYY')}` : ''}`);
+      message.success(`Đã hoàn thành đợt bảo dưỡng${due ? ` — lần bảo dưỡng tới: ${formatDate(due)}` : ''}`);
       await loadCampaign();
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string; error_code?: string } } };
@@ -552,7 +552,7 @@ export default function MaintenanceCampaignDetailPage() {
           <Alert type="info" showIcon title="Hệ thống không có tài sản nào tại thời điểm tạo đợt — không có kết quả cần ghi." />
         )}
         {items.length === 0 && campaign.snapshots.length > 0 && (
-          <Alert type="info" showIcon title="Version checklist không có hạng mục nào." />
+          <Alert type="info" showIcon title="Danh mục kiểm tra của phiên bản không có hạng mục nào." />
         )}
         {collapseItems.length > 0 && (
           <Collapse

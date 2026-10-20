@@ -245,7 +245,7 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Model No." name="modelNumber">
+              <Form.Item label="Số model" name="modelNumber">
                 <Input placeholder="Số hiệu Model" disabled={confirmedLocked} />
               </Form.Item>
             </Col>

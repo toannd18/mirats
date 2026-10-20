@@ -105,7 +105,7 @@ export default function SystemDetailPage() {
         <Link to={`/assets/${record.id}`}>{record.name} <Text type="secondary">({record.assetTag})</Text></Link>
       ),
     },
-    { title: 'Asset Tag', dataIndex: 'assetTag', width: 140, render: (_, record) => <Text code>{record.assetTag}</Text> },
+    { title: 'Mã tài sản', dataIndex: 'assetTag', width: 140, render: (_, record) => <Text code>{record.assetTag}</Text> },
     {
       title: 'Vị trí trong hệ thống',
       dataIndex: ['systemPosition', 'name'],
@@ -229,7 +229,7 @@ export default function SystemDetailPage() {
           <Descriptions.Item label="Mô tả" span={{ xs: 1, sm: 2, md: 3 }}>{system.description || '-'}</Descriptions.Item>
         </Descriptions>
 
-        <Divider titlePlacement="left" plain>Vị trí (SystemPosition) — bấm vào 1 dòng để lọc các bảng bên dưới</Divider>
+        <Divider titlePlacement="left" plain>Vị trí hệ thống — bấm vào 1 dòng để lọc các bảng bên dưới</Divider>
         <Table
           rowKey="id"
           size="small"
@@ -370,7 +370,7 @@ export default function SystemDetailPage() {
               key: 'license',
               label: (
                 <Space size={4}>
-                  <KeyOutlined /> License
+                  <KeyOutlined /> Bản quyền
                   <Tag color="purple">{licenseCount}</Tag>
                 </Space>
               ),

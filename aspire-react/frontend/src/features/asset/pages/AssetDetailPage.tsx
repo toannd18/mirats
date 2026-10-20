@@ -21,6 +21,7 @@ import {
   type AssetDetailDto, type AssetStatus,
 } from '../types/asset';
 import { formatDate } from '../../../utils/format';
+import { formatNumber } from '../../../utils/format';
 
 const { Text } = Typography;
 
@@ -30,10 +31,10 @@ const TARGET_TYPE_LABELS: Record<string, string> = {
   systemPosition: 'Hệ thống',
 };
 
-const LIFECYCLE_STEPS: Array<{ title: string; description: AssetStatus }> = [
-  { title: 'Chờ cấp phát', description: 'Pending' },
-  { title: 'Đang sử dụng', description: 'Deployed' },
-  { title: 'Đã lưu trữ', description: 'Archived' },
+const LIFECYCLE_STEPS: Array<{ title: string; description: string }> = [
+  { title: 'Chờ cấp phát', description: 'Sẵn sàng cấp phát' },
+  { title: 'Đang sử dụng', description: 'Đã cấp phát' },
+  { title: 'Đã lưu trữ', description: 'Đã thu hồi' },
 ];
 
 function lifecycleStepIndex(status: AssetStatus): number {
@@ -129,14 +130,14 @@ const AssetDetailPage: React.FC = () => {
         {/* column responsive (bug: column={2} cứng trên mobile → cell content bị nén dọc) */}
         <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
           <Descriptions.Item label="Mã tài sản">{asset.assetTag}</Descriptions.Item>
-          <Descriptions.Item label="Serial">{asset.serial || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Số serial">{asset.serial || '-'}</Descriptions.Item>
           <Descriptions.Item label="Model">{asset.model?.name || '-'}</Descriptions.Item>
           <Descriptions.Item label="Danh mục">{asset.category ? <Tag color={asset.category.tagColor}>{asset.category.name}</Tag> : '-'}</Descriptions.Item>
           <Descriptions.Item label="Hãng sản xuất">{asset.manufacturer?.name || '-'}</Descriptions.Item>
           <Descriptions.Item label="Nhà cung cấp">{asset.supplier?.name || '-'}</Descriptions.Item>
           <Descriptions.Item label="Công ty">{asset.company?.name || '-'}</Descriptions.Item>
           <Descriptions.Item label="Vị trí">{asset.location?.name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Giá mua">{asset.purchaseCost ? `${asset.purchaseCost.toLocaleString('vi-VN')} VND` : '-'}</Descriptions.Item>
+          <Descriptions.Item label="Giá mua">{asset.purchaseCost ? `${formatNumber(asset.purchaseCost)} VND` : '-'}</Descriptions.Item>
           <Descriptions.Item label="Ngày mua">{formatDate(asset.purchaseDate)}</Descriptions.Item>
           <Descriptions.Item label="Bảo hành">{asset.warrantyMonths ? `${asset.warrantyMonths} tháng` : '-'}</Descriptions.Item>
           <Descriptions.Item label="Số đơn hàng">{asset.orderNumber || '-'}</Descriptions.Item>
@@ -172,7 +173,7 @@ const AssetDetailPage: React.FC = () => {
           </Descriptions>
         )}
 
-      <Card title="License đang sử dụng" style={{ marginBottom: 16 }}>
+      <Card title="Bản quyền đang sử dụng" style={{ marginBottom: 16 }}>
         <LicenseUsageTable scope={{ type: 'asset', id: id! }} />
       </Card>
 

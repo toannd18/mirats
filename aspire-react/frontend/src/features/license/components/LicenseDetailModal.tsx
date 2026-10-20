@@ -89,14 +89,14 @@ export default function LicenseDetailModal({ open, licenseId, onClose, onSaved }
       title: 'Thao tác', key: 'actions', width: 120,
       render: (_: unknown, s: LicenseSeatDto) => s.assigned
         ? (
-          <Tooltip title={license?.reassignable ? 'Thu hồi seat' : 'License không cho phép thu hồi (Reassignable = false)'}>
+          <Tooltip title={license?.reassignable ? 'Thu hồi ghế' : 'Bản quyền không cho phép thu hồi'}>
             <Button size="small" icon={<RollbackOutlined />} disabled={!license?.reassignable}
-              onClick={() => handleCheckin(s)}>Checkin</Button>
+              onClick={() => handleCheckin(s)}>Thu hồi</Button>
           </Tooltip>
         )
         : (
           <Button size="small" icon={<ExportOutlined />}
-            onClick={() => setCheckoutSeat({ id: s.id, seatNumber: s.seatNumber })}>Checkout</Button>
+            onClick={() => setCheckoutSeat({ id: s.id, seatNumber: s.seatNumber })}>Cấp phát</Button>
         ),
     },
   ];
@@ -120,7 +120,7 @@ export default function LicenseDetailModal({ open, licenseId, onClose, onSaved }
             <Descriptions column={3} size="small" bordered style={{ marginBottom: 16 }}>
               <Descriptions.Item label="Danh mục">{license.category?.name || '-'}</Descriptions.Item>
               <Descriptions.Item label="Công ty">{license.company?.name || '-'}</Descriptions.Item>
-              <Descriptions.Item label="Reassignable">
+              <Descriptions.Item label="Có thể cấp lại">
                 {license.reassignable ? <Tag color="green">Có</Tag> : <Tag color="red">Không</Tag>}
               </Descriptions.Item>
               <Descriptions.Item label="Tổng ghế">{license.seats}</Descriptions.Item>
@@ -135,8 +135,8 @@ export default function LicenseDetailModal({ open, licenseId, onClose, onSaved }
                     ? <Tag color="orange">Sắp hết hạn {formatDate(license.expirationDate)}</Tag>
                     : formatDate(license.expirationDate)}
               </Descriptions.Item>
-              <Descriptions.Item label="Serial">{license.serial || '-'}</Descriptions.Item>
-              <Descriptions.Item label="MinSeats">{license.minSeats ?? '-'}</Descriptions.Item>
+              <Descriptions.Item label="Số serial">{license.serial || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Số ghế tối thiểu">{license.minSeats ?? '-'}</Descriptions.Item>
             </Descriptions>
             <Table
               rowKey="id"

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Card, Empty, Input, List, Popconfirm, App as AntApp, Typography } from 'antd';
 import { SafetyOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { isPasskeyEnabled, listPasskeys, registerPasskey, deletePasskey, type PasskeyItem } from '../services/passkeys';
+import { formatDateTime } from '../../../utils/format';
 
 const { Text } = Typography;
 
@@ -112,8 +113,8 @@ export default function AccountPage() {
                     title={item.name}
                     description={
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        Tạo lúc {new Date(item.createdAt).toLocaleString('vi-VN')}
-                        {item.lastUsedAt ? ` · Dùng lần cuối ${new Date(item.lastUsedAt).toLocaleString('vi-VN')}` : ' · Chưa từng dùng'}
+                        Tạo lúc {formatDateTime(item.createdAt)}
+                        {item.lastUsedAt ? ` · Dùng lần cuối ${formatDateTime(item.lastUsedAt)}` : ' · Chưa từng dùng'}
                       </Text>
                     }
                   />

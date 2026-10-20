@@ -16,6 +16,7 @@ import ConsumableCheckoutModal from '../components/ConsumableCheckoutModal';
 import ConsumableFormModal from '../components/ConsumableFormModal';
 import ActionLogTable, { type ActionLogRow } from '../../../shared/components/ActionLogTable';
 import { formatDate, formatMoney } from '../../../utils/format';
+import { formatNumber } from '../../../utils/format';
 import { uiColors } from '../../../theme/designTokens';
 
 const { Title, Text } = Typography;
@@ -172,7 +173,7 @@ const ConsumableDetailPage: React.FC = () => {
       key: 'quantity',
       width: 60,
       align: 'center' as const,
-      render: (v: number) => <Text strong>{v.toLocaleString('vi-VN')}</Text>,
+      render: (v: number) => <Text strong>{formatNumber(v)}</Text>,
     },
     {
       title: 'Ghi chú',
@@ -275,7 +276,7 @@ const ConsumableDetailPage: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16, marginBottom: 24 }}>
         <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: uiColors.stockSuccessBg, borderColor: uiColors.stockSuccessBorder }}>
           <Text type="secondary" style={{ fontSize: 12 }}>Tổng số lượng</Text>
-          <div><Text strong style={{ fontSize: 24 }}>{detail.qty.toLocaleString('vi-VN')}</Text></div>
+          <div><Text strong style={{ fontSize: 24 }}>{formatNumber(detail.qty)}</Text></div>
         </Card>
         <Card
           size="small"
@@ -289,7 +290,7 @@ const ConsumableDetailPage: React.FC = () => {
           <Text type="secondary" style={{ fontSize: 12 }}>Còn lại</Text>
           <div>
             <Text strong style={{ fontSize: 24, color: detail.isLowStock ? '#ff4d4f' : undefined }}>
-              {detail.remaining.toLocaleString('vi-VN')}
+              {formatNumber(detail.remaining)}
             </Text>
           </div>
           <Text type="secondary" style={{ fontSize: 12 }}>
@@ -298,7 +299,7 @@ const ConsumableDetailPage: React.FC = () => {
         </Card>
         <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: '#fffbe6', borderColor: '#ffe58f' }}>
           <Text type="secondary" style={{ fontSize: 12 }}>Ngưỡng cảnh báo</Text>
-          <div><Text strong style={{ fontSize: 24 }}>{detail.minAmt.toLocaleString('vi-VN')}</Text></div>
+          <div><Text strong style={{ fontSize: 24 }}>{formatNumber(detail.minAmt)}</Text></div>
         </Card>
       </div>
 
@@ -336,10 +337,10 @@ const ConsumableDetailPage: React.FC = () => {
           <Descriptions.Item label="Nhà cung cấp">
             {detail.supplier?.name ?? '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="Model No.">
+          <Descriptions.Item label="Số model">
             {detail.modelNumber || '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="Order No.">
+          <Descriptions.Item label="Số đơn hàng">
             {detail.orderNumber || '-'}
           </Descriptions.Item>
           <Descriptions.Item label="Ngày mua">

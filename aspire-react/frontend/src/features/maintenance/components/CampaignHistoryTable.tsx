@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Empty, Table, Tag } from 'antd';
-import dayjs from 'dayjs';
 import apiClient from '../../../services/api-client';
+import { formatDate } from '../../../utils/format';
 
 interface CampaignRow {
   id: string;
@@ -55,7 +55,7 @@ export default function CampaignHistoryTable({ systemInfoId }: { systemInfoId: s
           render: (_, r) => <Link to={`/maintenance/campaigns/${r.id}`}>{r.batchNumber || '(không mã)'}</Link>,
         },
         {
-          title: 'Version', dataIndex: 'versionNumber', key: 'versionNumber', width: 90,
+          title: 'Phiên bản', dataIndex: 'versionNumber', key: 'versionNumber', width: 90,
           render: (v: number) => <Tag color="blue">v{v}</Tag>,
         },
         {
@@ -67,7 +67,7 @@ export default function CampaignHistoryTable({ systemInfoId }: { systemInfoId: s
         },
         {
           title: 'Thời gian', key: 'time', width: 220,
-          render: (_, r) => `${dayjs(r.startDate).format('DD/MM/YYYY')} → ${r.endDate ? dayjs(r.endDate).format('DD/MM/YYYY') : '...'}`,
+          render: (_, r) => `${formatDate(r.startDate)} → ${formatDate(r.endDate)}`,
         },
         {
           // [MC-9] resultsCount = dòng kết quả theo tiêu chuẩn (thiết bị × tiêu chuẩn)

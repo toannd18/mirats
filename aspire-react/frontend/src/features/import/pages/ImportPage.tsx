@@ -110,7 +110,7 @@ export default function ImportPage() {
 
   return (
     <div>
-      <Title level={4} style={{ marginTop: 0 }}>Import Excel</Title>
+      <Title level={4} style={{ marginTop: 0 }}>Nhập Excel</Title>
       <Paragraph type="secondary">
         Import dữ liệu từ file Excel (.xlsx) theo cấu trúc file mẫu. Mỗi lần import áp dụng cho
         ĐÚNG MỘT công ty được chọn bên dưới. Import chạy ngay (best-effort từng dòng) — dòng lỗi

@@ -59,10 +59,10 @@ export default function ReportsPage() {
   });
 
   const depCols = [
-    { title: 'Asset Tag', dataIndex: 'assetTag' },
+    { title: 'Mã tài sản', dataIndex: 'assetTag' },
     { title: 'Tên', dataIndex: 'name' },
     { title: 'Giá mua', dataIndex: 'purchaseCost' },
-    { title: 'Tháng SD', dataIndex: 'monthsUsed' },
+    { title: 'Tháng sử dụng', dataIndex: 'monthsUsed' },
     { title: 'Còn lại', dataIndex: 'monthsRemaining' },
     { title: 'Giá trị hiện tại', dataIndex: 'currentBookValue' },
   ];
@@ -93,7 +93,7 @@ export default function ReportsPage() {
         },
         {
           key: 'export', label: 'Xuất CSV', children: (
-            canExport ? <Button type="primary" onClick={() => void exportAssets()}>Tải Assets CSV</Button> : null
+            canExport ? <Button type="primary" onClick={() => void exportAssets()}>Xuất CSV</Button> : null
           ),
         },
       ]} />

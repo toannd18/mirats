@@ -8,10 +8,10 @@ import {
   ExperimentOutlined, CarOutlined, ClusterOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import dayjs from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import { formatDateTime } from '../../../utils/format';
 
 interface TemplateDetailDto {
   id: string;
@@ -95,7 +95,7 @@ const { Text } = Typography;
 
 function fmtDate(v?: string | null): string {
   if (!v) return '—';
-  return dayjs(v).format('DD/MM/YYYY HH:mm');
+  return formatDateTime(v);
 }
 
 /**
@@ -358,20 +358,20 @@ export default function MaintenanceTemplateBuilderPage() {
             <Space wrap>
               {canManage && version && isDraft && (
                 <Popconfirm
-                  title="Publish version này?"
-                  description="Sau khi publish, version trở thành bản hiện hành. Nếu đã có đợt bảo dưỡng (Campaign) dùng version này, nội dung sẽ KHÔNG THỂ SỬA ĐƯỢC NỮA — mọi thay đổi phải tạo version mới."
-                  okText="Publish"
+                  title="Công bố phiên bản này?"
+                  description="Sau khi công bố, phiên bản trở thành bản hiện hành. Nếu đã có đợt bảo dưỡng dùng phiên bản này, nội dung sẽ KHÔNG THỂ SỬA ĐƯỢC NỮA — mọi thay đổi phải tạo phiên bản mới."
+                  okText="Công bố"
                   okButtonProps={{ danger: true }}
                   onConfirm={publishVersion}
                 >
                   <Button type="primary" icon={<SendOutlined />} loading={publishing}>
-                    Publish version
+                    Công bố phiên bản
                   </Button>
                 </Popconfirm>
               )}
               {canManage && (
                 <Button icon={<PlusOutlined />} onClick={() => setNewVerOpen(true)}>
-                  Tạo version mới
+                  Tạo phiên bản mới
                 </Button>
               )}
               {version && (
@@ -384,8 +384,8 @@ export default function MaintenanceTemplateBuilderPage() {
         </Row>
         {version && (
           <Descriptions size="small" column={isMobile ? 1 : 4} style={{ marginTop: 8 }}>
-            <Descriptions.Item label="Version">v{version.versionNumber}</Descriptions.Item>
-            <Descriptions.Item label="Publish lúc">{fmtDate(version.publishedAt)}</Descriptions.Item>
+            <Descriptions.Item label="Phiên bản">v{version.versionNumber}</Descriptions.Item>
+            <Descriptions.Item label="Công bố lúc">{fmtDate(version.publishedAt)}</Descriptions.Item>
             <Descriptions.Item label="Hiệu lực từ">{fmtDate(version.effectiveFrom)}</Descriptions.Item>
             <Descriptions.Item label="Đợt bảo dưỡng dùng">
               {version.hasCampaigns ? <Tag color="green">Có</Tag> : <Tag>Chưa</Tag>}
@@ -398,8 +398,8 @@ export default function MaintenanceTemplateBuilderPage() {
             type="warning"
             showIcon
             title={version.hasCampaigns
-              ? `Version này đã có đợt bảo dưỡng sử dụng — nội dung bất biến. Muốn thay đổi checklist, hãy tạo version mới.`
-              : 'Version đã publish — nội dung bị khóa.'}
+              ? `Phiên bản này đã có đợt bảo dưỡng sử dụng — nội dung bất biến. Muốn thay đổi danh mục kiểm tra, hãy tạo phiên bản mới.`
+              : 'Phiên bản đã công bố — nội dung bị khóa.'}
           />
         )}
       </Card>
@@ -407,7 +407,7 @@ export default function MaintenanceTemplateBuilderPage() {
       {/* Checklist items — [MC-8] tiêu chuẩn kỹ thuật lồng bên trong từng hạng mục (expandable row) */}
       <Card
         size="small"
-        title={<Space><ExperimentOutlined /> ChecklistItems (danh sách kiểm tra)</Space>}
+        title={<Space><ExperimentOutlined /> Hạng mục kiểm tra</Space>}
         extra={canManage && editable && version && (
           <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAddItem}>Thêm hạng mục</Button>
         )}

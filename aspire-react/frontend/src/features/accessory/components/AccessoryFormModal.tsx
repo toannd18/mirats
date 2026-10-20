@@ -182,7 +182,7 @@ export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Model No." name="modelNumber">
+              <Form.Item label="Số model" name="modelNumber">
                 <Input placeholder="Số hiệu Model" />
               </Form.Item>
             </Col>

@@ -81,11 +81,11 @@ export default function LicenseCheckoutModal({
     setSubmitting(true);
     try {
       await licensesApi.checkout(licenseId, { seatId: seatId ?? null, targetType, targetId, note: note || null });
-      message.success('Đã cấp phát seat');
+      message.success('Đã cấp phát ghế');
       onSaved();
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
-      message.error(e?.response?.data?.message || 'Không thể cấp phát seat');
+      message.error(e?.response?.data?.message || 'Không thể cấp phát ghế');
     } finally {
       setSubmitting(false);
     }
@@ -94,7 +94,7 @@ export default function LicenseCheckoutModal({
   return (
     <Modal
       open={open}
-      title={`Cấp phát seat${seatNumber ? ` #${seatNumber}` : ''} — ${licenseName}`}
+      title={`Cấp phát ghế${seatNumber ? ` #${seatNumber}` : ''} - ${licenseName}`}
       onCancel={onClose}
       onOk={() => void submit()}
       confirmLoading={submitting}

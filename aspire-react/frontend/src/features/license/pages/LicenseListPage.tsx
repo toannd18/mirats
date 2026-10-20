@@ -14,6 +14,7 @@ import apiClient from '../../../services/api-client';
 import { licensesApi, type LicenseListItem } from '../services/licenses.service';
 import { usePermission } from '../../../hooks/usePermission';
 import { isSuperUser } from '../../../features/auth/services/auth';
+import { formatNumber } from '../../../utils/format';
 import LicenseFormModal from '../components/LicenseFormModal';
 import LicenseDetailModal from '../components/LicenseDetailModal';
 import LicenseCheckoutModal from '../components/LicenseCheckoutModal';
@@ -204,11 +205,11 @@ export default function LicenseListPage() {
         />
         <Select
           allowClear
-          placeholder="Còn ít chỗ"
+          placeholder="Còn ít ghế"
           style={{ minWidth: 150, maxWidth: '100%' }}
           value={lowSeatsFilter}
           onChange={v => { setLowSeatsFilter(v); actionRef.current?.reload(); }}
-          options={[{ label: 'Còn <= MinSeats', value: 'yes' }]}
+          options={[{ label: 'Còn ≤ ngưỡng', value: 'yes' }]}
         />
         {superUser && (
           <CompanyTreeSelect
@@ -334,7 +335,7 @@ export default function LicenseListPage() {
                     icon={<AlertOutlined />}
                     style={{ borderRadius: 4, margin: 0, fontWeight: 500 }}
                   >
-                    Còn ít chỗ
+                    Còn ít ghế
                   </Tag>
                 )}
               </Space>
@@ -346,7 +347,7 @@ export default function LicenseListPage() {
                   <Text type="secondary" style={{ fontSize: 12 }}>Tổng ghế</Text>
                 </div>
                 <div style={dataRowStyle}>
-                  <Text strong style={{ fontSize: 14 }}>{record.seats.toLocaleString('vi-VN')}</Text>
+                  <Text strong style={{ fontSize: 14 }}>{formatNumber(record.seats)}</Text>
                 </div>
 
                 <div style={dataRowStyle}>

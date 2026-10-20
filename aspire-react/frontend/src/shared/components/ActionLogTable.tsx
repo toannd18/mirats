@@ -5,6 +5,7 @@ import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { uiColors } from '../../theme/designTokens';
+import { formatDateTime } from '../../utils/format';
 
 const { Text } = Typography;
 
@@ -49,6 +50,12 @@ export const ACTION_TYPE_TAGS: Record<number, { color: string; label: string }> 
   15: { color: 'cyan', label: 'Nhập kho' },
   16: { color: 'red', label: 'Đánh dấu hỏng' },
   17: { color: 'volcano', label: 'Loại bỏ' },
+  18: { color: 'default', label: 'Đóng' },
+  19: { color: 'gold', label: 'Mở lại' },
+  20: { color: 'cyan', label: 'Kiểm tra' },
+  21: { color: 'blue', label: 'Công bố' },
+  22: { color: 'green', label: 'Hoàn thành' },
+  23: { color: 'purple', label: 'Đính chính' },
 };
 
 const CHANGE_LABELS: Record<string, string> = {
@@ -124,12 +131,33 @@ const CHANGE_LABELS: Record<string, string> = {
   measured_value: 'Giá trị đo',
   is_pass: 'Đạt',
   end_date: 'Ngày kết thúc',
-  reviewer_id: 'Người duyệt',
+  reviewer_id: 'Người kiểm tra',
   next_maintenance_due_date: 'Bảo dưỡng kế tiếp',
   group_ids: 'Nhóm người dùng',
   permissions: 'Quyền',
   format: 'Định dạng mã',
   enabled: 'Bật',
+  template_id: 'Mẫu bảo dưỡng',
+  templateId: 'Mẫu bảo dưỡng',
+  template_version_id: 'Phiên bản mẫu',
+  templateVersionId: 'Phiên bản mẫu',
+  version_number: 'Số phiên bản',
+  versionNumber: 'Số phiên bản',
+  snapshot_count: 'Số thiết bị',
+  snapshotCount: 'Số thiết bị',
+  batch_number: 'Mã đợt',
+  batchNumber: 'Mã đợt',
+  start_date: 'Ngày bắt đầu',
+  startDate: 'Ngày bắt đầu',
+  endDate: 'Ngày kết thúc',
+  reviewerId: 'Người kiểm tra',
+  executor_ids: 'Người thực hiện',
+  executorIds: 'Người thực hiện',
+  is_current: 'Hiện hành',
+  isCurrent: 'Hiện hành',
+  published_at: 'Công bố lúc',
+  publishedAt: 'Công bố lúc',
+  effectiveFrom: 'Hiệu lực từ',
 };
 
 const CHECKOUT_TYPE_LABELS: Record<string, string> = {
@@ -162,6 +190,8 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
             })[String(val)] ?? String(val);
             if (k === 'isConfirmed') return /true/i.test(String(val)) ? 'Đã xác nhận' : 'Chưa xác nhận';
             if (k === 'checkout_type') return CHECKOUT_TYPE_LABELS[String(val)] ?? String(val);
+            if (/^(start_date|end_date|published_at|effective_from|startDate|endDate|publishedAt|effectiveFrom)$/.test(k)
+                && typeof val === 'string') return formatDateTime(val);
             // [AUDIT-LOG B6a] Cờ boolean (is_active / is_super_user / isActive / isSuperUser…) hiển thị
             // tiếng Việt thay vì "True"/"False" thô — áp dụng cho cả log cũ và mới.
             if (typeof val === 'boolean') return val ? 'Có' : 'Không';
@@ -313,7 +343,7 @@ const ActionLogTable: React.FC<ActionLogTableProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <Tag color={info.color} style={{ marginInlineEnd: 0 }}>{info.label}</Tag>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  {new Date(record.actionDate).toLocaleString('vi-VN')}
+                  {formatDateTime(record.actionDate)}
                 </Text>
               </div>
               {record.itemName && (

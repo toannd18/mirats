@@ -309,6 +309,26 @@ foreach ($rel in $trackedFiles) {
 $script:stats['Sweep 6 (Mojibake)'] = "$s6Count violation(s) / $mojibakeScanned tracked text files"
 
 # ------------------------------------------------------------
+# Sweep 7 - Frontend date formatting must go through utils/format.ts
+# ------------------------------------------------------------
+# [UI-1 GĐ2] One helper: formatDate (dd/MM/yyyy) + formatDateTime (dd/MM/yyyy HH:mm).
+# Ban locale formatting and hand-rolled date patterns outside the helper (numbers use formatNumber).
+$s7Count = 0
+foreach ($f in $frontFiles) {
+    $norm = Normalize $f.FullName
+    if ($norm -match '/src/utils/format\.ts$') { continue }
+    $content = Get-Content -LiteralPath $f.FullName -Raw
+    $hit = $content -match 'toLocale(String|DateString|TimeString)'
+    if (-not $hit) { $hit = $content -match "\.format\(\s*['""](DD/MM|HH:mm|YYYY)" }
+    if (-not $hit) { $hit = $content -match 'getDate\(\)|getMonth\(\)|getFullYear\(\)' }
+    if ($hit) {
+        Add-Violation 'S7' ("{0}: date/number formatting outside src/utils/format.ts (use formatDate/formatDateTime/formatNumber)" -f $norm)
+        $s7Count++
+    }
+}
+$script:stats['Sweep 7 (Date helper)'] = "$s7Count violation(s) / $($frontFiles.Count) frontend files"
+
+# ------------------------------------------------------------
 # Report + exit code
 # ------------------------------------------------------------
 Write-Host ''
@@ -318,6 +338,7 @@ Write-Host (' {0,-34} {1}' -f 'Sweep 3 (ActionLog companyId):', $script:stats['S
 Write-Host (' {0,-34} {1}' -f 'Sweep 4 (Table scroll):', $script:stats['Sweep 4 (Table scroll)'])
 Write-Host (' {0,-34} {1}' -f 'Sweep 5 (Transactions):', $script:stats['Sweep 5 (Transactions)'])
 Write-Host (' {0,-34} {1}' -f 'Sweep 6 (Mojibake):', $script:stats['Sweep 6 (Mojibake)'])
+Write-Host (' {0,-34} {1}' -f 'Sweep 7 (Date helper):', $script:stats['Sweep 7 (Date helper)'])
 Write-Host '------------------------------------------------------------'
 Write-Host (' {0,-34} {1}' -f 'TOTAL:', "$($script:violations.Count) violation(s)")
 Write-Host ''

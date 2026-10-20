@@ -33,9 +33,9 @@ export default function LicenseUsageTable({ scope }: LicenseUsageTableProps) {
 
   const columns = [
     {
-      title: 'License', key: 'license',
+      title: 'Bản quyền', key: 'license',
       render: (_: unknown, r: LicenseUsageRow) => (
-        <span style={{ fontWeight: 600 }}>{r.licenseName} <Tag color="blue">seat #{r.seatNumber}</Tag></span>
+        <span style={{ fontWeight: 600 }}>{r.licenseName} <Tag color="blue">ghế #{r.seatNumber}</Tag></span>
       ),
     },
     {
@@ -54,7 +54,7 @@ export default function LicenseUsageTable({ scope }: LicenseUsageTableProps) {
   ];
 
   if (!loading && data.length === 0) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có license nào đang gán" />;
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có bản quyền nào đang gán" />;
   }
 
   // ─── Mobile (T-RESP4): Card list — cùng 1 fetch, không đụng caller ───

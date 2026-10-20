@@ -6,6 +6,7 @@ import { RollbackOutlined, EnvironmentOutlined } from '@ant-design/icons';
 import { accessoriesApi, checkoutTypeToLabel } from '../services/accessories.service';
 import type { AccessoryCheckoutDto, CheckinRequest } from '../services/accessories.service';
 import { uiColors } from '../../../theme/designTokens';
+import { formatNumber } from '../../../utils/format';
 
 const { Text, Title } = Typography;
 
@@ -42,7 +43,7 @@ const AccessoryCheckinModal: React.FC<AccessoryCheckinModalProps> = ({
       return;
     }
     if (returnQty > maxReturnable) {
-      void message.error(`Không thể thu hồi quá ${maxReturnable.toLocaleString('vi-VN')}`);
+      void message.error(`Không thể thu hồi quá ${formatNumber(maxReturnable)}`);
       return;
     }
 
@@ -53,7 +54,7 @@ const AccessoryCheckinModal: React.FC<AccessoryCheckinModalProps> = ({
         note: note.trim() || undefined,
       };
       await accessoriesApi.checkin(checkout.id, payload);
-      void message.success(`Đã thu hồi ${returnQty.toLocaleString('vi-VN')} phụ kiện`);
+      void message.success(`Đã thu hồi ${formatNumber(returnQty)} phụ kiện`);
       onSuccess();
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
@@ -105,14 +106,14 @@ const AccessoryCheckinModal: React.FC<AccessoryCheckinModalProps> = ({
               </Space>
             </Descriptions.Item>
             <Descriptions.Item label="Đã cấp">
-              <Text strong>{checkout.assignedQty.toLocaleString('vi-VN')}</Text>
+              <Text strong>{formatNumber(checkout.assignedQty)}</Text>
             </Descriptions.Item>
             <Descriptions.Item label="Đã thu hồi">
-              <Text>{checkout.returnedQty.toLocaleString('vi-VN')}</Text>
+              <Text>{formatNumber(checkout.returnedQty)}</Text>
             </Descriptions.Item>
             <Descriptions.Item label="Còn lại có thể thu">
               <Text type="warning" strong style={{ fontSize: 16 }}>
-                {maxReturnable.toLocaleString('vi-VN')}
+                {formatNumber(maxReturnable)}
               </Text>
             </Descriptions.Item>
           </Descriptions>
@@ -133,7 +134,7 @@ const AccessoryCheckinModal: React.FC<AccessoryCheckinModalProps> = ({
           size="large"
         />
         <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
-          Tối đa: {maxReturnable.toLocaleString('vi-VN')}
+          Tối đa: {formatNumber(maxReturnable)}
         </Text>
       </div>
 

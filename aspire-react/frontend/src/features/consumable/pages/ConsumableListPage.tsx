@@ -12,6 +12,7 @@ import {
 import { ProList } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
+import { formatNumber } from '../../../utils/format';
 import { consumablesApi } from '../services/consumables.service';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { usePermission } from '../../../hooks/usePermission';
@@ -348,7 +349,7 @@ const ConsumableListPage: React.FC = () => {
                 <Text type="secondary" style={{ fontSize: 12 }}>Tổng số lượng</Text>
               </div>
               <div style={dataRowStyle}>
-                <Text strong style={{ fontSize: 14 }}>{record.qty.toLocaleString('vi-VN')}</Text>
+                <Text strong style={{ fontSize: 14 }}>{formatNumber(record.qty)}</Text>
               </div>
 
               <div style={dataRowStyle}>
@@ -358,13 +359,13 @@ const ConsumableListPage: React.FC = () => {
               <div style={dataRowStyle}>
                 {record.isLowStock ? (
                   <Text strong type="danger" style={{ fontSize: 15, lineHeight: 1 }}>
-                    {record.remaining.toLocaleString('vi-VN')}
+                    {formatNumber(record.remaining)}
                     <Text type="secondary" style={{ fontSize: 11, marginLeft: 4, fontWeight: 400 }}>
                       (Ngưỡng: {record.minAmt})
                     </Text>
                   </Text>
                 ) : (
-                  <Text strong style={{ fontSize: 14 }}>{record.remaining.toLocaleString('vi-VN')}</Text>
+                  <Text strong style={{ fontSize: 14 }}>{formatNumber(record.remaining)}</Text>
                 )}
               </div>
 

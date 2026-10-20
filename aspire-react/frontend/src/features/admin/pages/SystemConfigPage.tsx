@@ -80,7 +80,7 @@ export default function SystemConfigPage() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        title="Format tự sinh Mã tài sản (Asset Tag)"
+        title="Định dạng mã tài sản tự sinh"
         description="Khi để trống ô Mã tài sản khi tạo tài sản, hệ thống tự sinh theo format dưới đây. Hỗ trợ token: {COMPANY} = mã công ty (NOCO nếu không có), {YYYY} = năm 4 số, {SEQ:n} = số thứ tự đệm n chữ số. Ví dụ: AST-{COMPANY}-{YYYY}-{SEQ:3} → AST-ABC-2026-001. Số thứ tự đếm riêng theo từng công ty và reset mỗi năm."
       />
       <Form form={form} layout="vertical" style={{ maxWidth: 560 }}>

@@ -262,18 +262,18 @@ export default function LicenseFormModal({ open, licenseId, onClose, onSaved }: 
           <Divider titlePlacement="start" plain>Số chỗ</Divider>
           <Row gutter={[16, 8]}>
             <Col xs={24} sm={8}>
-              <Form.Item label="Tổng số chỗ (Seats)" name="seats" rules={[{ required: true, message: 'Nhập số chỗ' }]}>
+              <Form.Item label="Tổng số ghế" name="seats" rules={[{ required: true, message: 'Nhập số ghế' }]}>
                 <InputNumber min={1} precision={0} style={{ width: '100%' }} placeholder="VD: 5" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={8}>
-              <Form.Item label="Cảnh báo còn ít chỗ (MinSeats)" name="minSeats" tooltip="Cảnh báo khi số chỗ còn trống <= giá trị này">
+              <Form.Item label="Ngưỡng cảnh báo số ghế" name="minSeats" tooltip="Cảnh báo khi số ghế còn trống <= giá trị này">
                 <InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="VD: 1" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={8}>
               <Form.Item label="Cho phép thu hồi & cấp lại" name="reassignable" valuePropName="checked"
-                tooltip="Tắt (false) = license OEM gắn chết vào đối tượng, không checkin được">
+                tooltip="Tắt (false) = bản quyền OEM gắn chặt vào đối tượng, không thu hồi được">
                 <Switch />
               </Form.Item>
             </Col>
@@ -288,7 +288,7 @@ export default function LicenseFormModal({ open, licenseId, onClose, onSaved }: 
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Ngày chấm dứt hợp đồng" name="terminationDate" tooltip="Áp dụng cho license thuê bao">
+              <Form.Item label="Ngày chấm dứt hợp đồng" name="terminationDate" tooltip="Áp dụng cho bản quyền thuê bao">
                 <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="Chọn ngày" />
               </Form.Item>
             </Col>

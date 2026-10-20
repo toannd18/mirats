@@ -11,6 +11,7 @@ import type { SegmentedValue } from 'antd/es/segmented';
 import apiClient from '../../../services/api-client';
 import type { AccessoryDto } from '../services/accessories.service';
 import { accessoriesApi } from '../services/accessories.service';
+import { formatNumber } from '../../../utils/format';
 
 const { Text, Title } = Typography;
 
@@ -177,7 +178,7 @@ const AccessoryCheckoutModal: React.FC<AccessoryCheckoutModalProps> = ({
       return;
     }
     if (quantity > accessory.remaining) {
-      void message.error(`Không thể cấp phát quá số lượng còn lại (${accessory.remaining.toLocaleString('vi-VN')})`);
+      void message.error(`Không thể cấp phát quá số lượng còn lại (${formatNumber(accessory.remaining)})`);
       return;
     }
 
@@ -228,11 +229,11 @@ const AccessoryCheckoutModal: React.FC<AccessoryCheckoutModalProps> = ({
             )}
             <Space size={16}>
               <Text type="secondary">
-                Còn lại: <Text strong>{accessory.remaining.toLocaleString('vi-VN')}</Text>
+                Còn lại: <Text strong>{formatNumber(accessory.remaining)}</Text>
               </Text>
               {accessory.checkedOutQty > 0 && (
                 <Text type="secondary">
-                  Đã cấp: <Text strong>{accessory.checkedOutQty.toLocaleString('vi-VN')}</Text>
+                  Đã cấp: <Text strong>{formatNumber(accessory.checkedOutQty)}</Text>
                 </Text>
               )}
             </Space>
@@ -330,7 +331,7 @@ const AccessoryCheckoutModal: React.FC<AccessoryCheckoutModalProps> = ({
           size="large"
         />
         <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
-          Tối đa: {accessory?.remaining.toLocaleString('vi-VN') ?? 0}
+          Tối đa: {formatNumber(accessory?.remaining ?? 0)}
         </Text>
       </div>
 

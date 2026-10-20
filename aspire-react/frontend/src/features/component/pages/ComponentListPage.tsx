@@ -13,6 +13,7 @@ import apiClient from '../../../services/api-client';
 import { componentsApi } from '../services/components.service';
 import { usePermission } from '../../../hooks/usePermission';
 import { uiColors, cardBadgeGradients } from '../../../theme/designTokens';
+import { formatNumber } from '../../../utils/format';
 import { isSuperUser } from '../../../features/auth/services/auth';
 import ComponentFormModal from '../components/ComponentFormModal';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
@@ -284,9 +285,9 @@ export default function ComponentListPage() {
                 </Tag>
               )}
               {record.trackingType === 'Serial' ? (
-                <Tag color="blue" style={{ borderRadius: 4, margin: 0 }}>Serial</Tag>
+                <Tag color="blue" style={{ borderRadius: 4, margin: 0 }}>Theo serial</Tag>
               ) : (
-                <Tag style={{ borderRadius: 4, margin: 0 }}>Bulk</Tag>
+                <Tag style={{ borderRadius: 4, margin: 0 }}>Theo số lượng</Tag>
               )}
               {record.remaining <= record.minAmt ? (
                 <Tag
@@ -320,7 +321,7 @@ export default function ComponentListPage() {
                 <Text type="secondary" style={{ fontSize: 12 }}>Tổng số lượng</Text>
               </div>
               <div style={dataRowStyle}>
-                <Text strong style={{ fontSize: 14 }}>{record.qty.toLocaleString('vi-VN')}</Text>
+                <Text strong style={{ fontSize: 14 }}>{formatNumber(record.qty)}</Text>
               </div>
 
               <div style={dataRowStyle}>
@@ -330,13 +331,13 @@ export default function ComponentListPage() {
               <div style={dataRowStyle}>
                 {record.remaining <= record.minAmt ? (
                   <Text strong type="danger" style={{ fontSize: 15, lineHeight: 1 }}>
-                    {record.remaining.toLocaleString('vi-VN')}
+                    {formatNumber(record.remaining)}
                     <Text type="secondary" style={{ fontSize: 11, marginLeft: 4, fontWeight: 400 }}>
                       (Ngưỡng: {record.minAmt})
                     </Text>
                   </Text>
                 ) : (
-                  <Text strong style={{ fontSize: 14 }}>{record.remaining.toLocaleString('vi-VN')}</Text>
+                  <Text strong style={{ fontSize: 14 }}>{formatNumber(record.remaining)}</Text>
                 )}
               </div>
 

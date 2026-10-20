@@ -3,6 +3,7 @@ import {
   Modal, Select, InputNumber, Input, Tag, Typography, App,
 } from 'antd';
 import apiClient from '../../../services/api-client';
+import { formatNumber } from '../../../utils/format';
 
 const { Text, Title } = Typography;
 
@@ -89,7 +90,7 @@ const ConsumableCheckoutModal: React.FC<ConsumableCheckoutModalProps> = ({
       return;
     }
     if (qty > consumable.remaining) {
-      void message.error(`Không thể cấp phát quá số lượng còn lại (${consumable.remaining.toLocaleString('vi-VN')})`);
+      void message.error(`Không thể cấp phát quá số lượng còn lại (${formatNumber(consumable.remaining)})`);
       return;
     }
     if (qty < 1) {
@@ -133,7 +134,7 @@ const ConsumableCheckoutModal: React.FC<ConsumableCheckoutModalProps> = ({
               </Tag>
             )}
             <Text type="secondary">
-              Còn lại: {consumable.remaining.toLocaleString('vi-VN')}
+              Còn lại: {formatNumber(consumable.remaining)}
             </Text>
           </div>
         )}

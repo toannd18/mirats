@@ -15,12 +15,12 @@ const CATEGORY_TYPE_LABELS: Record<string, string> = {
   Consumable: 'Consumable',
   Accessory: 'Accessory',
   Component: 'Component',
-  License: 'License',
+  License: 'Bản quyền',
   1: 'Asset',
   2: 'Consumable',
   3: 'Accessory',
   4: 'Component',
-  5: 'License',
+  5: 'Bản quyền',
 };
 
 interface CategoryRow {

@@ -1,4 +1,5 @@
 import type { AssetTimelineEvent } from '../types/timeline';
+import { formatDateTime } from '../../../utils/format.ts';
 
 /**
  * [LL-6] Tải TOÀN BỘ lý lịch để in. Tách khỏi component để test được logic phân trang/giới hạn.
@@ -52,7 +53,7 @@ export class TimelineTooLargeError extends Error {
 
   constructor(maxEvents: number) {
     super(
-      `Lý lịch thiết bị có hơn ${maxEvents.toLocaleString('vi-VN')} sự kiện nên chưa thể in đầy đủ. ` +
+      `Lý lịch thiết bị có hơn ${String(maxEvents)} sự kiện nên chưa thể in đầy đủ. ` +
         'Hãy chọn bộ lọc "Sự kiện chính" (hoặc thu hẹp phạm vi) rồi in lại — hệ thống không in bản bị cắt bớt.',
     );
     this.name = 'TimelineTooLargeError';
@@ -122,11 +123,7 @@ export async function loadAllTimelineEvents(
  * giữ được tính THUẦN — test chạy trực tiếp bằng Node (type stripping) không cần bundler/alias.
  */
 export function formatEventTime(event: AssetTimelineEvent): string {
-  const value = new Date(event.occurredAt);
-  if (Number.isNaN(value.getTime())) return String(event.occurredAt);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const time =
-    `${pad(value.getDate())}/${pad(value.getMonth() + 1)}/${value.getFullYear()} ` +
-    `${pad(value.getHours())}:${pad(value.getMinutes())}`;
+  const formatted = formatDateTime(event.occurredAt);
+  const time = formatted === '-' ? String(event.occurredAt) : formatted;
   return event.isEstimated ? `≈ ${time}` : time;
 }

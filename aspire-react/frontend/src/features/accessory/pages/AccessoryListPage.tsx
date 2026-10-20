@@ -14,6 +14,7 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import { accessoriesApi, checkoutTypeToLabel } from '../services/accessories.service';
 import type { AccessoryDto, AccessoryCheckoutDto, CheckinRequest } from '../services/accessories.service';
+import { formatNumber } from '../../../utils/format';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { usePermission } from '../../../hooks/usePermission';
 import AccessoryCheckoutModal from '../components/AccessoryCheckoutModal';
@@ -147,7 +148,7 @@ const AccessoryListPage: React.FC = () => {
       return;
     }
     if (returnQty > checkout.remainingOut) {
-      void message.error(`Không thể thu hồi quá số lượng đang cấp phát (${checkout.remainingOut.toLocaleString('vi-VN')})`);
+      void message.error(`Không thể thu hồi quá số lượng đang cấp phát (${formatNumber(checkout.remainingOut)})`);
       return;
     }
 
@@ -195,11 +196,11 @@ const AccessoryListPage: React.FC = () => {
           </div>
           <div style={{ marginTop: 4 }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              Đã cấp: {checkout.assignedQty.toLocaleString('vi-VN')}
+              Đã cấp: {formatNumber(checkout.assignedQty)}
               {' · '}
-              Đã thu: {checkout.returnedQty.toLocaleString('vi-VN')}
+              Đã thu: {formatNumber(checkout.returnedQty)}
               {' · '}
-              Còn lại: <Text type="danger" strong>{checkout.remainingOut.toLocaleString('vi-VN')}</Text>
+              Còn lại: <Text type="danger" strong>{formatNumber(checkout.remainingOut)}</Text>
             </Text>
           </div>
           {checkout.note && (
@@ -420,7 +421,7 @@ const AccessoryListPage: React.FC = () => {
                 <Text type="secondary" style={{ fontSize: 12 }}>Tổng số lượng</Text>
               </div>
               <div style={dataRowStyle}>
-                <Text strong style={{ fontSize: 14 }}>{record.qty.toLocaleString('vi-VN')}</Text>
+                <Text strong style={{ fontSize: 14 }}>{formatNumber(record.qty)}</Text>
               </div>
 
               <div style={dataRowStyle}>
@@ -430,13 +431,13 @@ const AccessoryListPage: React.FC = () => {
               <div style={dataRowStyle}>
                 {record.isLowStock ? (
                   <Text strong type="danger" style={{ fontSize: 15, lineHeight: 1 }}>
-                    {record.remaining.toLocaleString('vi-VN')}
+                    {formatNumber(record.remaining)}
                     <Text type="secondary" style={{ fontSize: 11, marginLeft: 4, fontWeight: 400 }}>
                       (Ngưỡng: {record.minAmt})
                     </Text>
                   </Text>
                 ) : (
-                  <Text strong style={{ fontSize: 14 }}>{record.remaining.toLocaleString('vi-VN')}</Text>
+                  <Text strong style={{ fontSize: 14 }}>{formatNumber(record.remaining)}</Text>
                 )}
               </div>
 

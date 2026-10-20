@@ -103,7 +103,7 @@ const AssetAllocationModal: React.FC<AllocationModalProps> = ({ open, asset, onC
         locationId: targetType === 'SystemPosition' ? locationId : undefined,
         note: note.trim() || undefined,
       });
-      void message.success('Đã cấp phát tài sản (Pending → Deployed)');
+      void message.success('Đã cấp phát tài sản');
       onSuccess();
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };

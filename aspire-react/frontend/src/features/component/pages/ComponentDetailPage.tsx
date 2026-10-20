@@ -12,6 +12,7 @@ import {
 import { usePermission } from '../../../hooks/usePermission';
 import ActionLogTable from '../../../shared/components/ActionLogTable';
 import type { ActionLogRow } from '../../../shared/components/ActionLogTable';
+import { formatDate, formatDateTime, formatNumber } from '../../../utils/format';
 import ComponentFormModal from '../components/ComponentFormModal';
 import { statusColors } from '../../../theme/designTokens';
 
@@ -178,7 +179,7 @@ export default function ComponentDetailPage() {
     },
     {
       title: 'Cập nhật', dataIndex: 'updatedAt', key: 'updatedAt', width: 170,
-      render: (v: string) => new Date(v).toLocaleString('vi-VN'),
+      render: (v: string) => formatDateTime(v),
     },
     {
       title: 'Thao tác', key: 'actions', width: 280,
@@ -255,11 +256,11 @@ export default function ComponentDetailPage() {
       <Card style={{ marginBottom: 16 }}>
         <Space style={{ marginBottom: 12 }} align="center">
           <Title level={4} style={{ margin: 0 }}>{component.name}</Title>
-          {component.trackingType === 'Serial' ? <Tag color="blue">Serial</Tag> : <Tag>Bulk</Tag>}
+          {component.trackingType === 'Serial' ? <Tag color="blue">Theo serial</Tag> : <Tag>Theo số lượng</Tag>}
           {component.isLowStock && <Tag color="red">Sắp hết</Tag>}
         </Space>
         <Descriptions size="small" column={{ xs: 1, sm: 2, md: 4 }} bordered>
-          <Descriptions.Item label="Tổng (Qty)">{component.qty}</Descriptions.Item>
+          <Descriptions.Item label="Tổng số lượng">{component.qty}</Descriptions.Item>
           <Descriptions.Item label="Còn lại">{component.remaining}</Descriptions.Item>
           {component.trackingType === 'Serial' && (
             <>
@@ -277,10 +278,10 @@ export default function ComponentDetailPage() {
           <Descriptions.Item label="Vị trí">{component.location?.name || '-'}</Descriptions.Item>
           <Descriptions.Item label="Nhà sản xuất">{component.manufacturer?.name || '-'}</Descriptions.Item>
           <Descriptions.Item label="Nhà cung cấp">{component.supplier?.name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Model Number">{component.modelNumber || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Số model">{component.modelNumber || '-'}</Descriptions.Item>
           <Descriptions.Item label="Số đơn hàng">{component.orderNumber || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Ngày mua">{component.purchaseDate ? new Date(component.purchaseDate).toLocaleDateString('vi-VN') : '-'}</Descriptions.Item>
-          <Descriptions.Item label="Giá mua">{component.purchaseCost != null ? component.purchaseCost.toLocaleString('vi-VN') : '-'}</Descriptions.Item>
+          <Descriptions.Item label="Ngày mua">{formatDate(component.purchaseDate)}</Descriptions.Item>
+          <Descriptions.Item label="Giá mua">{component.purchaseCost != null ? formatNumber(component.purchaseCost) : '-'}</Descriptions.Item>
           <Descriptions.Item label="Ghi chú" span={{ xs: 1, sm: 2 }}>{component.notes || '-'}</Descriptions.Item>
         </Descriptions>
 

@@ -10,6 +10,7 @@ import dayjs, { Dayjs } from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import { formatDate } from '../../../utils/format';
 
 const { Text } = Typography;
 
@@ -117,13 +118,13 @@ export default function MaintenanceCampaignListPage() {
         const tpls = (res.data?.data ?? []) as Array<{ id: string; name: string; isActive: boolean; currentVersion?: { id: string; versionNumber: number } | null }>;
         if (!alive) return;
         const active = tpls.filter(t => t.isActive);
-        if (active.length === 0) { setVersionPreview({ loading: false, error: 'Hệ thống chưa có template bảo dưỡng.' }); return; }
-        if (active.length > 1) { setVersionPreview({ loading: false, error: `${active.length} templates — hãy mở Builder để publish đúng template cần dùng.` }); return; }
+        if (active.length === 0) { setVersionPreview({ loading: false, error: 'Hệ thống chưa có mẫu bảo dưỡng.' }); return; }
+        if (active.length > 1) { setVersionPreview({ loading: false, error: `${active.length} mẫu — hãy mở trình thiết kế để công bố đúng mẫu cần dùng.` }); return; }
         const cv = active[0].currentVersion;
-        if (!cv) { setVersionPreview({ loading: false, error: 'Template chưa có version hiện hành đã publish.' }); return; }
+        if (!cv) { setVersionPreview({ loading: false, error: 'Mẫu chưa có phiên bản hiện hành đã công bố.' }); return; }
         setVersionPreview({ loading: false, versionNumber: cv.versionNumber, templateName: active[0].name });
       } catch {
-        if (alive) setVersionPreview({ loading: false, error: 'Lỗi tải template' });
+        if (alive) setVersionPreview({ loading: false, error: 'Lỗi tải mẫu' });
       }
     })();
 
@@ -168,7 +169,7 @@ export default function MaintenanceCampaignListPage() {
     }
   };
 
-  const fmt = (v?: string | null) => (v ? dayjs(v).format('DD/MM/YYYY') : '—');
+  const fmt = (v?: string | null) => formatDate(v);
 
   // ST7b — 1 fetch dùng chung cho ProTable (desktop) và ProList Card (mobile): không trùng code gọi API.
   const fetchCampaigns = async (): Promise<CampaignDto[]> => {
@@ -195,7 +196,7 @@ export default function MaintenanceCampaignListPage() {
       render: (_, r) => <Text strong>{r.batchNumber || '(không mã)'}</Text>,
     },
     { title: 'Hệ thống', dataIndex: 'systemInfoName', key: 'systemInfoName', width: 200 },
-    { title: 'Version', dataIndex: 'versionNumber', key: 'versionNumber', width: 90, render: (_, r) => <Tag color="blue">v{r.versionNumber}</Tag> },
+    { title: 'Phiên bản', dataIndex: 'versionNumber', key: 'versionNumber', width: 90, render: (_, r) => <Tag color="blue">v{r.versionNumber}</Tag> },
     {
       title: 'Trạng thái', dataIndex: 'status', key: 'status', width: 130,
       render: (_, r) => {
@@ -259,7 +260,7 @@ export default function MaintenanceCampaignListPage() {
             items={[
               {
                 key: 'version',
-                label: (<Space size={4}><SafetyCertificateOutlined /> Checklist áp dụng</Space>),
+                label: (<Space size={4}><SafetyCertificateOutlined /> Danh mục kiểm tra áp dụng</Space>),
                 children: versionPreview.loading
                   ? <Spin size="small" />
                   : versionPreview.error
@@ -284,7 +285,7 @@ export default function MaintenanceCampaignListPage() {
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item label="Mã đợt (Batch)" name="batchNumber">
+            <Form.Item label="Mã đợt" name="batchNumber">
               <Input placeholder="VD: DOT-2026-01" maxLength={50} />
             </Form.Item>
           </Col>
@@ -306,7 +307,7 @@ export default function MaintenanceCampaignListPage() {
             options={userOptions}
           />
         </Form.Item>
-        <Form.Item label="Người kiểm tra (Reviewer)" name="reviewerId">
+        <Form.Item label="Người kiểm tra" name="reviewerId">
           <Select
             showSearch
             allowClear

@@ -1,29 +1,47 @@
-export function formatDate(value?: string | null): string {
-  return value ? new Date(value).toLocaleDateString('vi-VN') : '-';
-}
-
-export function formatDateTime(value?: string | null): string {
-  return value ? new Date(value).toLocaleString('vi-VN') : '-';
-}
-
 /**
- * Ngày + giờ dạng `dd/MM/yyyy HH:mm` theo múi giờ MÁY NGƯỜI DÙNG.
+ * [UI-1 GĐ2] Single source of truth for user-facing dates/numbers.
  *
- * Vì sao không dùng `formatDateTime`: `toLocaleString('vi-VN')` xuất theo thứ tự mặc định của locale
- * ("16:30:00 17/10/2026" — giờ trước ngày, có giây) nên không ra đúng khuôn `dd/MM/yyyy HH:mm` mà
- * màn Lý lịch thiết bị cần (LL-4). Ở đây tự đệm từng thành phần; KHÔNG tự cộng/trừ múi giờ —
- * value truyền vào là ISO-8601 UTC (`...Z`) nên `Date` tự quy đổi về giờ địa phương của máy.
+ * Rules:
+ * - Date-only fields (purchase date, start date, expiration date…) → `formatDate` (dd/MM/yyyy).
+ * - Date+time fields (audit timestamps, checkouts, campaign start/end with time) → `formatDateTime`
+ *   (dd/MM/yyyy HH:mm, local time).
+ * - Numbers → `formatNumber` (vi-VN thousands separators).
+ *
+ * Do NOT call `toLocaleString` / `toLocaleDateString` / `toLocaleTimeString` or hand-roll
+ * `DD/MM/YYYY` formatting elsewhere in the app (Sweep 7 in scripts/audit-sweeps.ps1 enforces this).
  */
-export function formatDateTimeShort(value?: string | null): string {
-  if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '-';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+function pad(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function parseDate(value?: string | Date | null): Date | null {
+  if (value === null || value === undefined || value === '') return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** dd/MM/yyyy — use for date-only values. */
+export function formatDate(value?: string | Date | null): string {
+  const d = parseDate(value);
+  if (!d) return '-';
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+/** dd/MM/yyyy HH:mm — use for timestamps. */
+export function formatDateTime(value?: string | Date | null): string {
+  const d = parseDate(value);
+  if (!d) return '-';
+  return `${formatDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Backward-compatible alias used by the LL-4/LL-6 timeline code. */
+export const formatDateTimeShort = formatDateTime;
+
+/** vi-VN number formatting (thousands separators); empty/invalid → "-". */
+export function formatNumber(value?: number | null): string {
+  return typeof value === 'number' && !Number.isNaN(value) ? value.toLocaleString('vi-VN') : '-';
 }
 
 export function formatMoney(value?: unknown): string {
-  return typeof value === 'number' && !Number.isNaN(value)
-    ? `${value.toLocaleString('vi-VN')} VND`
-    : '-';
+  return typeof value === 'number' && !Number.isNaN(value) ? `${formatNumber(value)} VND` : '-';
 }

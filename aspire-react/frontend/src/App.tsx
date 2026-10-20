@@ -83,17 +83,17 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Breadcrumb: suy ra 2 cấp đầu từ route (cấp 3 tên record để dành task sau).
   const crumbMap: Record<string, string> = {
-    '/dashboard': 'Dashboard',
+    '/dashboard': 'Tổng quan',
     '/consumables': 'Vật tư tiêu hao', '/components': 'Linh kiện', '/accessories': 'Phụ kiện',
     '/licenses': 'Bản quyền', '/assets': 'Tài sản', '/maintenances': 'Bảo trì',
-    '/maintenance/templates': 'Template bảo dưỡng',
+    '/maintenance/templates': 'Mẫu bảo dưỡng',
     '/maintenance/campaigns': 'Đợt bảo dưỡng',
     '/system-history': 'Lịch sử hệ thống', '/reports': 'Báo cáo', '/users': 'Người dùng',
     '/groups': 'Nhóm', '/permissions': 'Phân quyền',
     '/admin/categories': 'Danh mục', '/admin/manufacturers': 'Nhà SX', '/admin/suppliers': 'Nhà cung cấp',
-    '/admin/asset-models': 'Asset Models', '/admin/locations': 'Địa điểm',
+    '/admin/asset-models': 'Model tài sản', '/admin/locations': 'Địa điểm',
     '/admin/depreciations': 'Khấu hao', '/admin/companies': 'Công ty', '/admin/departments': 'Phòng ban',
-    '/admin/system-infos': 'Hệ thống', '/admin/import': 'Import Excel',
+    '/admin/system-infos': 'Hệ thống', '/admin/import': 'Nhập Excel',
     '/admin/system-config': 'Cấu hình hệ thống',
   };
   const parentCrumbMap: Record<string, string> = {
@@ -214,7 +214,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { key: '/admin/categories', icon: <TagOutlined />, label: 'Danh mục' },
     { key: '/admin/manufacturers', icon: <BankOutlined />, label: 'Nhà SX' },
     { key: '/admin/suppliers', icon: <ShopOutlined />, label: 'Nhà cung cấp' },
-    { key: '/admin/asset-models', icon: <GoldOutlined />, label: 'Asset Models' },
+    { key: '/admin/asset-models', icon: <GoldOutlined />, label: 'Model tài sản' },
     { key: '/admin/locations', icon: <EnvironmentOutlined />, label: 'Địa điểm' },
 
     { key: '/admin/depreciations', icon: <ScheduleOutlined />, label: 'Khấu hao' },
@@ -227,7 +227,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         <span style={{ color: 'inherit' }}>Hệ thống</span>
       </Badge>
     ) },
-    { key: '/admin/import', icon: <ImportOutlined />, label: 'Import Excel' },
+    { key: '/admin/import', icon: <ImportOutlined />, label: 'Nhập Excel' },
     { key: '/admin/system-config', icon: <SettingOutlined />, label: 'Cấu hình hệ thống' },
   ]);
 
@@ -235,7 +235,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 
   menuGroups.push({
     label: 'TỔNG QUAN',
-    items: [{ key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' }],
+    items: [{ key: '/dashboard', icon: <DashboardOutlined />, label: 'Tổng quan' }],
   });
 
   const business: NonNullable<MenuProps['items']> = [];
@@ -260,7 +260,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   if (canSee('/licenses')) business.push({ key: '/licenses', icon: <KeyOutlined />, label: 'Bản quyền' });
   if (canSee('/assets')) business.push({ key: '/assets', icon: <LaptopOutlined />, label: 'Tài sản' });
   if (canSee('/maintenances')) business.push({ key: '/maintenances', icon: <ExperimentOutlined />, label: 'Bảo trì' });
-  if (canSee('/maintenance/templates')) business.push({ key: '/maintenance/templates', icon: <FileTextOutlined />, label: 'Template bảo dưỡng' });
+  if (canSee('/maintenance/templates')) business.push({ key: '/maintenance/templates', icon: <FileTextOutlined />, label: 'Mẫu bảo dưỡng' });
   if (canSee('/maintenance/campaigns')) business.push({ key: '/maintenance/campaigns', icon: <CarOutlined />, label: 'Đợt bảo dưỡng' });
   business.push({ key: '/system-history', icon: <HistoryOutlined />, label: 'Lịch sử hệ thống' });
   if (canSee('/reports')) business.push({ key: '/reports', icon: <BarChartOutlined />, label: 'Báo cáo' });

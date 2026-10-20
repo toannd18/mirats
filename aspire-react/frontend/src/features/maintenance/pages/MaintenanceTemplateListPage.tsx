@@ -174,12 +174,12 @@ export default function MaintenanceTemplateListPage() {
     },
     {
       title: 'Công ty', key: 'company', width: 150,
-      render: (_, r) => r.company?.name || <Tag>Floater</Tag>,
+      render: (_, r) => r.company?.name || <Tag>Không thuộc công ty</Tag>,
     },
     {
       title: 'Phiên bản', key: 'versions', width: 200,
       render: (_, r) => {
-        if (!r.currentVersion) return <Tag>Chưa publish</Tag>;
+        if (!r.currentVersion) return <Tag>Chưa công bố</Tag>;
         const v = r.currentVersion;
         return (
           <Space size={6}>
@@ -211,7 +211,7 @@ export default function MaintenanceTemplateListPage() {
   const formModal = (
     <Modal
       open={open}
-      title={editingId ? 'Sửa template' : 'Tạo template bảo dưỡng'}
+      title={editingId ? 'Sửa mẫu bảo dưỡng' : 'Tạo mẫu bảo dưỡng'}
       onOk={form.submit}
       onCancel={handleClose}
       destroyOnHidden
@@ -219,9 +219,9 @@ export default function MaintenanceTemplateListPage() {
     >
       <Form form={form} layout="vertical" onFinish={save}>
         <Form.Item
-          label="Tên template"
+          label="Tên mẫu"
           name="name"
-          rules={[{ required: true, message: 'Vui lòng nhập tên template' }]}
+          rules={[{ required: true, message: 'Vui lòng nhập tên mẫu' }]}
         >
           <Input placeholder="VD: Checklist bảo dưỡng định kỳ" maxLength={255} />
         </Form.Item>
@@ -229,7 +229,7 @@ export default function MaintenanceTemplateListPage() {
           label="Hệ thống áp dụng"
           name="systemInfoId"
           rules={[{ required: true, message: 'Vui lòng chọn hệ thống' }]}
-          tooltip="Template quản lý checklist bảo dưỡng cho MỘT hệ thống"
+          tooltip="Mẫu quản lý danh mục kiểm tra bảo dưỡng cho MỘT hệ thống"
         >
           <Select
             showSearch
@@ -266,7 +266,7 @@ export default function MaintenanceTemplateListPage() {
     return (
       <div>
         <ProList<TemplateDto>
-          headerTitle="Danh sách template bảo dưỡng"
+          headerTitle="Danh sách mẫu bảo dưỡng"
           actionRef={actionRef}
           rowKey="id"
           ghost
@@ -275,7 +275,7 @@ export default function MaintenanceTemplateListPage() {
           grid={{ gutter: 16, xs: 1, sm: 1 }}
           toolBarRender={() => [
             canManage && (
-              <Button key="add" type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Tạo template</Button>
+              <Button key="add" type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Tạo mẫu</Button>
             ),
           ]}
           request={async () => {
@@ -309,12 +309,12 @@ export default function MaintenanceTemplateListPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', padding: '10px 12px', background: '#fafafa', borderRadius: 8 }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>Công ty</Text>
-                <Text style={{ fontSize: 13 }}>{r.company?.name || 'Floater'}</Text>
+                <Text style={{ fontSize: 13 }}>{r.company?.name || 'Không thuộc công ty'}</Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>Phiên bản</Text>
                 <Text style={{ fontSize: 13 }}>
                   {r.currentVersion
                     ? <>v{r.currentVersion.versionNumber} — {r.currentVersion.itemsCount} mục · {r.currentVersion.paramsCount} tiêu chuẩn</>
-                    : <Tag style={{ marginInlineEnd: 0 }}>Chưa publish</Tag>}
+                    : <Tag style={{ marginInlineEnd: 0 }}>Chưa công bố</Tag>}
                 </Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>Đợt bảo dưỡng</Text>
                 <Text style={{ fontSize: 13 }}>{r.campaignCount}</Text>
@@ -332,7 +332,7 @@ export default function MaintenanceTemplateListPage() {
   return (
     <div>
       <ProTable<TemplateDto>
-        headerTitle="Danh sách template bảo dưỡng"
+        headerTitle="Danh sách mẫu bảo dưỡng"
         rowKey="id"
         size="small"
         columns={columns}
@@ -341,7 +341,7 @@ export default function MaintenanceTemplateListPage() {
         options={{ reload: true, density: true, setting: true }}
         toolBarRender={() => [
           canManage && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Tạo template</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Tạo mẫu</Button>
           ),
         ]}
         // [FE-R4] Click-cả-row mở detail — nút trong cột Hành động đã stopPropagation.

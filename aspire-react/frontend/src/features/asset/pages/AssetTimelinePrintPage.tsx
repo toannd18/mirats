@@ -238,7 +238,7 @@ export default function AssetTimelinePrintPage() {
         <div className="asset-info-grid">
           <InfoItem label="Mã tài sản" value={asset.assetTag} />
           <InfoItem label="Tên thiết bị" value={asset.name} />
-          <InfoItem label="Serial" value={asset.serial ?? ''} />
+          <InfoItem label="Số serial" value={asset.serial ?? ''} />
           <InfoItem label="Model" value={modelLabel} />
           <InfoItem label="Danh mục" value={asset.category?.name ?? ''} />
           <InfoItem label="Hãng sản xuất" value={asset.manufacturer?.name ?? ''} />

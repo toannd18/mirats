@@ -14,6 +14,7 @@ import { accessoriesApi, checkoutTypeToLabel, checkoutTypeToColor } from '../ser
 import type { AccessoryDetail, AccessoryCheckoutDto } from '../services/accessories.service';
 import AccessoryCheckoutModal from '../components/AccessoryCheckoutModal';
 import AccessoryCheckinModal from '../components/AccessoryCheckinModal';
+import { formatNumber } from '../../../utils/format';
 import { usePermission } from '../../../hooks/usePermission';
 import ActionLogTable, { type ActionLogRow } from '../../../shared/components/ActionLogTable';
 import { formatDate, formatMoney } from '../../../utils/format';
@@ -80,11 +81,11 @@ const AccessoryDetailPage: React.FC = () => {
     { title: 'Đối tượng nhận', dataIndex: 'targetName', key: 'targetName', width: 170,
       render: (v: string | null) => v ?? '-' },
     { title: 'Đã cấp', dataIndex: 'assignedQty', key: 'assignedQty', width: 70, align: 'center' as const,
-      render: (v: number) => <Text strong>{v.toLocaleString('vi-VN')}</Text> },
+      render: (v: number) => <Text strong>{formatNumber(v)}</Text> },
     { title: 'Đã thu', dataIndex: 'returnedQty', key: 'returnedQty', width: 70, align: 'center' as const,
-      render: (v: number) => <Text>{v.toLocaleString('vi-VN')}</Text> },
+      render: (v: number) => <Text>{formatNumber(v)}</Text> },
     { title: 'Còn lại', dataIndex: 'remainingOut', key: 'remainingOut', width: 70, align: 'center' as const,
-      render: (v: number) => <Text type="warning" strong>{v.toLocaleString('vi-VN')}</Text> },
+      render: (v: number) => <Text type="warning" strong>{formatNumber(v)}</Text> },
     { title: 'Người cấp', dataIndex: 'createdByName', key: 'issuer', width: 130,
       render: (_v: string | null, record: AccessoryCheckoutDto) => (
         <Space size={4}><UserSwitchOutlined style={{ color: uiColors.labelGray }} /><Text>{getFullName(record.createdByFirstName, record.createdByLastName, record.createdByName)}</Text></Space>
@@ -201,22 +202,22 @@ const AccessoryDetailPage: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16, marginBottom: 24 }}>
         <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: uiColors.stockSuccessBg, borderColor: uiColors.stockSuccessBorder }}>
           <Text type="secondary" style={{ fontSize: 12 }}>Tổng số lượng</Text>
-          <div><Text strong style={{ fontSize: 24 }}>{detail.qty.toLocaleString('vi-VN')}</Text></div>
+          <div><Text strong style={{ fontSize: 24 }}>{formatNumber(detail.qty)}</Text></div>
         </Card>
         <Card size="small" style={{ borderRadius: 8, textAlign: 'center',
           background: detail.isLowStock ? '#fff2f0' : '#e6f4ff',
           borderColor: detail.isLowStock ? '#ffccc7' : '#91caff' }}>
           <Text type="secondary" style={{ fontSize: 12 }}>Còn lại</Text>
-          <div><Text strong style={{ fontSize: 24, color: detail.isLowStock ? '#ff4d4f' : undefined }}>{detail.remaining.toLocaleString('vi-VN')}</Text></div>
+          <div><Text strong style={{ fontSize: 24, color: detail.isLowStock ? '#ff4d4f' : undefined }}>{formatNumber(detail.remaining)}</Text></div>
           <Text type="secondary" style={{ fontSize: 12 }}>({detail.percentRemaining}%)</Text>
         </Card>
         <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: '#f0e6ff', borderColor: '#d4baff' }}>
           <Text type="secondary" style={{ fontSize: 12 }}>Đang cấp phát</Text>
-          <div><Text strong style={{ fontSize: 24 }}>{detail.checkedOutQty.toLocaleString('vi-VN')}</Text></div>
+          <div><Text strong style={{ fontSize: 24 }}>{formatNumber(detail.checkedOutQty)}</Text></div>
         </Card>
         <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: '#fffbe6', borderColor: '#ffe58f' }}>
           <Text type="secondary" style={{ fontSize: 12 }}>Ngưỡng cảnh báo</Text>
-          <div><Text strong style={{ fontSize: 24 }}>{detail.minAmt.toLocaleString('vi-VN')}</Text></div>
+          <div><Text strong style={{ fontSize: 24 }}>{formatNumber(detail.minAmt)}</Text></div>
         </Card>
       </div>
 
@@ -230,8 +231,8 @@ const AccessoryDetailPage: React.FC = () => {
           <Descriptions.Item label="Công ty">{detail.company?.name ?? '-'}</Descriptions.Item>
           <Descriptions.Item label="Nhà sản xuất">{detail.manufacturer?.name ?? '-'}</Descriptions.Item>
           <Descriptions.Item label="Nhà cung cấp">{detail.supplier?.name ?? '-'}</Descriptions.Item>
-          <Descriptions.Item label="Model No.">{detail.modelNumber || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Order No.">{detail.orderNumber || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Số model">{detail.modelNumber || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Số đơn hàng">{detail.orderNumber || '-'}</Descriptions.Item>
           <Descriptions.Item label="Ngày mua"><CalendarOutlined style={{ marginRight: 4 }} />{formatDate(detail.purchaseDate)}</Descriptions.Item>
           <Descriptions.Item label="Đơn giá"><DollarOutlined style={{ marginRight: 4 }} />{formatMoney(detail.purchaseCost)}</Descriptions.Item>
           <Descriptions.Item label="Ghi chú">{detail.notes || '-'}</Descriptions.Item>

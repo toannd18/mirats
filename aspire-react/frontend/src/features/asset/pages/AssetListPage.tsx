@@ -27,7 +27,7 @@ import {
   type AssetDto, type AllocationTargetType,
 } from '../types/asset';
 import { statusColors } from '../../../theme/designTokens';
-import { formatMoney } from '../../../utils/format';
+import { formatDate, formatMoney } from '../../../utils/format';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -75,7 +75,7 @@ const AssetListPage: React.FC = () => {
 
   const searchColumns: ProColumns<AssetDto>[] = [
     { title: 'Tìm kiếm', dataIndex: 'search', valueType: 'text', hideInTable: true,
-      fieldProps: { placeholder: 'Tên, mã tài sản, serial...' } },
+      fieldProps: { placeholder: 'Tên, mã tài sản, số serial...' } },
     { title: 'Trạng thái', dataIndex: 'status', valueType: 'select', hideInTable: true,
       valueEnum: { Pending: 'Chờ cấp phát', Deployed: 'Đã cấp phát', Archived: 'Đã thu hồi' } },
     { title: 'Vị trí', dataIndex: 'locationId', valueType: 'select', hideInTable: true,
@@ -144,7 +144,7 @@ const AssetListPage: React.FC = () => {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', margin: '8px 0', fontSize: 12 }}>
                 <span><Text type="secondary">Model:</Text> <Text>{record.model?.name || '-'}</Text></span>
-                <span><Text type="secondary">Serial:</Text> <Text style={{ fontFamily: 'monospace' }}>{record.serial || '-'}</Text></span>
+                <span><Text type="secondary">Số serial:</Text> <Text style={{ fontFamily: 'monospace' }}>{record.serial || '-'}</Text></span>
                 <span><Text type="secondary">Vị trí:</Text> <Text>{record.location?.name || '-'}</Text></span>
                 {isDeployed && assignedLabel && <span><Text type="secondary">Đang giữ:</Text> <Text strong>{assignedLabel}</Text></span>}
                 {record.notes && (
@@ -226,12 +226,6 @@ interface AssetLookups {
 }
 
 const EMPTY_LOOKUPS: AssetLookups = { models: [], locations: [], suppliers: [], companies: [] };
-
-function formatDateValue(v: unknown): string {
-  if (v == null || v === '') return '-';
-  const d = dayjs(v as string | number | Date);
-  return d.isValid() ? d.format('DD/MM/YYYY') : '-';
-}
 
 function toDateIso(v: unknown): string | undefined {
   if (v == null || v === '') return undefined;
@@ -332,7 +326,7 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
         <Descriptions bordered size="small" column={2}>
           <Descriptions.Item label="Mã tài sản">{formData?.assetTag ? String(formData.assetTag) : '-'}</Descriptions.Item>
           <Descriptions.Item label="Tên tài sản">{formData?.name ? String(formData.name) : '-'}</Descriptions.Item>
-          <Descriptions.Item label="Serial">{formData?.serial ? String(formData.serial) : '-'}</Descriptions.Item>
+          <Descriptions.Item label="Số serial">{formData?.serial ? String(formData.serial) : '-'}</Descriptions.Item>
           <Descriptions.Item label="Model">{resolveName(lookups.models, formData?.modelId)}</Descriptions.Item>
           <Descriptions.Item label="Vị trí">{resolveName(lookups.locations, formData?.locationId)}</Descriptions.Item>
           <Descriptions.Item label="Nhà cung cấp">{resolveName(lookups.suppliers, formData?.supplierId)}</Descriptions.Item>
@@ -343,7 +337,7 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
       <Card size="small" title="Thông tin mua sắm" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px' } }}>
         <Descriptions bordered size="small" column={2}>
           <Descriptions.Item label="Giá mua">{formatMoney(formData?.purchaseCost)}</Descriptions.Item>
-          <Descriptions.Item label="Ngày mua">{formatDateValue(formData?.purchaseDate)}</Descriptions.Item>
+          <Descriptions.Item label="Ngày mua">{formatDate(formData?.purchaseDate as string | null | undefined)}</Descriptions.Item>
           <Descriptions.Item label="Thời hạn bảo hành">{typeof formData?.warrantyMonths === 'number' ? `${formData.warrantyMonths} tháng` : '-'}</Descriptions.Item>
           <Descriptions.Item label="Số đơn hàng">{formData?.orderNumber ? String(formData.orderNumber) : '-'}</Descriptions.Item>
         </Descriptions>
@@ -384,7 +378,7 @@ function AssetCreateFormModal({ open, onClose, onSubmit, lookups }: {
           <Row gutter={[16, 0]}>
             <Col xs={24} md={12} lg={6}><Form.Item name="assetTag" label="Mã tài sản"><Input placeholder="Để trống để tự sinh mã" /></Form.Item></Col>
             <Col xs={24} md={12} lg={12}><Form.Item name="name" label="Tên tài sản" rules={[{ required: true }]}><Input placeholder="Tên tài sản" /></Form.Item></Col>
-            <Col xs={24} md={12} lg={6}><Form.Item name="serial" label="Serial"><Input placeholder="Số serial" /></Form.Item></Col>
+            <Col xs={24} md={12} lg={6}><Form.Item name="serial" label="Số serial"><Input placeholder="Số serial" /></Form.Item></Col>
           </Row>
         </Card>
         <Card size="small" title="Phân loại" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px 16px 4px' } }}>

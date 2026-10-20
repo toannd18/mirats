@@ -278,8 +278,8 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
               ) : (
                 <Form.Item label="Hình thức quản lý" name="trackingType" rules={[{ required: true, message: 'Chọn hình thức' }]}>
                   <Radio.Group optionType="button" buttonStyle="solid">
-                    <Radio.Button value="Bulk">Bulk (số lượng)</Radio.Button>
-                    <Radio.Button value="Serial">Serial (từng cái)</Radio.Button>
+                    <Radio.Button value="Bulk">Theo số lượng</Radio.Button>
+                    <Radio.Button value="Serial">Theo serial (từng cái)</Radio.Button>
                   </Radio.Group>
                 </Form.Item>
               )}
@@ -312,8 +312,8 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
               )}
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Serial (danh mục)" name="serial">
-                <Input disabled={isEdit} placeholder="Serial mẫu (không bắt buộc)" />
+              <Form.Item label="Số serial (danh mục)" name="serial">
+                <Input disabled={isEdit} placeholder="Số serial mẫu (không bắt buộc)" />
               </Form.Item>
             </Col>
           </Row>
@@ -344,7 +344,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
               </Col>
               <Col xs={24} sm={12}>
                 <Alert type="info" style={{ marginTop: 30 }}
-                  title="Qty = tổng số serial — được quản lý qua màn hình Nhập kho ở trang chi tiết." />
+                  title="Số lượng = tổng số serial - được quản lý qua màn hình Nhập kho ở trang chi tiết." />
               </Col>
             </Row>
           ) : (
@@ -435,7 +435,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Model Number" name="modelNumber">
+              <Form.Item label="Số model" name="modelNumber">
                 <Input placeholder="VD: VLP-16" />
               </Form.Item>
             </Col>
