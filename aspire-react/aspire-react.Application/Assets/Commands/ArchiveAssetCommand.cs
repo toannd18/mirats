@@ -3,12 +3,29 @@ using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Application.Common.Interfaces;
+using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Application.Assets.Commands;
 
 public record ArchiveAssetCommand(Guid AssetId, Guid LocationId, Guid CurrentUserId, string? Note = null) : IRequest<AssetResult>;
+
+/// <summary>
+/// [FIX-GUID-EMPTY 2026-10-20] Body <c>{}</c> bind <c>LocationId = Guid.Empty</c> (DTO dùng
+/// <c>Guid</c> không nullable) → handler ghi thẳng vào FK <c>assets.LocationId</c> ⇒ Postgres 23503
+/// ⇒ HTTP <b>500</b>. Chặn ở validator: 400 + <c>error_code = LOCATION_REQUIRED</c> (cùng mã đã dùng
+/// cho checkout tới SystemPosition, xem docs/ERROR_CODES.md).
+/// </summary>
+public class ArchiveAssetCommandValidator : AbstractValidator<ArchiveAssetCommand>
+{
+    public ArchiveAssetCommandValidator()
+    {
+        RuleFor(x => x.LocationId)
+            .NotEmpty().WithMessage("Vị trí lưu trữ là bắt buộc.")
+            .WithErrorCode("LOCATION_REQUIRED");
+    }
+}
 
 public class ArchiveAssetCommandHandler : IRequestHandler<ArchiveAssetCommand, AssetResult>
 {
@@ -40,6 +57,12 @@ public class ArchiveAssetCommandHandler : IRequestHandler<ArchiveAssetCommand, A
 
             if (asset.Status == AssetStatus.Archived)
                 return new AssetResult(false, "Asset is already archived.", ErrorCode: "ALREADY_ARCHIVED");
+
+            // [FIX-GUID-EMPTY] FK PHẢI tồn tại: LocationId rỗng/không có thật (VD Guid.Empty từ body {})
+            // trước đây ghi thẳng vào assets.LocationId ⇒ Postgres 23503 ⇒ 500. Nay trả 400 có mã lỗi,
+            // kiểm tra SỚM trước khi chạm lý lịch/tạo assignment.
+            if (!await _context.Locations.AsNoTracking().AnyAsync(l => l.Id == request.LocationId, cancellationToken))
+                return new AssetResult(false, "Vị trí lưu trữ không tồn tại.", ErrorCode: "RESOURCE_NOT_FOUND");
 
             var oldStatus = asset.Status;
             var oldLocationId = asset.LocationId;

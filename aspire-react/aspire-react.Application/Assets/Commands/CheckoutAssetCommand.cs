@@ -59,9 +59,24 @@ public class CheckoutAssetCommandValidator : AbstractValidator<CheckoutAssetComm
             .WithMessage(AssetTimestampRules.Message)
             .WithErrorCode(AssetTimestampRules.Code);
 
+        // [FIX-GUID-EMPTY 2026-10-20] Guid.Empty (body thiếu locationId) trước đây ghi thẳng vào FK
+        // assets.LocationId ⇒ Postgres 23503 ⇒ 500. Nay 400 + error_code rõ ràng.
+        // LƯU Ý: FluentValidation `NotEmpty()` trên `Guid?` chỉ chặn NULL (default(Guid?) = null), KHÔNG
+        // chặn Guid.Empty ⇒ phải so sánh tường minh.
         RuleFor(x => x.LocationId)
-            .NotEmpty().When(x => x.TargetType == AssignmentTargetType.SystemPosition)
-            .WithMessage("LocationId is required when checking out to a SystemPosition.");
+            .Must(v => v.HasValue && v.Value != Guid.Empty)
+            .When(x => x.TargetType == AssignmentTargetType.SystemPosition)
+            .WithMessage("Vị trí là bắt buộc khi cấp phát tới vị trí hệ thống.")
+            .WithErrorCode("LOCATION_REQUIRED");
+
+        // [FIX-GUID-EMPTY] LocationId (khi đã có) phải TỒN TẠI — id lạ cũng gây FK 23503 ⇒ 500.
+        // Chỉ chạy khi giá trị khác rỗng để không tranh mã lỗi với rule LOCATION_REQUIRED ở trên.
+        RuleFor(x => x.LocationId)
+            .MustAsync(async (id, ct) => await _context.Locations.AsNoTracking().AnyAsync(l => l.Id == id!.Value, ct))
+            .When(x => x.TargetType == AssignmentTargetType.SystemPosition
+                       && x.LocationId.HasValue && x.LocationId.Value != Guid.Empty)
+            .WithMessage("Vị trí không tồn tại.")
+            .WithErrorCode("RESOURCE_NOT_FOUND");
 
         RuleFor(x => x)
             .MustAsync(async (cmd, ct) =>

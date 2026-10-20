@@ -183,7 +183,8 @@ Nguồn: `Web/Controllers/AuthController.cs` + `Application/Auth/Commands/` (`Au
 | `ASSET_NOT_DEPLOYABLE` | 400 | POST {id}/checkout | Status ≠ Pending |
 | `ASSET_NOT_CHECKED_OUT` | 400 | POST {id}/checkin | Asset không đang được cấp |
 | `ASSET_NOT_DEPLOYED` | 400 | POST {id}/checkin | Status ≠ Deployed |
-| `LOCATION_REQUIRED` | 400 | POST {id}/checkout | Checkout tới SystemPosition thiếu LocationId |
+| `LOCATION_REQUIRED` | 400 | POST {id}/archive, POST {id}/checkin, POST {id}/checkout | Thiếu vị trí (**validator**) — gồm cả `locationId = Guid.Empty` do body `{}` bind vào DTO `Guid` không nullable. [FIX-GUID-EMPTY 2026-10-20] Trước đây giá trị rỗng ghi thẳng vào FK `assets.LocationId` ⇒ Postgres 23503 ⇒ **500** |
+| `RESOURCE_NOT_FOUND` (vị trí) | 400 | POST {id}/archive, POST {id}/checkin, POST {id}/checkout (TargetType=SystemPosition) | `locationId` **có giá trị nhưng không tồn tại** — trước đây FK 23503 ⇒ **500**; nay 400. [FIX-GUID-EMPTY 2026-10-20] |
 | `COMPANY_MISMATCH` (checkout) | 400 | POST {id}/checkout | Target không cùng company với asset |
 | `INSTALLATION_LEDGER_INCONSISTENT` | 400 | POST {id}/checkout, /checkin, /archive, {id}/installations/{entryId}/correct | [LL-2] Bất biến "`SystemPositionId != null` ⟺ đúng 1 dòng mở (chưa superseded)" bị phá — transaction đã rollback, không ghi gì |
 | `INSTALLATION_END_BEFORE_START` | 400 | POST {id}/checkin, /archive, {id}/installations/{entryId}/correct | [LL-2b] Mốc kết thúc trước `StartedAt` của dòng đang mở (VD checkout đặt ở tương lai). Chặn TRƯỚC SaveChanges; SQLSTATE **23514** (`CHECK "EndedAt" >= "StartedAt"`) được map cùng mã này làm lưới an toàn |

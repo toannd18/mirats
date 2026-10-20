@@ -30,6 +30,12 @@ public class CheckinAssetCommandValidator : AbstractValidator<CheckinAssetComman
             .Must(v => !AssetTimestampRules.IsBeyondFutureWindow(v, DateTime.UtcNow))
             .WithMessage(AssetTimestampRules.Message)
             .WithErrorCode(AssetTimestampRules.Code);
+
+        // [FIX-GUID-EMPTY 2026-10-20] LocationId bắt buộc: Guid.Empty (body {}) trước đây ghi thẳng vào
+        // FK assets.LocationId ⇒ Postgres 23503 ⇒ HTTP 500. Nay 400 + error_code LOCATION_REQUIRED.
+        RuleFor(x => x.LocationId)
+            .NotEmpty().WithMessage("Vị trí thu hồi là bắt buộc.")
+            .WithErrorCode("LOCATION_REQUIRED");
     }
 }
 
@@ -64,6 +70,11 @@ public class CheckinAssetCommandHandler : IRequestHandler<CheckinAssetCommand, C
 
             if (asset.Status != AssetStatus.Deployed)
                 return new CheckinResult(false, "Asset is not deployed.", "ASSET_NOT_DEPLOYED");
+
+            // [FIX-GUID-EMPTY] FK PHẢI tồn tại: LocationId rỗng/không có thật trước đây ghi thẳng vào
+            // assets.LocationId ⇒ Postgres 23503 ⇒ 500. Nay 400 + RESOURCE_NOT_FOUND, kiểm tra SỚM.
+            if (!await _context.Locations.AsNoTracking().AnyAsync(l => l.Id == request.LocationId, cancellationToken))
+                return new CheckinResult(false, "Vị trí thu hồi không tồn tại.", "RESOURCE_NOT_FOUND");
 
             var oldAssignment = asset.CurrentAssignment;
             var oldSnapshot = new Dictionary<string, object?>

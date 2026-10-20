@@ -17,7 +17,13 @@ Static, dependency-free checks implemented in PowerShell Core (cross-platform: W
                          explicit transaction -- preferably DbTransaction.ExecuteAsync (shared
                          helper), or a manual BeginTransactionAsync + CommitAsync pair. Otherwise
                          data commits before the ActionLog (the B5 failure class: data without an
-                         audit row).
+                         audit row). Also flags the inverse bug: CommitAsync before the ActionLog
+                         write + its SaveChangesAsync (log saved outside the transaction).
+  Sweep 6 - Mojibake:    tracked text files containing double-encoded UTF-8 sequences (the damage
+                         caused by PowerShell 5.1 Get-Content/Set-Content on UTF-8-without-BOM
+                         files). Small explicit exclusion list = documents that deliberately QUOTE
+                         the broken sequences (AGENTS.md, .claude/skills/mirats-docs/SKILL.md,
+                         docs/HANDOFF_LATEST.md).
 
 Exit code: 0 = CLEAN, 1 = violations found (file:line details are printed).
 
@@ -252,6 +258,55 @@ if (Test-Path -LiteralPath $appRoot) {
 }
 
 # ------------------------------------------------------------
+# Sweep 6 - Mojibake: double-encoded UTF-8 sequences in tracked text files
+# ------------------------------------------------------------
+# WHY: PowerShell 5.1 reads a UTF-8 file WITHOUT BOM as ANSI, so any Get-Content/Set-Content (or
+# -replace) pipeline turns Vietnamese into mojibake ("Khong the" -> "Kh<mojibake>"). AGENTS.md forbids
+# that workflow; this sweep catches the damage BEFORE it is committed.
+# Detector: a mojibake LEAD char (U+00C3, U+00C4, U+00E1, U+00E2) immediately followed by a mojibake
+# TRAIL char (U+00BA/BB/B0/A1..A3, U+20AC, U+2020, U+2018/19, U+201C/1D, U+2013/14). Legitimate
+# Vietnamese text does not match - a plain "A-tilde" in uppercase "DA" is not followed by those trails.
+# EXCLUSIONS (documents that deliberately QUOTE mojibake examples; keep this list short + explicit):
+#   AGENTS.md                             - the hard rule itself shows the bad sequence
+#   .claude/skills/mirats-docs/SKILL.md    - doc-writing skill shows the same example
+#   docs/HANDOFF_LATEST.md                 - historical incident notes
+$s6Count = 0
+$mojibakeExcluded = @(
+    'AGENTS.md',
+    '.claude/skills/mirats-docs/SKILL.md',
+    'docs/HANDOFF_LATEST.md'
+)
+$mojibakeLead = '[' + [char]0x00C3 + [char]0x00C4 + [char]0x00E1 + [char]0x00E2 + ']'
+$mojibakeTrail = '[' + [char]0x00BA + [char]0x00BB + [char]0x00B0 + [char]0x00A1 + [char]0x00A2 +
+    [char]0x00A3 + [char]0x20AC + [char]0x2020 + [char]0x2018 + [char]0x2019 + [char]0x201C +
+    [char]0x201D + [char]0x2013 + [char]0x2014 + ']'
+$mojibakeRegex = [regex]($mojibakeLead + $mojibakeTrail)
+$trackedFiles = @()
+try { $trackedFiles = @(& git -C $RepoRoot ls-files 2>$null) } catch { $trackedFiles = @() }
+$mojibakeScanned = 0
+foreach ($rel in $trackedFiles) {
+    if (-not $rel) { continue }
+    $normRel = Normalize $rel
+    if ($mojibakeExcluded -contains $normRel) { continue }
+    if ($normRel -match '\.(png|jpg|jpeg|gif|ico|woff2?|ttf|eot|zip|gz|dump|bin|dll|pdb|exe|pdf|har|trx|snap|map)$') { continue }
+    $full = Join-Path $RepoRoot $rel
+    if (-not (Test-Path -LiteralPath $full)) { continue }
+    if ((Get-Item -LiteralPath $full).Length -gt 2MB) { continue }
+    $mojibakeScanned++
+    $lines = [IO.File]::ReadAllLines($full, [Text.Encoding]::UTF8)
+    $hitLines = @()
+    for ($i = 0; $i -lt $lines.Length; $i++) {
+        if ($mojibakeRegex.IsMatch($lines[$i])) { $hitLines += ($i + 1) }
+    }
+    if ($hitLines.Count -gt 0) {
+        $shown = ($hitLines | Select-Object -First 3) -join ', '
+        Add-Violation 'S6' ("{0}: mojibake on line(s) {1} - file corrupted by a non-UTF8 text pipeline" -f $normRel, $shown)
+        $s6Count++
+    }
+}
+$script:stats['Sweep 6 (Mojibake)'] = "$s6Count violation(s) / $mojibakeScanned tracked text files"
+
+# ------------------------------------------------------------
 # Report + exit code
 # ------------------------------------------------------------
 Write-Host ''
@@ -260,6 +315,7 @@ Write-Host (' {0,-34} {1}' -f 'Sweep 2 (Enum string):', $script:stats['Sweep 2 (
 Write-Host (' {0,-34} {1}' -f 'Sweep 3 (ActionLog companyId):', $script:stats['Sweep 3 (ActionLog companyId)'])
 Write-Host (' {0,-34} {1}' -f 'Sweep 4 (Table scroll):', $script:stats['Sweep 4 (Table scroll)'])
 Write-Host (' {0,-34} {1}' -f 'Sweep 5 (Transactions):', $script:stats['Sweep 5 (Transactions)'])
+Write-Host (' {0,-34} {1}' -f 'Sweep 6 (Mojibake):', $script:stats['Sweep 6 (Mojibake)'])
 Write-Host '------------------------------------------------------------'
 Write-Host (' {0,-34} {1}' -f 'TOTAL:', "$($script:violations.Count) violation(s)")
 Write-Host ''

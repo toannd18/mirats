@@ -1021,7 +1021,37 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
 
 ---
 
-## BUG-R — `frontend/scripts/dev-server.mjs` bỏ qua `--port` (LOW, ✅ RESOLVED 2026-10-19 — GĐ1.3)
+## FIX-GUID-EMPTY — HTTP 500 khi trường Guid FK = Guid.Empty (✅ RESOLVED 2026-10-20)
+
+- **Hiện tượng (đo thật):** `POST /assets/{id}/archive` body `{}` ⇒ **500** `Npgsql 23503` FK
+  `FK_assets_locations_LocationId` — DTO `ArchiveUnarchiveRequestDto` dùng `Guid` không nullable nên field
+  thiếu bind thành `Guid.Empty`, handler ghi thẳng vào cột FK.
+- **Đã sửa 3 nhóm (mỗi nhóm có test: `aspire-react.Tests/GuidFkValidationTests.cs` — 13 test, 5 chạy
+  Postgres thật bằng `[ThrowawayDbFact]`):**
+
+  | Nhóm | Endpoint | Validator | Handler |
+  |---|---|---|---|
+  | A. Archive | `POST /assets/{id}/archive` | `LocationId` NotEmpty → `LOCATION_REQUIRED` | vị trí không tồn tại → `RESOURCE_NOT_FOUND` |
+  | B. Checkin | `POST /assets/{id}/checkin` | `LocationId` NotEmpty → `LOCATION_REQUIRED` | vị trí không tồn tại → `RESOURCE_NOT_FOUND` |
+  | C. Checkout → SystemPosition | `POST /assets/{id}/checkout` | `LocationId` phải có và `!= Guid.Empty` → `LOCATION_REQUIRED`; vị trí lạ → `RESOURCE_NOT_FOUND` | — |
+
+  - **Bẫy đã gặp:** FluentValidation `NotEmpty()` trên `Guid?` **chỉ chặn null**, KHÔNG chặn `Guid.Empty`
+    (default của `Guid?` là null) ⇒ phải `Must(v => v.HasValue && v.Value != Guid.Empty)`.
+  - Test tầng handler chạy trên **Postgres THẬT**: InMemory không thực thi FK nên test InMemory thuần sẽ
+    "xanh giả" trong khi production vẫn 500.
+- **Bảng rà required-Guid FK (52 ứng viên):** 49 chỗ là id entity cha được **load + trả NOT_FOUND**
+  (asset/component/unit/license/consumable/template/campaign/user…) ⇒ an toàn; **3 chỗ ghi thẳng FK** đã sửa.
+- **Còn mở (KHÔNG sửa lần này — ngoài phạm vi "trường Guid bắt buộc"):** field `Guid?` **không bắt buộc**
+  (VD `UpdateAssetCommand.ModelId/LocationId/SupplierId/CompanyId`, `UpdateComponentCommand.*Id`,
+  `UpdateConsumableCommand.*Id`, `UpdateLicenseCommand.SupplierId/ManufacturerId`, `UpdateLocationCommand.*Id`,
+  `UpdateDepartmentCommand.*Id`, `UpdateSystemInfoCommand.CompanyId`, `UpdateMaintenanceCommand.SupplierId`)
+  vẫn nhận `Guid.Empty` tường minh ⇒ FK 500; ngoài ra id **lạ** (không tồn tại) ở các handler Update chưa được
+  kiểm ⇒ cũng FK 500. Hướng xử lý cần quyết định sản phẩm: coi `Guid.Empty` là "clear" (như `UpdateCompanyCommand.ParentId`)
+  hay trả 400 `RESOURCE_NOT_FOUND`; nếu chọn 400 thì thêm rule dùng chung + existence check theo từng command.
+
+---
+
+## BUG-R - `frontend/scripts/dev-server.mjs` bỏ qua `--port` (LOW, ✅ RESOLVED 2026-10-19 - GĐ1.3)
 
 - **Trạng thái: RESOLVED.** Sửa: `dev-server.mjs` forward tham số CLI xuống Vite —
   `spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...process.argv.slice(2)], …)`.
