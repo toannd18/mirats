@@ -29,6 +29,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 const DashboardPage = lazy(() => import('./features/system/pages/DashboardPage'));
 const AssetListPage = lazy(() => import('./features/asset/pages/AssetListPage'));
 const AssetDetailPage = lazy(() => import('./features/asset/pages/AssetDetailPage'));
+const AssetTimelinePrintPage = lazy(() => import('./features/asset/pages/AssetTimelinePrintPage'));
 const MaintenanceListPage = lazy(() => import('./features/maintenance/pages/MaintenanceListPage'));
 const UserListPage = lazy(() => import('./features/user/pages/UserListPage'));
 const UserDetailPage = lazy(() => import('./features/user/pages/UserDetailPage'));
@@ -492,6 +493,12 @@ function App() {
             <Route path="/assets/:id/edit" element={
               <ProtectedRoute>
                 <AppLayout><AssetListPage /></AppLayout>
+              </ProtectedRoute>
+            } />
+            {/* [LL-6] Trang in lý lịch — route RIÊNG, không sidebar/menu; tab mới; quyền assets.view. */}
+            <Route path="/assets/:id/ly-lich/in" element={
+              <ProtectedRoute>
+                <AssetTimelinePrintPage />
               </ProtectedRoute>
             } />
             <Route path="/maintenances" element={

@@ -190,7 +190,9 @@ $script:stats['Sweep 3 (ActionLog companyId)'] = "$s3Count violation(s) / $($csF
 $s4Count = 0
 foreach ($f in $frontFiles) {
     $content = Get-Content -LiteralPath $f.FullName -Raw
-    $hasTable = $content -match '<ProTable\b' -or $content -match '<Table\b'
+    # -cmatch: chỉ bắt component antd `<Table`/`<ProTable` (PascalCase). Bảng HTML thường `<table>` dùng cho
+    # bản in (LL-6) KHÔNG phải antd Table nên không cần scroll ngang.
+    $hasTable = $content -cmatch '<ProTable\b' -or $content -cmatch '<Table\b'
     if ($hasTable -and $content -notmatch 'scroll=') {
         Add-Violation 'S4' ("{0}: <Table>/<ProTable> without scroll={{ x: 'max-content' }}" -f (Normalize $f.FullName))
         $s4Count++

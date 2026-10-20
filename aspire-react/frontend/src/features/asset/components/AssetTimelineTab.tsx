@@ -4,7 +4,7 @@ import {
   AuditOutlined, CheckCircleOutlined, CheckOutlined, ClockCircleOutlined, CloseOutlined,
   CloudUploadOutlined, DeleteOutlined, DiffOutlined, DisconnectOutlined, EditOutlined, ExportOutlined,
   ImportOutlined, InboxOutlined, LockOutlined, PlusCircleOutlined,
-  RollbackOutlined, SafetyCertificateOutlined, ScheduleOutlined, SendOutlined, StopOutlined,
+  PrinterOutlined, RollbackOutlined, SafetyCertificateOutlined, ScheduleOutlined, SendOutlined, StopOutlined,
   ToolOutlined, UndoOutlined, UnlockOutlined, UserOutlined,
 } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
@@ -148,8 +148,14 @@ export default function AssetTimelineTab({ assetId }: { assetId: string }) {
 
   useEffect(() => { void load(null, false); }, [load]);
 
+  // [LL-6] Mở trang in RIÊNG ở tab mới, truyền đúng bộ lọc đang chọn (chỉ "Sự kiện chính" mới có `types`).
+  const openPrintPage = () => {
+    const query = filter === 'main' ? `?types=${MAIN_EVENT_TYPES}` : '';
+    window.open(`/assets/${assetId}/ly-lich/in${query}`, '_blank', 'noopener');
+  };
+
   const filterPicker = (
-    <div style={{ marginBottom: 12 }}>
+    <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       <Tooltip title={`Sự kiện chính: lắp đặt, tháo khỏi vị trí, phiếu bảo dưỡng và đợt bảo dưỡng.`}>
         <Segmented<TimelineFilter>
           value={filter}
@@ -160,6 +166,9 @@ export default function AssetTimelineTab({ assetId }: { assetId: string }) {
           ]}
         />
       </Tooltip>
+      <Button icon={<PrinterOutlined />} onClick={openPrintPage}>
+        In lý lịch
+      </Button>
     </div>
   );
 
