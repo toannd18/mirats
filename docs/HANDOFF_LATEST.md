@@ -4277,3 +4277,33 @@ và **Edge 155.0.4283.62** đang cài, qua CDP `Page.printToPDF` (`preferCSSPage
 ### Gates
 - `precommit-gates.ps1`: **PASS 6/6**.
 - Test loader + format: **8/8 PASS**.
+
+## 2026-10-20 — LL-6 bổ sung: chờ `document.fonts.ready` + PDF mẫu 2 (≈ và [Đã đính chính])
+
+> Commit **`65a140f`**. Bổ sung kiểm chứng cho LL-6 (sau `21e2191`).
+
+### 1. Chờ FONT trước khi in
+- `AssetTimelinePrintPage.tsx`: `printWhenReady()` (~dòng 118-125) **`await document.fonts.ready`** rồi mới
+  `window.print()`. Auto-print (dòng ~136) và nút **"In lại"** (dòng ~213) dùng **cùng** hàm.
+- Lý do: in trước khi font (Segoe UI + ký tự Việt) tải xong ⇒ trình duyệt có thể dùng fallback font ⇒
+  sai số trang/ngắt dòng. `docs/LL6_PRINT.md` §4 ghi rõ.
+
+### 2. PDF mẫu thứ hai — đủ `≈` + chú thích + `[Đã đính chính]`
+- **Môi trường:** DB tạm MỚI (container riêng) + API `127.0.0.1:5516` + Vite **5182** (cổng tạm), in ở chế
+  độ **"Sự kiện chính"** (`types=INSTALL,REMOVE,MAINTENANCE,MAINTENANCE_CAMPAIGN`).
+- **Fixture:**
+  1. Checkout tới một **vị trí hệ thống** (dòng lý lịch `Source = Api`, đang mở) — qua API.
+  2. **Đính chính THẬT** qua API `POST /assets/{id}/installations/{entryId}/correct` (đổi `note`,
+     `reason` ≥ 10 ký tự) ⇒ dòng mới `Source = Correction`, `CorrectsEntryId != null`.
+  3. **NGOẠI LỆ FIXTURE (được người dùng cho phép):** INSERT thẳng **SQL** một dòng
+     `Source = Backfill` trên **DB TẠM** (không có API tạo backfill; dữ liệu thật chỉ từ lần chuyển LL-1).
+     Dùng khoảng đã đóng trong quá khứ (`2026-01-01 08:00→09:00Z`) để không vi phạm exclusion constraint.
+- **Kết quả (phân tích text PDF bằng pypdf, Chrome 155):** 1 trang A4; có **`≈ 01/01/2026 15:00`** ở dòng
+  INSTALL của backfill; có **chú thích** "≈ Thời điểm ước tính — …"; có **`[Đã đính chính]`** ở dòng INSTALL
+  của bản đính chính; `<thead>` 1/1; `Trang 1 / 1`.
+- File mẫu (gitignored): `screenshots/ll6-print-sample2.pdf` (170.402 bytes).
+- Ghi chú: sự kiện REMOVE suy ra từ `EndedAt` của dòng backfill hiện **không** mang `≈` (hành vi sẵn có của
+  timeline API, ngoài phạm vi LL-6); `≈` gắn với sự kiện INSTALL (mốc bắt đầu) của dòng backfill.
+
+### 3. Gates
+- `precommit-gates.ps1`: **PASS 6/6**. Test loader/format: **8/8 PASS**.
