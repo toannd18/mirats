@@ -4235,3 +4235,45 @@ Helper `Common/Validation/OptionalForeignKey.cs`. Ba trạng thái:
 ### Gates
 - `precommit-gates.ps1`: **PASS 6/6**.
 - Kiểm chứng thật (Chrome/Edge, PDF, header lặp, 0 dòng cắt, số trang, dấu ≈) = GĐ3.
+
+## 2026-10-20 — LL-6 GĐ3: kiểm chứng thật Chrome + Edge (PDF A4, header lặp, 0 dòng cắt, số trang) + docs
+
+> Commit **`623fadc`**. Nối tiếp GĐ1 `8e63939` + GĐ2 `213b560`.
+
+### Đã làm (GĐ3)
+- `formatEventTime()` trong `utils/timelinePrint.ts`: nhãn thời điểm in, thêm **`≈`** khi `isEstimated`
+  (dòng lý lịch backfill); tự format `dd/MM/yyyy HH:mm` để module thuần (test Node trực tiếp không cần bundler).
+  Trang in dùng helper này; **8 test** (`node --test tests/timelinePrint.test.ts`).
+- `docs/LL6_PRINT.md`: cách dùng, giới hạn 5.000 sự kiện (vượt ⇒ KHÔNG in), số trang `x / y` bằng
+  `@page` margin box + **dự phòng** footer `position: fixed`, kết quả đo, cách chạy test, giới hạn đã biết.
+- BACKLOG: LL-6 → **✅ XONG** (kèm tóm tắt + bằng chứng).
+- Ảnh/PDF mẫu (gitignored, thư mục `screenshots/`): `ll6-print-button-1440.png`,
+  `ll6-print-page-1440.png` (full-page 1440×6880), `ll6-print-sample.pdf` (Chrome, 7 trang).
+
+### Kiểm chứng thật (DB tạm container riêng, API `127.0.0.1:5514`, Vite **5180**)
+Fixture **qua API**: 1 asset + **215 lần cập nhật** + 1 tạo + 1 cấp phát tới vị trí hệ thống = **217 sự kiện**
+(timeline API trả 200 + 17 ⇒ 2 request ⇒ xác nhận luồng cursor của trang in). In bằng **Chrome 155.0.8059.85**
+và **Edge 155.0.4283.62** đang cài, qua CDP `Page.printToPDF` (`preferCSSPageSize`), phân tích PDF bằng pypdf.
+
+| Tiêu chí | Chrome 155 | Edge 155 |
+|---|---|---|
+| Số trang | **7** | **7** |
+| Khổ giấy | 209,9 × 297,0 mm (A4) | 209,9 × 297,0 mm (A4) |
+| `<thead>` lặp mỗi trang | **7/7** | **7/7** |
+| Footer (người in/thời điểm in/bộ lọc) | **7/7** | **7/7** |
+| `Trang x / y` (CSS margin box) | `1/7` … `7/7` | `1/7` … `7/7` |
+| Tổng dòng in ra | **217** (215 Cập nhật + 1 Tạo mới + 1 Lắp đặt) | **217** |
+| Dòng bị cắt đôi | **0** (không cặp "old → new" nào nằm 2 trang; không mảnh `→` lẻ) | **0** |
+| Thứ tự | dòng đầu = sự kiện **cũ nhất** | giống |
+
+- **`≈`:** DB mới **không có** dòng `Source = Backfill` (chỉ dữ liệu lịch sử từ LL-1; không có API tạo) ⇒
+  không thể có mẫu thật trong lần đo này; logic được phủ bằng unit test `formatEventTime`
+  (chỉ thêm `≈` khi `isEstimated`). Tương tự `[Đã đính chính]` (cần thao tác Correct qua API).
+- **Sự kiện "In lý lịch":** đã kiểm bằng DOM: nút nằm cạnh Segmented; bấm khi lọc **Sự kiện chính** mở
+  `/assets/<id>/ly-lich/in?types=INSTALL,REMOVE,MAINTENANCE,MAINTENANCE_CAMPAIGN`; khi lọc **Tất cả** mở
+  `/assets/<id>/ly-lich/in` (không `types`). Trang in load đủ **217 dòng**, footer đúng người in/thời điểm/cỡ lọc.
+- Ảnh 1440 đã lưu; PDF mẫu 7 trang đã lưu (`screenshots/ll6-print-sample.pdf`).
+
+### Gates
+- `precommit-gates.ps1`: **PASS 6/6**.
+- Test loader + format: **8/8 PASS**.
