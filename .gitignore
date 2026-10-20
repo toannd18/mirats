@@ -96,6 +96,9 @@ opencode-temp/
 # =============================================================================
 screenshots/
 backups/
+# Production backup sidecar output (encrypted dumps + last_success for Zabbix)
+backup-data/
+backup-key*.txt
 docs/assets-template(1).xlsx
 
 # [SECRET-ROTATE 2026-08-29] Local dev/test credentials � NEVER commit

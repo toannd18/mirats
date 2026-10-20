@@ -6,8 +6,7 @@ using aspire_react.Server.Infrastructure.Caching;
 using aspire_react.Server.Infrastructure.Persistence;
 using aspire_react.Server.Web;
 using aspire_react.Server.Web.ExceptionHandlers;
-using Microsoft.EntityFrameworkCore;
-using StackExchange.Redis;
+using aspire_react.Server.Web.Health;
 using System.Text.Json.Serialization;
 
 using aspire_react.Server.Infrastructure.Networking;
@@ -29,6 +28,9 @@ builder.Services.AddApplicationServices();
 
 // Infrastructure: app services, lockout guard (local auth services live here too).
 builder.Services.AddInfrastructureServices(builder.Configuration);
+
+// [READY GĐ2] Readiness probes for GET /api/v1/health/ready (Postgres + Redis).
+builder.Services.AddReadinessChecks();
 
 // [REVERSE-PROXY] Trusted-proxy header options (KnownNetworks/ForwardLimit via
 // Proxy__* env — DEPLOYMENT.md "Triển khai sau Nginx Proxy Manager").
@@ -123,42 +125,11 @@ api.MapGet("health", () => Results.Ok(new { status = "healthy", timestamp = Date
 
 // [READY GĐ2] Readiness endpoint (anonymous): REAL Postgres + Redis checks, 200 only when both are
 // reachable. The response exposes per-component status ONLY — never connection strings, exception
-// messages or other internal details. Each check is capped (DB 5s, Redis 3s) so a dead dependency
-// cannot hang the healthcheck.
-api.MapGet("health/ready", async (AppDbContext db, IConnectionMultiplexer redis, CancellationToken cancellationToken) =>
+// messages or other internal details (see ReadinessResponse/ReadinessChecker + tests).
+api.MapGet("health/ready", async (ReadinessChecker checker, CancellationToken cancellationToken) =>
 {
-    var postgresHealthy = false;
-    try
-    {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(5));
-        postgresHealthy = await db.Database.CanConnectAsync(timeout.Token)
-            .WaitAsync(TimeSpan.FromSeconds(6), cancellationToken);
-    }
-    catch { }
-
-    var redisHealthy = false;
-    try
-    {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(3));
-        await redis.GetDatabase().PingAsync().WaitAsync(TimeSpan.FromSeconds(4), cancellationToken);
-        redisHealthy = true;
-    }
-    catch { }
-
-    var healthy = postgresHealthy && redisHealthy;
-    var payload = new
-    {
-        status = healthy ? "healthy" : "unhealthy",
-        checks = new Dictionary<string, string>
-        {
-            ["postgres"] = postgresHealthy ? "healthy" : "unhealthy",
-            ["redis"] = redisHealthy ? "healthy" : "unhealthy"
-        }
-    };
-
-    return Results.Json(payload, statusCode: healthy ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+    var result = await checker.CheckAsync(cancellationToken);
+    return Results.Json(result, statusCode: result.HttpStatusCode());
 })
 .WithName("ApiHealthReady")
 .ExcludeFromDescription()

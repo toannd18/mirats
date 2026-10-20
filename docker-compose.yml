@@ -109,6 +109,38 @@ services:
       retries: 2
       start_period: 30s
 
+  # Encrypted daily Postgres backup sidecar (official postgres base + age/rsync).
+  # Manual run / deploy pre-backup: docker compose run --rm --no-deps backup --once
+  backup:
+    build:
+      context: ./deploy/backup
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: [.env]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGDATABASE: ${POSTGRES_DB:-aspire-react-db}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — set it in .env}
+      # PUBLIC age key only. The private key must NEVER be copied to the server.
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:?BACKUP_AGE_RECIPIENT is required — age public key (private key stays off the server)}
+      BACKUP_SCHEDULE_HOUR: ${BACKUP_SCHEDULE_HOUR:-1}
+      BACKUP_SCHEDULE_MINUTE: ${BACKUP_SCHEDULE_MINUTE:-0}
+      BACKUP_TIMEZONE: ${BACKUP_TIMEZONE:-Asia/Ho_Chi_Minh}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      # Off-site copy is OFF by default (empty).
+      BACKUP_REMOTE: ${BACKUP_REMOTE:-}
+      BACKUP_REMOTE_SSH_KEY: ${BACKUP_REMOTE_SSH_KEY:-}
+      BACKUP_STATE_FILE: /backups/last_success
+    volumes:
+      # Host-visible directory so Zabbix can read /backup-data/last_success.
+      - ${BACKUP_HOST_DIR:-./backup-data}:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   frontend:
     build:
       context: ./aspire-react/frontend

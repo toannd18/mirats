@@ -32,11 +32,14 @@
 ```
 <repo root>/
 ├── .env.example                    # template biến môi trường (bắt buộc copy → .env)
-├── docker-compose.yml              # stack production (4 services; pgAdmin KHÔNG nằm ở đây)
+├── docker-compose.yml              # stack production (5 services: postgres/redis/server/backup/frontend)
 ├── docker-compose.debug.yml        # overlay debug: pgAdmin (bắt buộc PGADMIN_PASSWORD)
+├── deploy/backup/                  # Dockerfile + backup.sh (official postgres base + age/rsync)
 ├── scripts/
+│   ├── deploy.sh                   # backup → build → up → chờ /health/ready (rollback nếu lỗi)
 │   ├── docker-reset.sh             # reset dữ liệu stack (Linux/macOS)
 │   └── docker-reset.ps1            # reset dữ liệu stack (Windows)
+├── docs/RUNBOOK_BACKUP_RESTORE.md  # backup/decrypt/restore/rollback/Zabbix freshness
 ├── aspire-react/
 │   ├── aspire-react.Server/Dockerfile   # image backend (.NET 10 → aspnet:10.0)
 │   └── frontend/
@@ -66,6 +69,7 @@ cp .env.example .env
 | `AUTH_SIGNING_KEY` | Khóa ký JWT HS256 — **≥ 32 byte UTF-8** (server fail-fast nếu ngắn hơn) | `openssl rand -base64 48` |
 | `AUTH_BOOTSTRAP_ADMIN_PASSWORD` | Mật khẩu **admin đầu tiên** (KHÔNG để `Admin123!`). Khi tạo admin trên DB trắng: **≥ 12 ký tự** và **khác `INITIAL_ADMIN_USERNAME`** (server fail-fast nếu không đạt) | mật khẩu mạnh |
 | `CORS_ALLOWED_ORIGINS` | Origin được phép gọi API (CSV). Prod là domain người dùng vào | `https://app.example.com` |
+| `BACKUP_AGE_RECIPIENT` | age **public key** để mã hoá backup (private key KHÔNG nằm trên server) | `age1...` (sinh bằng `age-keygen -o backup-key.txt`) |
 
 Các biến TÙY CHỌN đã có default hợp lý: `AUTH_ISSUER` (`aspire-react`), `AUTH_AUDIENCE` (`aspire-react-api`), `INITIAL_ADMIN_USERNAME` (`admin`), `INITIAL_ADMIN_EMAIL` (`admin@localhost`), `VITE_API_BASE_URL` (`/api/v1`), `BACKEND_PORT` (`5000`), `FRONTEND_PORT` (`80`), `ASPNETCORE_URLS`, `ASPNETCORE_ENVIRONMENT`, `POSTGRES_DB/USER/PORT`, `REDIS_PORT`.
 
@@ -300,7 +304,7 @@ Script sẽ:
 | **Security headers** | API + frontend Nginx đã gửi `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy` / `Permissions-Policy`; **HSTS đặt tại NPM** (nơi kết thúc TLS); CSP để P1 |
 | **Health** | `/api/v1/health` = liveness (process), `/api/v1/health/ready` = readiness (Postgres + Redis thật, 503 khi thiếu); compose healthcheck server gọi HTTP `/ready` |
 | **Logging** | Docker `json-file` + rotation **10 MB × 5 file** mỗi service (§10); chưa có thu thập tập trung (Zabbix/Wazuh ở P1) |
-| **Backup** | Chưa có backup tự động. Cần `pg_dump` định kỳ + backup secret (`AUTH_SIGNING_KEY`, `.env`) |
+| **Backup** | Đã có service `backup` hằng ngày (`pg_dump -Fc` → mã hoá age public key, checksum, retention 30 ngày, `last_success` cho Zabbix); remote copy TẮT mặc định. **Đã diễn tập restore 2026-10-20** (số dòng khớp, login OK). Runbook: `docs/RUNBOOK_BACKUP_RESTORE.md` |
 | **Rotate khóa ký** | Thủ công: đổi `AUTH_SIGNING_KEY` + `docker compose up -d server` (mọi access token cũ vô hiệu) |
 | **Rate limit tầng ngoài** | Chống brute-force trong app là per-username/per-IP process-local; nên thêm rate limit ở reverse proxy |
 | **Passkey** | Cần HTTPS (§4.5); bật/tắt bằng SystemSetting `auth.passkeys.enabled` |
@@ -380,7 +384,7 @@ Script sẽ:
 > Nguồn chính thức: `.env.example` (giữ comment chi tiết). Bảng dưới là tóm tắt.
 
 **BẮT BUỘC (compose fail nếu thiếu):** `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `AUTH_SIGNING_KEY`,
-`AUTH_BOOTSTRAP_ADMIN_PASSWORD`, `CORS_ALLOWED_ORIGINS`.
+`AUTH_BOOTSTRAP_ADMIN_PASSWORD`, `CORS_ALLOWED_ORIGINS`, `BACKUP_AGE_RECIPIENT`.
 
 **TÙY CHỌN (có default):**
 
@@ -392,6 +396,8 @@ Script sẽ:
 | Server | `ASPNETCORE_URLS`, `ASPNETCORE_ENVIRONMENT` | `http://+:5000`, `Production` |
 | Frontend | `VITE_API_BASE_URL` | `/api/v1` |
 | Ports | `BACKEND_PORT`, `FRONTEND_PORT` | `5000`, `80` |
+| Backup | `BACKUP_TIMEZONE`, `BACKUP_SCHEDULE_HOUR`, `BACKUP_SCHEDULE_MINUTE`, `BACKUP_RETENTION_DAYS`, `BACKUP_HOST_DIR` | `Asia/Ho_Chi_Minh`, `1`, `0`, `30`, `./backup-data` |
+| Backup remote (tùy chọn) | `BACKUP_REMOTE`, `BACKUP_REMOTE_SSH_KEY` | rỗng (TẮT) |
 | pgAdmin (chỉ `docker-compose.debug.yml`) | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_PASSWORD`, `PGADMIN_PORT` | `pgadmin@example.com`, **(bắt buộc — không default)**, `5050` |
 | NPM (chỉ `docker-compose.npm.yml`) | `NPM_NETWORK_NAME`, `PROXY_KNOWN_NETWORKS`, `PROXY_FORWARD_LIMIT`, `WEBAUTHN_RPID`, `WEBAUTHN_ORIGINS` | (không default — bắt buộc, trừ `PROXY_FORWARD_LIMIT=2`) |
 
@@ -417,6 +423,10 @@ Script sẽ:
   đường dẫn file trên host: `docker inspect --format '{{.LogPath}}' <container>`
   (Linux: `/var/lib/docker/containers/<id>/<id>-json.log`; Docker Desktop: nằm trong VM).
   Log container **KHÔNG** thay thế ActionLog trong DB.
+- **Backup:** service `backup` chạy hằng ngày lúc 01:00 giờ VN (cấu hình được), ghi
+  `${BACKUP_HOST_DIR:-./backup-data}/aspire-react-db-<timestamp>.dump.age` + `.sha256`, cập nhật `last_success`.
+  Zabbix kiểm tra độ tươi (`last_success` > 26 giờ ⇒ cảnh báo). Quy trình backup/giải mã/khôi phục/rollback:
+  `docs/RUNBOOK_BACKUP_RESTORE.md`.
 - **Security headers:** API (`SecurityHeadersMiddleware`) và frontend Nginx gửi `X-Content-Type-Options: nosniff`,
   `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` tối thiểu.
   **HSTS cấu hình tại NPM** (§4.5) — KHÔNG đặt trong app/frontend (chỉ chạy HTTP nội bộ). CSP: P1.
@@ -441,6 +451,8 @@ Zabbix theo dõi **readiness** (không dùng `/api/v1/health` để cảnh báo 
    - `/api/v1/health` = liveness: process còn sống (dùng cho container/upgrade).
    - `/api/v1/health/ready` = readiness: DB + Redis thật (dùng cho Zabbix và compose healthcheck).
 5. **P1**: thu thập log tập trung bằng **Wazuh** (thay Loki/ELK) — xem `docs/BACKLOG.md`.
+6. **Backup freshness**: item `vfs.file.time[.../backup-data/last_success,modify]`, trigger
+   `now() - last() > 93600` (26 giờ) — chi tiết `docs/RUNBOOK_BACKUP_RESTORE.md §7`.
 
 ---
 

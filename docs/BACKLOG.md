@@ -1130,7 +1130,7 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
 
 ---
 
-## READY — Việc còn lại sau GĐ0/GĐ2 (2026-10-20)
+## READY — Việc còn lại sau GĐ0/GĐ1/GĐ2 (2026-10-20)
 
 > Bối cảnh: khảo sát READY Bước 1 (chỉ đọc) kết luận chưa đủ điều kiện vận hành an toàn. GĐ0 đã làm:
 > fail-fast `Auth:SigningKey` < 32 byte UTF-8; bootstrap admin ≥ 12 ký tự + khác username (chỉ khi tạo trên DB trắng);
@@ -1139,20 +1139,25 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
 > **GĐ2 đã xong:** pgAdmin tách sang `docker-compose.debug.yml` (prod không cần `PGADMIN_PASSWORD`);
 > `GET /api/v1/health/ready` kiểm tra Postgres + Redis thật (200/503) + compose healthcheck gọi HTTP;
 > log rotation `json-file 10m × 5` cho mọi service; runbook Zabbix (`DEPLOYMENT.md §10.1`).
+>
+> **GĐ1 đã xong:** service `backup` hằng ngày (age public key, checksum, retention 30 ngày, `last_success` cho
+> Zabbix, remote copy TẮT mặc định); `scripts/deploy.sh` backup-trước-khi-up + chờ `/health/ready`;
+> `docs/RUNBOOK_BACKUP_RESTORE.md`; **đã diễn tập restore thật** (3 assets / 1 user / 15 action_logs / 1 installation,
+> `pg_restore` 0,74s, đăng nhập OK; ca DB down không đổi `last_success`).
 
 ### P0 — còn lại, phải xong trước khi dùng thật
 
-| # | Việc | Tiêu chí nghiệm thu |
+| # | Việc | Trạng thái / tiêu chí nghiệm thu |
 |---|---|---|
-| P0-1 | **Backup DB tự động + diễn tập restore** (`pg_dump -Fc` hằng ngày, mã hoá, retention 30 ngày, offsite) | Có ≥ 1 bản backup/24h; `pg_restore --list` mở được; restore vào DB trắng thành công, số dòng bảng chính khớp, đăng nhập được; runbook trong `docs/` |
-| P0-2 | **Backup trước migrate + runbook nâng cấp/rollback** (snapshot trước `Database.Migrate()`, image tag cũ để rollback) | Diễn tập nâng cấp trên bản sao: backup → migrate → health OK → rollback bằng snapshot thành công |
-| P0-5 | **TLS/HSTS tại NPM** (HSTS `max-age=15552000; includeSubDomains`, HTTP→HTTPS, đóng port backend) | `curl -sI https://<domain>` có HSTS; `http://<IP>:5000` không truy cập được |
+| P0-1 | **Backup DB tự động + diễn tập restore** (`pg_dump -Fc` hằng ngày, mã hoá, retention 30 ngày, offsite) | ✅ **XONG (GĐ1)** — đã diễn tập restore DB trắng, số dòng khớp, login OK; remote copy cấu hình được (mặc định TẮT) |
+| P0-2 | **Backup trước migrate + runbook nâng cấp/rollback** (snapshot trước `Database.Migrate()`, image tag cũ để rollback) | 🟡 **Một phần** — `scripts/deploy.sh` đã backup trước build/up + in rollback; runbook có; **chưa diễn tập nâng cấp thật** trên bản sao |
+| P0-5 | **TLS/HSTS tại NPM** (HSTS `max-age=15552000; includeSubDomains`, HTTP→HTTPS, đóng port backend) | ❌ Chưa — `curl -sI https://<domain>` có HSTS; `http://<IP>:5000` không truy cập được |
 
 ### P1 — tuần 1–2 sau go-live
 
 | # | Việc | Ghi chú |
 |---|---|---|
-| P1-1 | **Giám sát: Zabbix (HTTP `/api/v1/health/ready`, 5xx, dung lượng đĩa) + Wazuh (thu thập/phân tích log)** | Zabbix runbook đã có (`DEPLOYMENT.md §10.1`, trigger 503/timeout 2 phút); Wazuh thay Loki/ELK |
+| P1-1 | **Giám sát: Zabbix (HTTP `/api/v1/health/ready`, 5xx, dung lượng đĩa, backup `last_success` > 26h) + Wazuh (thu thập/phân tích log)** | Zabbix runbook đã có (`DEPLOYMENT.md §10.1`, trigger 503/timeout 2 phút); Wazuh thay Loki/ELK |
 | P1-2 | Rate limit tại NPM cho `/api/v1/auth/*`; chuyển IP limiter sang Redis nếu chạy > 1 instance | App đã có lockout per-username + burst per-IP (process-local) |
 | P1-3 | **CSP đầy đủ** (nonce/hash cho inline style antd) | Rủi ro vỡ style antd — phải test UI thật trước khi bật |
 | P1-4 | Password policy ≥ 12 + complexity/breach check; cân nhắc MFA bắt buộc cho admin | Hiện policy chỉ ≥ 8 ký tự |
