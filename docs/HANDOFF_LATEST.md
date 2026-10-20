@@ -4071,3 +4071,67 @@ snapshot lên **TRƯỚC** đoạn gán; old nay là giá trị cũ thật. Khô
 - `scripts/precommit-gates.ps1`: **PASS 6/6** (gồm Sweep 5 + Sweep 6 mới).
 - ThrowawayDb group trên Postgres thật: **733/733 PASS** (`logs/trx/guidfix-throwaway2.trx`).
 - Container tạm `guidfix-pg`/`guidfix-redis` đã xoá; fixture tạo/dọn qua API.
+
+## 2026-10-20 — FIX-GUID-EMPTY phần 2: lưới an toàn FK toàn cục + quy ước FK tùy chọn + FE xóa liên kết
+
+> Commit **`7bfac28`**. Tiếp nối phần 1 (archive/checkin/checkout). Mục tiêu: không còn HTTP **500** vì khóa
+> ngoại ở BẤT KỲ endpoint nào, và UI bỏ chọn được ô khóa ngoại tùy chọn.
+
+### 1. Lưới an toàn toàn cục — `ForeignKeyViolationExceptionHandler`
+- `23503` + "insert or update … violates foreign key" ⇒ **400** `REFERENCE_NOT_FOUND`.
+- `23503` + "update or delete …" **hoặc `23001`** (`restrict_violation` — FK `ON DELETE RESTRICT`, PostgreSQL
+  dùng mã riêng thay vì 23503) ⇒ **409** `RESOURCE_IN_USE`.
+- Body: `{status, message, error_code, constraint, table}`; **warning log kèm tên constraint**.
+- Không ghi đè xử lý riêng: validator/handler có mã cụ thể (`RESOURCE_NOT_FOUND`, `LOCATION_REQUIRED`,
+  `INVALID_SUPPLIER`, `ASSET_HAS_*`…) chặn trước khi exception ném ra. SQLSTATE khác (23505/23514) → handler
+  trả `false` (có test âm). Response đã bắt đầu gửi → trả `false`.
+- **Test Postgres THẬT** (`ForeignKeyViolationHandlerTests`, 7 test): insert asset trỏ location không tồn tại
+  → 400; xóa location cha còn con → 23001 → 409; + started-response; + 23505/23514 không bị nuốt.
+
+### 2. Quy ước FK TÙY CHỌN trong lệnh Update
+Helper `Common/Validation/OptionalForeignKey.cs`. Ba trạng thái:
+
+| Client gửi | Ý nghĩa |
+|---|---|
+| vắng field (`null`) | **giữ nguyên** liên kết |
+| `Guid.Empty` | **xóa liên kết** (gán `null`) |
+| GUID thật | gán; **phải tồn tại**, nếu không → 400 `RESOURCE_NOT_FOUND` |
+
+- Áp cho 9 handler: Asset (Model/Location/Supplier/Company), Component (Supplier/Manufacturer/Location),
+  Consumable (Category/Manufacturer/Supplier/Location/Company — cả nhánh confirmed), License
+  (Supplier/Manufacturer), Location (Parent/Company/Manager), Department (Company/Manager), SystemInfo
+  (Company), Maintenance (Supplier — giữ `INVALID_SUPPLIER`), Model (4 FK — giữ `RESOURCE_NOT_FOUND`).
+- So sánh field KHÓA cũng chuẩn hoá `Cleared(...)`: client gửi `Guid.Empty` cho field đang trống **không** bị
+  báo `FIELD_LOCKED` nhầm; đồng thời giữ đúng thứ tự nghiệp vụ — `FIELD_LOCKED` (đổi công ty sau khi đã cấp
+  phát) vẫn trả trước existence-check.
+- FK **bắt buộc** trên entity: `Guid.Empty` ⇒ 400 (đã có `SYSTEM_INFO_REQUIRED`, `LOCATION_REQUIRED`…).
+- Docs: `API.md` "Quy ước chung — trường KHÓA NGOẠI trong lệnh Update"; `ERROR_CODES.md` §1.8;
+  `DEVELOPMENT_WORKFLOW.md` §3.6; `BACKLOG.md` FIX-GUID-EMPTY phần 2 → RESOLVED.
+
+### 3. FE — bỏ chọn ô FK giờ xóa được liên kết
+- Helper `frontend/src/shared/utils/fk.ts`: `EMPTY_GUID`, `fkForUpdate`, `withOptionalFkCleared`
+  (chỉ áp cho field **có mặt** trong form, tránh xóa nhầm field ẩn).
+- Áp: AssetEditModal, ComponentFormModal, ConsumableFormModal, AccessoryFormModal, LicenseFormModal,
+  MaintenanceCompleteModal, LocationListPage, DepartmentListPage, SystemInfoListPage.
+- Nguyên nhân cũ: AntD `allowClear` trả `undefined`/`null` → axios bỏ field khỏi JSON → backend hiểu "không
+  gửi" → giữ nguyên ⇒ **không xóa được liên kết qua UI**.
+- **Verify UI THẬT** (DB tạm container riêng, API `127.0.0.1:5510`, Vite **5176** — không dùng cổng dev):
+  form sửa bản quyền → bấm X ở "Nhà cung cấp" → Lưu ⇒ DB `licenses."SupplierId" = NULL`; mở lại form thấy
+  trống. Ảnh 1440: `screenshots/guidp2-license-before-1440.png` / `guidp2-license-after-1440.png`.
+
+### 4. Bằng chứng (response thô, DB tạm)
+| # | Request | Kết quả |
+|---|---|---|
+| E1 | `PUT /licenses/{id}` `supplierId=<id lạ>` | **400** `{"error_code":"RESOURCE_NOT_FOUND"}` (trước: 500 FK 23503) |
+| E2 | `PUT /licenses/{id}` `supplierId=Guid.Empty` | **200**; DB `licenses."SupplierId" = NULL` |
+| E2b | `PUT /licenses/{id}` **chỉ `name`** (field vắng) | **200**; DB **giữ nguyên** supplier |
+| E3 | 409 | **Không còn endpoint DELETE nào thiếu guard mềm** (đã rà toàn bộ: `LOCATION_IN_USE`,
+|    |    | `ASSET_HAS_ASSIGNMENTS/MAINTENANCES/INSTALLATION_HISTORY`, `POSITION_IN_USE_*`, `COMPANY_*`…) — |
+|    |    | nhánh 409 được chứng minh bằng test Postgres THẬT (`locations` cha còn con → `23001` → 409) |
+
+### 5. Gates & test
+- `scripts/precommit-gates.ps1`: **PASS 6/6**.
+- Unit suite: **703 passed / 37 skipped / 0 failed**.
+- Nhóm ThrowawayDb trên **DB TRẮNG** (container mới, không khởi động API): **740/740 PASS**
+  (`logs/trx/guidp2-throwaway.trx`).
+- Fixture tạo qua API; container tạm đã xóa.
