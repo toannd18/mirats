@@ -1152,6 +1152,16 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
 | P0-1 | **Backup DB tự động + diễn tập restore** (`pg_dump -Fc` hằng ngày, mã hoá, retention 30 ngày, offsite) | ✅ **XONG (GĐ1)** — đã diễn tập restore DB trắng, số dòng khớp, login OK; remote copy cấu hình được (mặc định TẮT) |
 | P0-2 | **Backup trước migrate + runbook nâng cấp/rollback** (snapshot trước `Database.Migrate()`, image tag cũ để rollback) | 🟡 **Một phần** — `scripts/deploy.sh` đã backup trước build/up + in rollback; runbook có; **chưa diễn tập nâng cấp thật** trên bản sao |
 | P0-5 | **TLS/HSTS tại NPM** (mô hình NPM → mirats-frontend; HSTS `max-age=15552000` **không** `includeSubDomains`, HTTP→HTTPS, không publish port backend) | 🟡 **Đã có compose/docs + evidence tạm**; cần xác nhận trên NPM thật: `curl -sI https://<domain>` có HSTS; `http://<IP>:5000` không truy cập được |
+| P0-6 | **`scripts/deploy.sh` phải dùng đúng bộ file compose production** (`docker-compose.yml` + `docker-compose.npm.yml`, kèm `NPM_NETWORK`/`PROXY_*`), không dùng compose base một mình | ❌ **CHƯA LÀM** — ghi nhận 2026-10-20; không sửa/không thử trong lượt này |
+| P0-7 | **Diễn tập nâng cấp/rollback thật** trên bản sao: deploy.sh backup → build/up → `/health/ready` → rollback bằng snapshot + commit cũ | ❌ **CHƯA LÀM** — ghi nhận 2026-10-20; không thử trong lượt này |
+| P0-8 | **Bản sao backup ngoài máy chủ** (bật `BACKUP_REMOTE`, kiểm tra restore từ bản offsite, retention/immutability) | ❌ **CHƯA LÀM** — `BACKUP_REMOTE` hiện mặc định TẮT; ghi nhận 2026-10-20 |
+
+### FEAT-SPARE — quyết định thiết kế (2026-10-20, làm sau UI-1)
+
+- **Tồn kho chung** (global `Qty`/`Remaining`) + **định mức theo HỆ THỐNG** (chưa theo vị trí ở giai đoạn đầu).
+- Liên kết dùng **2 FK thật `ComponentId` / `ConsumableId`** + **CHECK đúng một cột có giá trị**;
+  **không** dùng cặp `ItemType` + `ItemId` mềm.
+- Chưa triển khai trong đợt UI-1; giữ làm backlog.
 
 ### P1 — tuần 1–2 sau go-live
 
