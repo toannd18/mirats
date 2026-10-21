@@ -269,9 +269,13 @@ curl -s "https://api.github.com/repos/toannd18/mirats/actions/runs/<run-id>/jobs
 - **Đúng:** dựng container Postgres riêng cho DB tạm, ví dụ
   `docker run -d --rm --name <task>-pg-tmp -e POSTGRES_PASSWORD=<pw> -p 55432:5432 postgres:16`, tạo DB trong đó, và
   connection string của API/test trỏ vào cổng riêng (VD `Port=55432`) — KHÔNG trỏ vào cổng của container dev.
-- **Đặt tên** container + DB có tiền tố task (VD `ll4b-pg-tmp`, DB `ll4b_verify`) để không lẫn với DB dev.
-- **Dọn dẹp:** sau khi verify phải `DROP DATABASE` + **xoá container tạm NGAY** (không để tồn tại sang task sau), rồi
-  xác nhận trên container của stack dev chỉ còn đúng `aspire-react-db`.
+- **Đặt tên (quy tắc cứng từ 2026-10-22):**
+  - DB tạm: **`mirats_tmp_<đợt>`** (VD `mirats_tmp_feat_spare_b`).
+  - Container tạm: **tiền tố `tmp-`** (VD `tmp-feat-spare-b-pg`).
+  - Guard `ThrowawayDbGuard` từ chối mọi database không có tiền tố `mirats_tmp_` hoặc trùng tên DB dev.
+- **Dọn dẹp:** sau khi verify **phải xoá môi trường tạm ngay khi kết thúc mỗi đợt** — `DROP DATABASE` + xoá container tạm
+  (`docker rm -f tmp-...`), API/Vite tạm, PEM tạm; không để tồn tại sang đợt sau. Chỉ giữ lại container/volume của stack dev.
+  Rồi xác nhận trên container của stack dev chỉ còn đúng `aspire-react-db`.
 - **Báo cáo** phải ghi: DB tạm nằm ở container nào, đã xoá chưa, và mọi thao tác SQL đặc biệt trên DB tạm
   (replay migration, soft-delete, hạ `IsConfirmed`, …) kèm lý do — vì API không tạo được trạng thái đó.
 
@@ -290,8 +294,10 @@ curl -s "https://api.github.com/repos/toannd18/mirats/actions/runs/<run-id>/jobs
     nhau (tạo trùng table/type) ⇒ FAIL giả: đo thật **9 FAIL** trên DB trắng; sau khi có guard ⇒
     **719/719 PASS trên DB trắng, không cần API**. Hệ quả bắt buộc: test nào cần dữ liệu mẫu phải **TỰ SEED**
     (VD `NaiveDateTimeKindTests` tự tạo user + asset thay vì `SELECT ... LIMIT 1`).
-  - Bật cờ + truyền connection string: `MIRATS_TEST_THROWAWAY_DB=1`, `MIRATS_TEST_POSTGRES=<conn string DB tạm>`
-    rồi `dotnet test aspire-react.Tests --filter "FullyQualifiedName~<nhóm test>"`.
+  - Bật cờ + truyền connection string DB tạm có tiền tố `mirats_tmp_`: `MIRATS_TEST_THROWAWAY_DB=1`,
+    `MIRATS_TEST_POSTGRES=<conn string DB mirats_tmp_...>` rồi
+    `dotnet test aspire-react.Tests --filter "FullyQualifiedName~<nhóm test>"`.
+    Guard sẽ từ chối (không chạy) nếu database trùng tên DB dev (`aspire_react`, `aspire-react-db`, `mirats`, ...).
 - **Vì sao:** InMemory KHÔNG có (đã gặp thật): exclusion constraint `EX_asset_installations_no_overlap` (**23P01**),
   CHECK `CK_asset_installations_ended_after_started` (**23514**), `FromSqlRaw … FOR UPDATE`, và `timestamp with time zone`
   (DateTime Kind) — đúng những thứ quyết định lý lịch có hỏng hay không. BUG-Q là ví dụ: InMemory xanh nhưng API thật 500.
