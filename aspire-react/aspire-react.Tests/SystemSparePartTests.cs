@@ -1,5 +1,6 @@
 using aspire_react.Server.Application.Components.Commands;
 using aspire_react.Server.Application.Consumables.Commands;
+using aspire_react.Server.Application.Systems.Commands;
 using aspire_react.Server.Application.Systems.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -102,6 +103,62 @@ public class SystemSparePartTests
         Assert.Equal("SPARE_PART_REQUIREMENT_EXISTS", consumableResult.ErrorCode);
         Assert.False(systemResult.Success);
         Assert.Equal("SPARE_PART_REQUIREMENT_EXISTS", systemResult.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SpareCrud_CreateUpdateDelete_AndDuplicateNegative()
+    {
+        await using var db = InMemoryDb();
+        var company = new Company { Name = "CRUD Co" };
+        var system = new SystemInfo { Code = "SPR-2026-010", Name = "CRUD system", CompanyId = company.Id };
+        var component = new Component { Name = "CRUD comp", CompanyId = company.Id };
+        db.AddRange(company, system, component);
+        await db.SaveChangesAsync();
+        var scope = new TestHelpers.SuperUserScope();
+        var actor = Guid.NewGuid();
+
+        var create = new CreateSystemSparePartCommandHandler(db, scope);
+        var negative = await create.Handle(new CreateSystemSparePartCommand(
+            system.Id, component.Id, null, -1, "bad", actor), default);
+        Assert.Equal("INVALID_MIN_QTY", negative.ErrorCode);
+
+        var created = await create.Handle(new CreateSystemSparePartCommand(
+            system.Id, component.Id, null, 3, "first", actor), default);
+        Assert.True(created.Success);
+        Assert.NotNull(created.Id);
+
+        var duplicate = await create.Handle(new CreateSystemSparePartCommand(
+            system.Id, component.Id, null, 5, "duplicate", actor), default);
+        Assert.Equal("SPARE_REQUIREMENT_DUPLICATE", duplicate.ErrorCode);
+
+        var update = new UpdateSystemSparePartCommandHandler(db, scope);
+        var updated = await update.Handle(new UpdateSystemSparePartCommand(
+            system.Id, created.Id!.Value, 7, null, null, actor), default);
+        Assert.True(updated.Success);
+        Assert.Equal(7, (await db.SystemSparePartRequirements.FindAsync(created.Id))!.MinQty);
+        Assert.Equal("first", (await db.SystemSparePartRequirements.FindAsync(created.Id))!.Note);
+
+        var deleted = await new DeleteSystemSparePartCommandHandler(db, scope)
+            .Handle(new DeleteSystemSparePartCommand(system.Id, created.Id.Value, actor), default);
+        Assert.True(deleted.Success);
+        Assert.Empty(db.SystemSparePartRequirements);
+    }
+
+    [Fact]
+    public async Task SpareCrud_ItemFromAnotherCompany_IsRejected()
+    {
+        await using var db = InMemoryDb();
+        var systemCompany = Guid.NewGuid();
+        var itemCompany = Guid.NewGuid();
+        var system = new SystemInfo { Code = "SPR-2026-011", Name = "Scoped", CompanyId = systemCompany };
+        var component = new Component { Name = "Other comp", CompanyId = itemCompany };
+        db.AddRange(system, component);
+        await db.SaveChangesAsync();
+
+        var result = await new CreateSystemSparePartCommandHandler(db, new TestHelpers.SuperUserScope())
+            .Handle(new CreateSystemSparePartCommand(system.Id, component.Id, null, 1, null, Guid.NewGuid()), default);
+
+        Assert.Equal("INVALID_SPARE_ITEM", result.ErrorCode);
     }
 
     [ThrowawayDbFact]

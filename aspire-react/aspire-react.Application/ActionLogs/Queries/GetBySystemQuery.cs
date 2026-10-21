@@ -88,6 +88,7 @@ public class GetBySystemQueryHandler : IRequestHandler<GetBySystemQuery, ActionL
             .AsNoTracking()
             .Where(l => l.TargetSystemInfoId == request.SystemInfoId &&
                         (l.TargetType == AssignmentTargetType.SystemPosition ||
+                         l.TargetType == AssignmentTargetType.SystemInfo ||
                          l.ItemType == ItemType.MaintenanceCampaign));
 
         if (request.SystemPositionId.HasValue)

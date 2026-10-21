@@ -137,9 +137,12 @@ const CHANGE_LABELS: Record<string, string> = {
   permissions: 'Quyền',
   format: 'Định dạng mã',
   enabled: 'Bật',
-  item_name: 'Tên vật tư',
+  item_name: 'Tên mục',
   min_qty: 'Định mức',
   note: 'Ghi chú',
+  version: 'Phiên bản',
+  version_id: 'Phiên bản',
+  versionId: 'Phiên bản',
   template_id: 'Mẫu bảo dưỡng',
   templateId: 'Mẫu bảo dưỡng',
   template_version_id: 'Phiên bản mẫu',
@@ -170,6 +173,19 @@ const CHECKOUT_TYPE_LABELS: Record<string, string> = {
   SystemPosition: 'Vị trí hệ thống',
 };
 
+/** Keys whose value is a calendar date — render the date only, never a time. */
+const DATE_ONLY_KEYS = new Set([
+  'start_date', 'end_date', 'purchase_date', 'expiration_date', 'termination_date',
+  'next_maintenance_due_date', 'startDate', 'endDate', 'purchaseDate', 'expirationDate',
+  'terminationDate', 'nextMaintenanceDueDate',
+]);
+
+/** Keys whose value is a full timestamp — render date + time. */
+const DATE_TIME_KEYS = new Set([
+  'published_at', 'effective_from', 'publishedAt', 'effectiveFrom', 'created_at', 'updated_at',
+  'createdAt', 'updatedAt',
+]);
+
 /** Formats note + logMeta into a single human-readable "Chi tiết" string. */
 export function formatLogDetail(note: string | null, logMeta: string | null): string {
   const parts: string[] = [];
@@ -186,6 +202,8 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
             if (val === null || val === undefined || val === '') return '—';
             if (typeof val === 'string'
                 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) return '—';
+            if (typeof val === 'string' && DATE_ONLY_KEYS.has(k)) return formatDate(val);
+            if (typeof val === 'string' && DATE_TIME_KEYS.has(k)) return formatDateTime(val);
             if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(val)) return formatDateTime(val);
             if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) return formatDate(val);
             // [AUDIT-LOG B7a] `status` dùng chung cho NHIỀU enum khác nhau: AssetStatus
@@ -197,9 +215,7 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
             })[String(val)] ?? String(val);
             if (k === 'isConfirmed') return /true/i.test(String(val)) ? 'Đã xác nhận' : 'Chưa xác nhận';
             if (k === 'checkout_type') return CHECKOUT_TYPE_LABELS[String(val)] ?? String(val);
-            if (/^(start_date|end_date|published_at|effective_from|startDate|endDate|publishedAt|effectiveFrom)$/.test(k)
-                && typeof val === 'string') return formatDateTime(val);
-            // [AUDIT-LOG B6a] Cờ boolean (is_active / is_super_user / isActive / isSuperUser…) hiển thị
+            // Cờ boolean (is_active / is_super_user / isActive / isSuperUser…) hiển thị
             // tiếng Việt thay vì "True"/"False" thô — áp dụng cho cả log cũ và mới.
             if (typeof val === 'boolean') return val ? 'Có' : 'Không';
             return String(val);
@@ -221,7 +237,9 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
           if (typeof v === 'object') continue; // object lồng: không in "[object Object]"
           let val = typeof v === 'boolean' ? (v ? 'Có' : 'Không') : String(v);
           if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) continue;
-          if (/^\d{4}-\d{2}-\d{2}T/.test(val)) val = formatDateTime(val);
+          if (DATE_ONLY_KEYS.has(k)) val = formatDate(val);
+          else if (DATE_TIME_KEYS.has(k)) val = formatDateTime(val);
+          else if (/^\d{4}-\d{2}-\d{2}T/.test(val)) val = formatDateTime(val);
           else if (/^\d{4}-\d{2}-\d{2}$/.test(val)) val = formatDate(val);
           parts.push(`${CHANGE_LABELS[k] ?? k}: ${val}`);
         }

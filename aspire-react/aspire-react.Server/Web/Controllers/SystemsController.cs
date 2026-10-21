@@ -1,4 +1,7 @@
+using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Systems.Commands;
 using aspire_react.Server.Application.Systems.Queries;
+using aspire_react.Server.Domain.Interfaces;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -77,4 +80,55 @@ public class SystemsController : ControllerBase
 
         return Ok(new { status = "success", data = items });
     }
+
+    [HttpPost("{id:guid}/spare-parts")]
+    [Authorize(Policy = "systems.edit")]
+    public async Task<IActionResult> CreateSparePart(Guid id, [FromBody] CreateSparePartRequest body,
+        [FromServices] ICurrentUserService currentUserService)
+    {
+        var result = await _mediator.Send(new CreateSystemSparePartCommand(
+            id, body.ComponentId, body.ConsumableId, body.MinQty, body.Note, currentUserService.GetLocalUserId()));
+        return SparePartResponse(result);
+    }
+
+    [HttpPut("{id:guid}/spare-parts/{reqId:guid}")]
+    [Authorize(Policy = "systems.edit")]
+    public async Task<IActionResult> UpdateSparePart(Guid id, Guid reqId, [FromBody] UpdateSparePartRequest body,
+        [FromServices] ICurrentUserService currentUserService)
+    {
+        var result = await _mediator.Send(new UpdateSystemSparePartCommand(
+            id, reqId, body.MinQty, body.Note, body.IsActive, currentUserService.GetLocalUserId()));
+        return SparePartResponse(result);
+    }
+
+    [HttpDelete("{id:guid}/spare-parts/{reqId:guid}")]
+    [Authorize(Policy = "systems.edit")]
+    public async Task<IActionResult> DeleteSparePart(Guid id, Guid reqId,
+        [FromServices] ICurrentUserService currentUserService)
+    {
+        var result = await _mediator.Send(new DeleteSystemSparePartCommand(
+            id, reqId, currentUserService.GetLocalUserId()));
+        return SparePartResponse(result);
+    }
+
+    private IActionResult SparePartResponse(SparePartCommandResult result)
+    {
+        if (!result.Success)
+        {
+            if (result.ErrorCode == "NOT_FOUND")
+                return NotFound(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+            if (result.ErrorCode == "SPARE_REQUIREMENT_DUPLICATE")
+                return Conflict(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+            return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        }
+
+        return Ok(new
+        {
+            status = "success",
+            data = new { id = result.Id, systemInfoId = result.SystemInfoId, itemName = result.ItemName, minQty = result.MinQty },
+        });
+    }
+
+    public sealed record CreateSparePartRequest(Guid? ComponentId, Guid? ConsumableId, int MinQty, string? Note);
+    public sealed record UpdateSparePartRequest(int? MinQty, string? Note, bool? IsActive);
 }

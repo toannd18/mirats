@@ -8,6 +8,7 @@ namespace aspire_react.Server.Application.Systems.Queries;
 
 public sealed record SystemSparePartDto(
     Guid Id,
+    Guid ItemId,
     string Type,
     string Name,
     string? Code,
@@ -64,6 +65,7 @@ public class GetSystemSparePartsQueryHandler
 
             return new SystemSparePartDto(
                 r.Id,
+                r.ComponentId ?? r.ConsumableId!.Value,
                 isComponent ? "Component" : "Consumable",
                 name,
                 code,

@@ -184,7 +184,7 @@ public class CreateCampaignCommandHandler : IRequestHandler<CreateCampaignComman
             // bảo dưỡng mà KHÔNG có nhật ký).
             _actionLogService.Log(CampaignAccess.BuildLog(
                 ActionType.Create, campaign, userId,
-                $"Tạo đợt bảo dưỡng cho hệ thống \"{sys.Name}\" — version {version.VersionNumber}",
+                $"Tạo đợt bảo dưỡng cho hệ thống \"{sys.Name}\" — phiên bản {version.VersionNumber}",
                 new
                 {
                     templateVersionId = version.Id,
