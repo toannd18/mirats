@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import type { InternalAxiosRequestConfig } from 'axios';
-import { getToken, logout, refreshAccessTokenCrossTab, mustChangePassword } from '../features/auth/services/auth';
+import { getToken, logout, refreshAccessTokenCrossTab, mustChangePassword, hasSessionHint } from '../features/auth/services/auth';
 
 // Backend API base URL — can be overridden via VITE_API_BASE_URL env variable.
 // Semantics: it is the SERVER base (origin or path). The `/api/v1` prefix is appended
@@ -66,7 +66,7 @@ apiClient.interceptors.response.use(
     // anonymous; a 401 there is terminal, and passkey login carries its own error surface).
     const isAuthEndpoint = url.includes('/auth/refresh') || url.includes('/auth/login') || url.includes('/auth/passkeys/login');
 
-    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthEndpoint) {
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthEndpoint && hasSessionHint()) {
       if (isRefreshing) {
         // A refresh is already in flight → park this request; it is retried by processQueue.
         return new Promise((resolve, reject) => {

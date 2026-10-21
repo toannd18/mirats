@@ -59,6 +59,31 @@ public record ListAssetsQuery(
 
 public record ListAssetsResult(IReadOnlyList<AssetListItemDto> Items, int Total);
 
+/// <summary>
+/// UI-1 GĐ3 — whitelist sort for the Asset list. Asset tags use PostgreSQL ICU numeric collation
+/// (<c>und-u-kn-true</c>) so "UI-2" sorts before "UI-10"; the default is newest-created first.
+/// </summary>
+public static class AssetListSort
+{
+    public const string NaturalCollation = "asset_tag_natural";
+
+    public static IOrderedQueryable<Asset> Apply(IQueryable<Asset> query, string? sortBy, bool desc)
+    {
+        var key = sortBy?.Trim().ToLowerInvariant();
+        return key switch
+        {
+            "name" => desc ? query.OrderByDescending(a => a.Name) : query.OrderBy(a => a.Name),
+            "status" => desc ? query.OrderByDescending(a => a.Status) : query.OrderBy(a => a.Status),
+            "serial" => desc ? query.OrderByDescending(a => a.Serial) : query.OrderBy(a => a.Serial),
+            "purchasedate" => desc ? query.OrderByDescending(a => a.PurchaseDate) : query.OrderBy(a => a.PurchaseDate),
+            "assettag" => desc
+                ? query.OrderByDescending(a => EF.Functions.Collate(a.AssetTag, NaturalCollation))
+                : query.OrderBy(a => EF.Functions.Collate(a.AssetTag, NaturalCollation)),
+            _ => query.OrderByDescending(a => a.CreatedAt).ThenBy(a => a.AssetTag),
+        };
+    }
+}
+
 public class ListAssetsQueryHandler : IRequestHandler<ListAssetsQuery, ListAssetsResult>
 {
     private readonly IApplicationDbContext _context;
@@ -95,18 +120,9 @@ public class ListAssetsQueryHandler : IRequestHandler<ListAssetsQuery, ListAsset
 
         var total = await query.CountAsync(cancellationToken);
 
-        // UI-1 GĐ3 — whitelist sortable Asset list columns. Unknown values fall back to AssetTag.
-        var sortBy = request.SortBy?.Trim().ToLowerInvariant();
+        // UI-1 GĐ3 — whitelist sortable Asset list columns. Unknown values fall back to newest-created.
         var desc = string.Equals(request.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
-        query = sortBy switch
-        {
-            "name" => desc ? query.OrderByDescending(a => a.Name) : query.OrderBy(a => a.Name),
-            "status" => desc ? query.OrderByDescending(a => a.Status) : query.OrderBy(a => a.Status),
-            "serial" => desc ? query.OrderByDescending(a => a.Serial) : query.OrderBy(a => a.Serial),
-            "purchasedate" => desc ? query.OrderByDescending(a => a.PurchaseDate) : query.OrderBy(a => a.PurchaseDate),
-            "assettag" => desc ? query.OrderByDescending(a => a.AssetTag) : query.OrderBy(a => a.AssetTag),
-            _ => query.OrderBy(a => a.AssetTag),
-        };
+        query = AssetListSort.Apply(query, request.SortBy, desc);
 
         var assets = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
             .Select(a => new

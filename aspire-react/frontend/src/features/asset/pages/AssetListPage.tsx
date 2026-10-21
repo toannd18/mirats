@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import {
   Tag, App, Button, Space, Card, Typography, Empty,
-  Modal, Alert, Descriptions, Form, Input, InputNumber, Select, DatePicker, Row, Col, Dropdown,
+  Modal, Alert, Descriptions, Form, Input, InputNumber, Select, DatePicker, Row, Col, Dropdown, Tooltip,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -31,13 +31,23 @@ import {
 import { statusColors } from '../../../theme/designTokens';
 import { formatDate, formatMoney } from '../../../utils/format';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text, Title } = Typography;
 
 // ==================== AssetListPage ====================
 
 const AssetListPage: React.FC = () => {
   const { message, modal } = App.useApp();
   const isMobile = useIsMobile();
+  const [optionalColumnsVisible, setOptionalColumnsVisible] = useState(() => {
+    try {
+      const raw = localStorage.getItem('asset-list-columns-v5');
+      if (!raw) return false;
+      const state = JSON.parse(raw) as Record<string, { show?: boolean }>;
+      return ['model', 'category', 'purchaseDate', 'company'].some((key) => state[key]?.show === true);
+    } catch {
+      return false;
+    }
+  });
   const navigate = useNavigate();
   const location = useLocation();
   const actionRef = useRef<ActionType | undefined>(undefined);
@@ -172,16 +182,16 @@ const AssetListPage: React.FC = () => {
   const primaryActionFor = (record: AssetDto) => {
     const status = normalizeAssetStatus(record.status);
     if (!record.isConfirmed && hasAction(record, 'confirm') && canEdit) {
-      return { key: 'confirm', label: 'Xác nhận', icon: <CheckSquareOutlined />, danger: false, run: () => handleConfirm(record) };
+      return { key: 'confirm', label: 'Xác nhận', icon: <CheckSquareOutlined />, run: () => handleConfirm(record) };
     }
     if (status === 'Deployed' && hasAction(record, 'recall') && canCheckin) {
-      return { key: 'recall', label: 'Thu hồi', icon: <RollbackOutlined />, danger: true, run: () => handleRecall(record) };
+      return { key: 'recall', label: 'Thu hồi', icon: <RollbackOutlined />, run: () => handleRecall(record) };
     }
     if (status === 'Pending' && hasAction(record, 'allocate') && canCheckout) {
-      return { key: 'allocate', label: 'Cấp phát', icon: <SendOutlined />, danger: false, run: () => handleAllocate(record) };
+      return { key: 'allocate', label: 'Cấp phát', icon: <SendOutlined />, run: () => handleAllocate(record) };
     }
     if (status === 'Archived' && hasAction(record, 'unarchive') && canEdit) {
-      return { key: 'unarchive', label: 'Mở lại', icon: <UndoOutlined />, danger: false, run: () => handleUnarchive(record) };
+      return { key: 'unarchive', label: 'Mở lại', icon: <UndoOutlined />, run: () => handleUnarchive(record) };
     }
     return null;
   };
@@ -207,7 +217,7 @@ const AssetListPage: React.FC = () => {
     return (
       <Space size={4} wrap>
         {primary && (
-          <Button type="primary" size="small" danger={primary.danger}
+          <Button size="small" style={{ width: 104 }}
             icon={primary.icon}
             onClick={(e) => { stop(e); primary.run(); }}>{primary.label}</Button>
         )}
@@ -221,23 +231,44 @@ const AssetListPage: React.FC = () => {
     );
   };
 
+  const renderEllipsis = (value?: string | null) => {
+    const text = value || '-';
+    return (
+      <Tooltip title={text} placement="topLeft">
+        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {text}
+        </span>
+      </Tooltip>
+    );
+  };
+
   const desktopColumns: ProColumns<AssetDto>[] = ([
     {
       title: 'Mã tài sản', dataIndex: 'assetTag', width: 110,
       sorter: true,
-      render: (_, record) => <Text code>{record.assetTag}</Text>,
-    },
-    {
-      title: 'Tên tài sản', dataIndex: 'name', width: 170,
-      sorter: true,
       render: (_, record) => (
-        <Typography.Link onClick={() => navigate(`/assets/${record.id}`)}>
-          {record.name}
-        </Typography.Link>
+        <Text code style={{ whiteSpace: 'nowrap' }}>{record.assetTag}</Text>
       ),
     },
     {
-      title: 'Trạng thái', dataIndex: 'status', key: 'status', width: 130,
+      title: 'Tên tài sản', dataIndex: 'name', width: 140,
+      sorter: true,
+      render: (_, record) => {
+        const text = record.name || '-';
+        return (
+          <Tooltip title={text} placement="topLeft">
+            <Typography.Link
+              onClick={() => navigate(`/assets/${record.id}`)}
+              style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {text}
+            </Typography.Link>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: 'Trạng thái', dataIndex: 'status', key: 'status', width: 120,
       sorter: true,
       render: (_, record) => {
         const status = normalizeAssetStatus(record.status);
@@ -252,21 +283,27 @@ const AssetListPage: React.FC = () => {
       },
     },
     {
-      title: 'Số serial', dataIndex: 'serial', width: 130,
+      title: 'Đang giữ', key: 'assignedTo', width: 130,
+      render: (_, record) => renderEllipsis(assignedLabel(record)),
+    },
+    {
+      title: 'Vị trí', key: 'location', width: 100,
+      render: (_, record) => renderEllipsis(record.location?.name),
+    },
+    {
+      title: 'Số serial', dataIndex: 'serial', width: 160,
       sorter: true,
-      render: (_, record) => <Text style={{ fontFamily: 'monospace' }}>{record.serial || '-'}</Text>,
+      render: (_, record) => (
+        <Text style={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{record.serial || '-'}</Text>
+      ),
     },
     {
-      title: 'Model', key: 'model', width: 160, ellipsis: true,
-      render: (_, record) => record.model?.name || '-',
+      title: 'Model', key: 'model', width: 160,
+      render: (_, record) => renderEllipsis(record.model?.name),
     },
     {
-      title: 'Vị trí', key: 'location', width: 120, ellipsis: true,
-      render: (_, record) => record.location?.name || '-',
-    },
-    {
-      title: 'Đang giữ', key: 'assignedTo', width: 170,
-      render: (_, record) => (assignedLabel(record) ?? '-'),
+      title: 'Danh mục', key: 'category', width: 150,
+      render: (_, record) => renderEllipsis(record.category?.name),
     },
     {
       title: 'Ngày mua', dataIndex: 'purchaseDate', width: 120,
@@ -275,10 +312,10 @@ const AssetListPage: React.FC = () => {
     },
     ...(superUser ? [{
       title: 'Công ty', key: 'company', width: 160,
-      render: (_: unknown, record: AssetDto) => record.company?.name || '-',
+      render: (_: unknown, record: AssetDto) => renderEllipsis(record.company?.name),
     } as ProColumns<AssetDto>] : []),
     {
-      title: 'Thao tác', key: 'actions', width: 150, fixed: 'right',
+      title: 'Thao tác', key: 'actions', width: 150, fixed: optionalColumnsVisible ? undefined : 'right',
       render: (_: unknown, record: AssetDto) => renderRowActions(record),
     },
   ] as ProColumns<AssetDto>[]).map((column) => ({ ...column, hideInSearch: true, search: false }));
@@ -358,12 +395,6 @@ const AssetListPage: React.FC = () => {
                   <span><Text type="secondary">Số serial:</Text> <Text style={{ fontFamily: 'monospace' }}>{record.serial || '-'}</Text></span>
                   <span><Text type="secondary">Vị trí:</Text> <Text>{record.location?.name || '-'}</Text></span>
                   {isDeployed && holder && <span><Text type="secondary">Đang giữ:</Text> <Text strong>{holder}</Text></span>}
-                  {record.notes && (
-                    <div style={{ gridColumn: '1 / -1', minWidth: 0, marginTop: 2 }}>
-                      <div><Text type="secondary">Ghi chú:</Text></div>
-                      <Paragraph ellipsis={{ rows: 2, tooltip: record.notes }} style={{ fontSize: 12, margin: 0 }}>{record.notes}</Paragraph>
-                    </div>
-                  )}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
                   {renderRowActions(record, true)}
@@ -381,12 +412,24 @@ const AssetListPage: React.FC = () => {
           search={{ labelWidth: 'auto', defaultCollapsed: false }}
           options={{ reload: true, density: true, setting: true }}
           columnsState={{
-            persistenceKey: 'asset-list-columns',
+            persistenceKey: 'asset-list-columns-v5',
             persistenceType: 'localStorage',
             defaultValue: {
+              assetTag: { show: true },
+              name: { show: true },
+              status: { show: true },
+              assignedTo: { show: true },
+              location: { show: true },
+              serial: { show: true },
+              model: { show: false },
+              category: { show: false },
               purchaseDate: { show: false },
               company: { show: false },
-              assignedTo: { show: false },
+            },
+            onChange: (map) => {
+              const wide = ['model', 'category', 'purchaseDate', 'company']
+                .some((key) => map[key]?.show === true);
+              setTimeout(() => setOptionalColumnsVisible(wide), 0);
             },
           }}
           toolBarRender={() => [

@@ -1165,9 +1165,9 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
 
 ### UI-1 — việc ghi nhận thêm (2026-10-20)
 
-- **“Hoàn thành đợt” phải bấm được khi 0/0 kết quả**: hiện nút bị vô hiệu hóa khi đợt chưa có
-  thiết bị/hạng mục nào, khiến người dùng không thể đóng đợt rỗng. Sửa để luôn cho phép hoàn thành
-  (kèm xác nhận), kể cả khi kết quả là 0/0. Chưa làm trong GĐ1–GĐ3; giữ làm backlog UI-1.
+- **“Hoàn thành đợt” hiện BẤM ĐƯỢC khi 0/0 kết quả** → cần xem xét **CHẶN** hoặc **cảnh báo xác nhận**
+  trước khi cho hoàn thành đợt rỗng (đợt chưa có thiết bị/hạng mục nào). Chưa sửa trong GĐ1–GĐ3;
+  giữ làm backlog UI-1.
 
 ### P1 — tuần 1–2 sau go-live
 

@@ -14,10 +14,39 @@ import axios from 'axios';
  */
 
 const TOKEN_EXPIRY_MARGIN_MS = 30_000;
+const SESSION_HINT_KEY = 'mirats.auth.session';
 
 let accessToken: string | null = null;
 let tokenExpiresAtMs = 0;
 let authState: 'unauthenticated' | 'authenticated' | 'unknown' = 'unknown';
+
+/**
+ * Signal that this browser has completed a login before. The API client only attempts a silent
+ * refresh when this is set; a fresh visitor on /login must never provoke /auth/refresh calls.
+ */
+export function hasSessionHint(): boolean {
+  try {
+    return localStorage.getItem(SESSION_HINT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function setSessionHint(): void {
+  try {
+    localStorage.setItem(SESSION_HINT_KEY, '1');
+  } catch {
+    // localStorage unavailable — refresh-on-401 stays disabled for this context.
+  }
+}
+
+function clearSessionHint(): void {
+  try {
+    localStorage.removeItem(SESSION_HINT_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 /** Decoded JWT payload (kept minimal — only claims the app actually reads). */
 export interface AuthTokenClaims {
@@ -98,6 +127,7 @@ export async function loginWithPassword(username: string, password: string): Pro
   const claims = decodeClaims(accessToken!);
   tokenExpiresAtMs = (claims?.exp ?? 0) * 1000;
   authState = 'authenticated';
+  setSessionHint();
   return { mustChangePassword: res.data.mustChangePassword === true };
 }
 
@@ -111,6 +141,7 @@ export async function refreshAccessToken(): Promise<boolean> {
     const claims = decodeClaims(accessToken!);
     tokenExpiresAtMs = (claims?.exp ?? 0) * 1000;
     authState = 'authenticated';
+    setSessionHint();
     return true;
   } catch {
     clearTokens();
@@ -158,6 +189,7 @@ function clearTokens(): void {
   accessToken = null;
   tokenExpiresAtMs = 0;
   authState = 'unauthenticated';
+  clearSessionHint();
 }
 
 /**
@@ -168,6 +200,10 @@ export async function initAuth(): Promise<boolean> {
   if (accessToken && Date.now() < tokenExpiresAtMs - TOKEN_EXPIRY_MARGIN_MS) {
     authState = 'authenticated';
     return true;
+  }
+  if (!hasSessionHint()) {
+    authState = 'unauthenticated';
+    return false;
   }
   // [FIX-N6] Boot-time restore is the most common multi-tab race (several tabs opening together
   // after a restart) → go through the cross-tab lock as well.
@@ -183,4 +219,5 @@ export function applyAccessToken(token: string): void {
   const claims = decodeClaims(token);
   tokenExpiresAtMs = (claims?.exp ?? 0) * 1000;
   authState = 'authenticated';
+  setSessionHint();
 }
