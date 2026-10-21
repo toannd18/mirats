@@ -19,7 +19,7 @@ export type AllocationTargetType = 'User' | 'Department' | 'SystemPosition';
 export const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {
   Pending: 'Chờ cấp phát',
   Deployed: 'Đã cấp phát',
-  Archived: 'Đã thu hồi',
+  Archived: 'Đã lưu trữ',
 };
 
 // Nguồn màu trạng thái Asset là `assetStatusColors` trong theme/designTokens (Design System)

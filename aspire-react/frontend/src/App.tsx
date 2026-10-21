@@ -27,6 +27,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 // not flash while a page chunk is downloading; <Suspense fallback> covers only the
 // content area. AntD components/icons/services are shared chunks (used by every page).
 const DashboardPage = lazy(() => import('./features/system/pages/DashboardPage'));
+const DashboardAlertPage = lazy(() => import('./features/system/pages/DashboardAlertPage'));
 const AssetListPage = lazy(() => import('./features/asset/pages/AssetListPage'));
 const AssetDetailPage = lazy(() => import('./features/asset/pages/AssetDetailPage'));
 const AssetTimelinePrintPage = lazy(() => import('./features/asset/pages/AssetTimelinePrintPage'));
@@ -113,6 +114,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     const parent = parentCrumbMap[location.pathname];
     if (parent) crumbSegs.push({ title: parent });
     crumbSegs.push({ title: exactLabel });
+  } else if (location.pathname.startsWith('/dashboard/alerts')) {
+    crumbSegs.push({ title: 'Tổng quan' });
+    crumbSegs.push({ title: 'Cảnh báo' });
   } else if (location.pathname.startsWith('/assets')) {
     crumbSegs.push({ title: 'Tài sản' });
     crumbSegs.push({ title: 'Chi tiết' });
@@ -509,6 +513,11 @@ function App() {
             <Route path="/dashboard" element={
               <ProtectedRoute>
                 <AppLayout><DashboardPage /></AppLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/dashboard/alerts/:key" element={
+              <ProtectedRoute>
+                <AppLayout><DashboardAlertPage /></AppLayout>
               </ProtectedRoute>
             } />
             <Route path="/assets" element={

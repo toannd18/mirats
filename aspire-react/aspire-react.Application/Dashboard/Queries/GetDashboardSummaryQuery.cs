@@ -49,12 +49,18 @@ public class GetDashboardSummaryQueryHandler : IRequestHandler<GetDashboardSumma
             .Include(c => c.SparePartMovements).AsNoTracking()
             .Where(c => userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value);
 
-        var totalAssets = await assets.CountAsync(cancellationToken);
-        var deployed = await assets.CountAsync(a => a.CurrentAssignmentId != null, cancellationToken);
-        // Pending assets are available (not deployed, not archived)
-        var rtd = await assets.CountAsync(a => a.Status == AssetStatus.Pending && a.CurrentAssignmentId == null, cancellationToken);
+        // [DASHBOARD-DATA] Status counts are the single source for total/deployed/pending/archived.
+        // Previously deployed used CurrentAssignmentId (assigned assets with Pending status) and
+        // pending excluded assigned Pending assets — making KPIs diverge from the status table.
+        var statusCounts = await assets
+            .GroupBy(a => a.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Status, x => x.Count, cancellationToken);
+        var totalAssets = statusCounts.Values.Sum();
+        var deployed = statusCounts.GetValueOrDefault(AssetStatus.Deployed);
+        var rtd = statusCounts.GetValueOrDefault(AssetStatus.Pending);
+        var archived = statusCounts.GetValueOrDefault(AssetStatus.Archived);
         var overdueAudits = await assets.CountAsync(a => a.NextAuditDate != null && a.NextAuditDate < now && a.Status != AssetStatus.Archived, cancellationToken);
-        var archived = await assets.CountAsync(a => a.Status == AssetStatus.Archived, cancellationToken);
 
         var totalValue = await assets.SumAsync(a => a.PurchaseCost ?? 0, cancellationToken);
 

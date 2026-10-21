@@ -22,6 +22,14 @@ public class DashboardController : ControllerBase
         _mediator = mediator;
     }
 
+    [HttpGet("overview")]
+    [Authorize]
+    public async Task<IActionResult> GetOverview()
+    {
+        var data = await _mediator.Send(new GetDashboardOverviewQuery());
+        return Ok(new { status = "success", data });
+    }
+
     [HttpGet("summary")]
     [Authorize]
     public async Task<IActionResult> GetSummary()

@@ -23,6 +23,7 @@ Tất cả endpoint yêu cầu header `Authorization: Bearer <token>` trừ các
 
 | Method | Route | Auth | Mô tả |
 |--------|-------|------|-------|
+| `GET` | `/api/v1/dashboard/overview` | Authenticated | Aggregate: cảnh báo + drill-down items, số liệu, đợt bảo dưỡng, biểu đồ, hoạt động gần đây |
 | `GET` | `/api/v1/dashboard/summary` | Authenticated | 6 widgets |
 | `GET` | `/api/v1/dashboard/recent-activity` | Authenticated | 20 logs |
 | `GET` | `/api/v1/dashboard/assets-by-status` | Authenticated | Group by status |

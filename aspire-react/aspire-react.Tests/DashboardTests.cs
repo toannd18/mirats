@@ -69,6 +69,95 @@ public class DashboardTests
     }
 
     [Fact]
+    public async Task Overview_AlertCountsAndNumbers_AreCompanyScoped()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Overview_AlertCountsAndNumbers_AreCompanyScoped));
+        var coA = new Company { Code = "OA", Name = "Overview A" };
+        var coB = new Company { Code = "OB", Name = "Overview B" };
+        var now = DateTime.UtcNow;
+        db.Companies.AddRange(coA, coB);
+        db.Assets.AddRange(
+            new Asset
+            {
+                AssetTag = "A1",
+                Name = "A chưa xác nhận",
+                CompanyId = coA.Id,
+                IsConfirmed = false,
+                Status = AssetStatus.Pending,
+                NextAuditDate = now.AddDays(-1),
+                PurchaseCost = 100,
+            },
+            new Asset
+            {
+                AssetTag = "A2",
+                Name = "A đã cấp phát",
+                CompanyId = coA.Id,
+                IsConfirmed = true,
+                Status = AssetStatus.Deployed,
+                CurrentAssignmentId = Guid.NewGuid(),
+                PurchaseCost = 50,
+            },
+            new Asset
+            {
+                AssetTag = "B1",
+                Name = "B chưa xác nhận",
+                CompanyId = coB.Id,
+                IsConfirmed = false,
+                Status = AssetStatus.Pending,
+                NextAuditDate = now.AddDays(-2),
+                PurchaseCost = 999,
+            });
+        db.SystemInfos.AddRange(
+            new SystemInfo { Code = "OA-1", Name = "A quá hạn", CompanyId = coA.Id, NextMaintenanceDueDate = now.AddDays(-1) },
+            new SystemInfo { Code = "OB-1", Name = "B quá hạn", CompanyId = coB.Id, NextMaintenanceDueDate = now.AddDays(-2) });
+        db.Licenses.AddRange(
+            new License { Name = "A license", CompanyId = coA.Id, ExpirationDate = now.AddDays(-5) },
+            new License { Name = "B license", CompanyId = coB.Id, ExpirationDate = now.AddDays(10) });
+        db.Components.AddRange(
+            new Component { Name = "A low stock", CompanyId = coA.Id, Qty = 1, MinAmt = 2, TrackingType = TrackingType.Bulk },
+            new Component { Name = "B enough", CompanyId = coB.Id, Qty = 10, MinAmt = 0, TrackingType = TrackingType.Bulk });
+        await db.SaveChangesAsync();
+
+        var scopeA = new TestHelpers.FakeScope { Super = false, CompanyId = coA.Id };
+        var dtoA = await new GetDashboardOverviewQueryHandler(
+                db, scopeA, TestHelpers.BuildMediator(db, scopeA))
+            .Handle(new GetDashboardOverviewQuery(), CancellationToken.None);
+        var alertsA = dtoA.Alerts.ToDictionary(a => a.Key);
+        Assert.Equal(1, alertsA["lowStock"].Count);
+        Assert.Equal(1, alertsA["overdueMaintenance"].Count);
+        Assert.Equal(1, alertsA["overdueAudits"].Count);
+        Assert.Equal(1, alertsA["expiringLicenses"].Count);
+        Assert.Equal(1, alertsA["unconfirmedAssets"].Count);
+        Assert.Equal(2, dtoA.Numbers.TotalAssets);
+        Assert.Equal(1, dtoA.Numbers.DeployedAssets);
+        Assert.Equal(1, dtoA.Numbers.PendingAssets);
+        Assert.Equal(150m, dtoA.Numbers.TotalAssetValue);
+        Assert.Equal(dtoA.Numbers.TotalAssets, dtoA.ByStatus.Sum(x => x.Count));
+        Assert.Equal(dtoA.Numbers.DeployedAssets, dtoA.ByStatus.Single(x => x.Status == "Deployed").Count);
+        Assert.Equal(dtoA.Numbers.PendingAssets, dtoA.ByStatus.Single(x => x.Status == "Pending").Count);
+        Assert.Equal(dtoA.Numbers.TotalAssets, dtoA.ByCategory.Sum(x => x.Count));
+        Assert.Contains(dtoA.ByCategory, x => x.Category == "Chưa phân loại");
+
+        var super = new TestHelpers.FakeScope { Super = true };
+        var dtoSuper = await new GetDashboardOverviewQueryHandler(
+                db, super, TestHelpers.BuildMediator(db, super))
+            .Handle(new GetDashboardOverviewQuery(), CancellationToken.None);
+        var alertsSuper = dtoSuper.Alerts.ToDictionary(a => a.Key);
+        Assert.Equal(1, alertsSuper["lowStock"].Count);
+        Assert.Equal(2, alertsSuper["overdueMaintenance"].Count);
+        Assert.Equal(2, alertsSuper["overdueAudits"].Count);
+        Assert.Equal(2, alertsSuper["expiringLicenses"].Count);
+        Assert.Equal(2, alertsSuper["unconfirmedAssets"].Count);
+        Assert.Equal(3, dtoSuper.Numbers.TotalAssets);
+        Assert.Equal(1149m, dtoSuper.Numbers.TotalAssetValue);
+        Assert.Equal(dtoSuper.Numbers.TotalAssets, dtoSuper.ByStatus.Sum(x => x.Count));
+        Assert.Equal(dtoSuper.Numbers.DeployedAssets, dtoSuper.ByStatus.Single(x => x.Status == "Deployed").Count);
+        Assert.Equal(dtoSuper.Numbers.PendingAssets, dtoSuper.ByStatus.Single(x => x.Status == "Pending").Count);
+        Assert.Equal(dtoSuper.Numbers.TotalAssets, dtoSuper.ByCategory.Sum(x => x.Count));
+        Assert.Contains(dtoSuper.ByCategory, x => x.Category == "Chưa phân loại");
+    }
+
+    [Fact]
     public async Task Summary_FieldPresent_AlongsideExistingCounters()
     {
         await using var db = TestHelpers.CreateContext(nameof(Summary_FieldPresent_AlongsideExistingCounters));

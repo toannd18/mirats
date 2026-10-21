@@ -219,6 +219,7 @@ public static class TestHelpers
         services.AddSingleton<ICompanyScopeService>(scope ?? (ICompanyScopeService)new SuperUserScope());
         services.AddSingleton<IActionLogService>(CreateActionLogService(db, actorId));
         services.AddSingleton<ICacheTagEvictor>(new NullCacheTagEvictor());
+        services.AddSingleton<IActionLogVisibilityService>(new ActionLogVisibilityService(db));
         // [GĐ2.4] UpdateUser/UpdateUserGroups/UpdateGroupPermissions resolve IPermissionLockoutGuard.
         services.AddSingleton<aspire_react.Server.Domain.Interfaces.IPermissionLockoutGuard>(
             new aspire_react.Server.Infrastructure.Authorization.PermissionLockoutGuard(db));

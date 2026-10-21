@@ -34,7 +34,7 @@ const TARGET_TYPE_LABELS: Record<string, string> = {
 const LIFECYCLE_STEPS: Array<{ title: string; description: string }> = [
   { title: 'Chờ cấp phát', description: 'Sẵn sàng cấp phát' },
   { title: 'Đang sử dụng', description: 'Đã cấp phát' },
-  { title: 'Đã lưu trữ', description: 'Đã thu hồi' },
+  { title: 'Đã lưu trữ', description: 'Đã lưu trữ' },
 ];
 
 function lifecycleStepIndex(status: AssetStatus): number {
@@ -122,7 +122,7 @@ const AssetDetailPage: React.FC = () => {
           <Tag color={ASSET_STATUS_COLORS[status] ?? 'default'}>{ASSET_STATUS_LABELS[status]}</Tag>
           {!asset.isConfirmed && <Tag color="warning">Chưa xác nhận</Tag>}
         </div>
-        {status === 'Archived' && <Alert type="error" showIcon style={{ marginTop: 12, borderRadius: 8 }} title="Tài sản đã kết thúc vòng đời (Đã thu hồi). Chỉ xem, không thể sửa đổi." />}
+        {status === 'Archived' && <Alert type="error" showIcon style={{ marginTop: 12, borderRadius: 8 }} title="Tài sản đã kết thúc vòng đời (Đã lưu trữ). Chỉ xem, không thể sửa đổi." />}
       </Card>
 
       {/* Asset Information */}

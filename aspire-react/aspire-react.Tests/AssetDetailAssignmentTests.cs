@@ -131,7 +131,7 @@ public class AssetDetailAssignmentTests
         var byDepartment = await SeedAssignedAssetAsync(db, $"{tag}-d", department.Id, assignee.Id, AssignmentTargetType.Department);
         var byPosition = await SeedAssignedAssetAsync(db, $"{tag}-p", position.Id, assignee.Id, AssignmentTargetType.SystemPosition);
 
-        var noAssignment = new Asset { AssetTag = $"{tag}-none", Name = "BUG-Q control (khong gan ai)" };
+        var noAssignment = new Asset { AssetTag = $"{tag}-none", Name = "BUG-Q control (khong gan ai)", IsConfirmed = true };
         db.Assets.Add(noAssignment);
         await db.SaveChangesAsync();
 
@@ -189,7 +189,7 @@ public class AssetDetailAssignmentTests
     private static async Task<Asset> SeedAssignedAssetAsync(
         AppDbContext db, string assetTag, Guid targetId, Guid assignedById, AssignmentTargetType targetType)
     {
-        var asset = new Asset { AssetTag = assetTag, Name = $"BUG-Q {assetTag}" };
+        var asset = new Asset { AssetTag = assetTag, Name = $"BUG-Q {assetTag}", Status = AssetStatus.Deployed, IsConfirmed = true };
         db.Assets.Add(asset);
         await db.SaveChangesAsync();
 

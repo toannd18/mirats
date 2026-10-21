@@ -324,7 +324,7 @@ const AssetListPage: React.FC = () => {
     { title: 'Tìm kiếm', dataIndex: 'search', valueType: 'text', hideInTable: true,
       fieldProps: { placeholder: 'Tên, mã tài sản, số serial...' } },
     { key: 'search-status', title: 'Trạng thái', dataIndex: 'status', valueType: 'select', hideInTable: true,
-      valueEnum: { Pending: 'Chờ cấp phát', Deployed: 'Đã cấp phát', Archived: 'Đã thu hồi' } },
+      valueEnum: { Pending: 'Chờ cấp phát', Deployed: 'Đã cấp phát', Archived: 'Đã lưu trữ' } },
     { title: 'Vị trí', dataIndex: 'locationId', valueType: 'select', hideInTable: true,
       request: async () => {
         const res = await apiClient.get('/locations', { params: { pageSize: 500 } });
