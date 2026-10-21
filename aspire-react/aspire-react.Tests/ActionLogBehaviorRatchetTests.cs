@@ -536,24 +536,6 @@ public class ActionLogBehaviorRatchetTests
             await AssertChangeAsync(ctx, ItemType.MaintenanceCampaign, campaign.Id, "measured_value", "40", "55");
         }),
 
-        new("UpdateSystemSparePartCommand", async (ctx, m) =>
-        {
-            var company = new Company { Name = "Spare ratchet", Code = "SPR-" + Guid.NewGuid().ToString("N")[..8] };
-            var system = new SystemInfo { Code = "SYS-" + Guid.NewGuid().ToString("N")[..8], Name = "Spare system", CompanyId = company.Id };
-            var component = new Component { Name = "Spare part", CompanyId = company.Id };
-            ctx.AddRange(company, system, component);
-            await ctx.SaveChangesAsync();
-            var req = new SystemSparePartRequirement
-            {
-                CompanyId = company.Id, SystemInfoId = system.Id, ComponentId = component.Id, MinQty = 1,
-            };
-            ctx.SystemSparePartRequirements.Add(req);
-            await ctx.SaveChangesAsync();
-
-            await m.Send(new UpdateSystemSparePartCommand(system.Id, req.Id, 5, null, null, Actor));
-            await AssertChangeAsync(ctx, ItemType.SystemInfo, req.Id, "min_qty", "1", "5");
-        }),
-
         new("SetAssetTagFormatCommand", async (ctx, m) =>
         {
             var setting = new SystemSetting

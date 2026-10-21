@@ -462,6 +462,29 @@ cho bản cũ → `INSERT` bản mới (`CorrectsEntryId` = bản cũ, `Source =
 | `POST` | `/api/v1/components/{id}/assign` | `components.checkout` |
 | `POST` | `/api/v1/components/{id}/remove` | `components.checkout` |
 
+## Systems — spare parts
+
+Spare parts are shared inventory. There is **no per-system quota**; the ledger records issue/return
+movements per system and the tab lists only items with a positive net issued quantity.
+
+| Method | Route | Auth |
+|--------|-------|------|
+| `GET` | `/api/v1/systems/{id:guid}/spare-parts` | `systems.view` |
+| `POST` | `/api/v1/systems/{id:guid}/spare-parts/issue` | `components.checkout` hoặc `consumables.checkout` (theo item) |
+| `POST` | `/api/v1/systems/{id:guid}/spare-parts/return` | `components.checkout` hoặc `consumables.checkout` (theo item) |
+
+Body cho issue/return (`componentId` và `consumableId` đúng một):
+
+```json
+{ "componentId": "guid", "consumableId": null, "quantity": 1, "note": "optional" }
+```
+
+- Item khác company với hệ thống → 400 `SPARE_PART_ITEM_MISMATCH`.
+- Cấp vượt tồn → **409** `SPARE_PART_INSUFFICIENT_STOCK`.
+- Nhận lại vượt số đã cấp ròng cho hệ thống → 400 `SPARE_PART_RETURN_EXCEEDS_ISSUED`.
+- Serial component → 400 `SPARE_PART_SERIAL_UNSUPPORTED`.
+- System ngoài company scope → **404** (hide existence).
+
 ## Accessories
 
 | Method | Route | Auth |

@@ -11,7 +11,7 @@ namespace aspire_react.Server.Web.Controllers;
 
 /// <summary>
 /// [Giai đoạn 3] Systems migrated to MediatR — system-scoped read aggregations for the
-/// SystemDetailPage (2 GET-only endpoints, no markers). Routes unchanged: /api/v1/systems...
+/// SystemDetailPage. Routes unchanged: /api/v1/systems...
 /// SystemsVisibility helper moved verbatim (DELIBERATE 404-not-403 convention — see its doc).
 /// The assets pagination envelope is built here verbatim from the query's (items, total).
 /// </summary>
@@ -70,7 +70,10 @@ public class SystemsController : ControllerBase
         return Ok(new { status = "success", data = items });
     }
 
-    /// <summary>[FEAT-SPARE 1] Read-only spare-part requirements for this system.</summary>
+    /// <summary>
+    /// [FEAT-SPARE 3] Items currently held by this system (net issued &gt; 0). There is no per-system
+    /// quota: spare parts are shared inventory and the returned remaining is the shared stock.
+    /// </summary>
     [HttpGet("{id:guid}/spare-parts")]
     [Authorize(Policy = "systems.view")]
     public async Task<IActionResult> GetSpareParts(Guid id)
@@ -82,70 +85,39 @@ public class SystemsController : ControllerBase
         return Ok(new { status = "success", data = items });
     }
 
-    [HttpPost("{id:guid}/spare-parts")]
-    [Authorize(Policy = "systems.edit")]
-    public async Task<IActionResult> CreateSparePart(Guid id, [FromBody] CreateSparePartRequest body,
+    [HttpPost("{id:guid}/spare-parts/issue")]
+    public Task<IActionResult> IssueSparePart(Guid id, [FromBody] SparePartMovementRequest body,
+        [FromServices] IAuthorizationService authorizationService,
         [FromServices] ICurrentUserService currentUserService)
-    {
-        var result = await _mediator.Send(new CreateSystemSparePartCommand(
-            id, body.ComponentId, body.ConsumableId, body.MinQty, body.Note, currentUserService.GetLocalUserId()));
-        return SparePartResponse(result);
-    }
+        => RecordSparePartMovement(id, body, SparePartMovementDirection.Issue,
+            authorizationService, currentUserService);
 
-    [HttpPut("{id:guid}/spare-parts/{reqId:guid}")]
-    [Authorize(Policy = "systems.edit")]
-    public async Task<IActionResult> UpdateSparePart(Guid id, Guid reqId, [FromBody] UpdateSparePartRequest body,
+    [HttpPost("{id:guid}/spare-parts/return")]
+    public Task<IActionResult> ReturnSparePart(Guid id, [FromBody] SparePartMovementRequest body,
+        [FromServices] IAuthorizationService authorizationService,
         [FromServices] ICurrentUserService currentUserService)
-    {
-        var result = await _mediator.Send(new UpdateSystemSparePartCommand(
-            id, reqId, body.MinQty, body.Note, body.IsActive, currentUserService.GetLocalUserId()));
-        return SparePartResponse(result);
-    }
+        => RecordSparePartMovement(id, body, SparePartMovementDirection.Return,
+            authorizationService, currentUserService);
 
-    [HttpDelete("{id:guid}/spare-parts/{reqId:guid}")]
-    [Authorize(Policy = "systems.edit")]
-    public async Task<IActionResult> DeleteSparePart(Guid id, Guid reqId,
-        [FromServices] ICurrentUserService currentUserService)
-    {
-        var result = await _mediator.Send(new DeleteSystemSparePartCommand(
-            id, reqId, currentUserService.GetLocalUserId()));
-        return SparePartResponse(result);
-    }
-
-    [HttpPost("{id:guid}/spare-parts/{reqId:guid}/issue/component")]
-    [Authorize(Policy = "components.checkout")]
-    public Task<IActionResult> IssueComponentSparePart(Guid id, Guid reqId,
-        [FromBody] SparePartMovementRequest body,
-        [FromServices] ICurrentUserService currentUserService)
-        => RecordSparePartMovement(id, reqId, body, SparePartMovementDirection.Issue, true, currentUserService);
-
-    [HttpPost("{id:guid}/spare-parts/{reqId:guid}/return/component")]
-    [Authorize(Policy = "components.checkout")]
-    public Task<IActionResult> ReturnComponentSparePart(Guid id, Guid reqId,
-        [FromBody] SparePartMovementRequest body,
-        [FromServices] ICurrentUserService currentUserService)
-        => RecordSparePartMovement(id, reqId, body, SparePartMovementDirection.Return, true, currentUserService);
-
-    [HttpPost("{id:guid}/spare-parts/{reqId:guid}/issue/consumable")]
-    [Authorize(Policy = "consumables.checkout")]
-    public Task<IActionResult> IssueConsumableSparePart(Guid id, Guid reqId,
-        [FromBody] SparePartMovementRequest body,
-        [FromServices] ICurrentUserService currentUserService)
-        => RecordSparePartMovement(id, reqId, body, SparePartMovementDirection.Issue, false, currentUserService);
-
-    [HttpPost("{id:guid}/spare-parts/{reqId:guid}/return/consumable")]
-    [Authorize(Policy = "consumables.checkout")]
-    public Task<IActionResult> ReturnConsumableSparePart(Guid id, Guid reqId,
-        [FromBody] SparePartMovementRequest body,
-        [FromServices] ICurrentUserService currentUserService)
-        => RecordSparePartMovement(id, reqId, body, SparePartMovementDirection.Return, false, currentUserService);
-
-    private async Task<IActionResult> RecordSparePartMovement(Guid id, Guid reqId,
-        SparePartMovementRequest body, SparePartMovementDirection direction, bool isComponent,
+    private async Task<IActionResult> RecordSparePartMovement(Guid id, SparePartMovementRequest body,
+        SparePartMovementDirection direction, IAuthorizationService authorizationService,
         ICurrentUserService currentUserService)
     {
+        if ((body.ComponentId.HasValue ? 1 : 0) + (body.ConsumableId.HasValue ? 1 : 0) != 1)
+            return BadRequest(new
+            {
+                status = "error",
+                message = "Phải chọn đúng một linh kiện hoặc vật tư.",
+                error_code = "INVALID_SPARE_ITEM",
+            });
+
+        var policy = body.ComponentId.HasValue ? "components.checkout" : "consumables.checkout";
+        var authorization = await authorizationService.AuthorizeAsync(User, policy);
+        if (!authorization.Succeeded)
+            return Forbid();
+
         var result = await _mediator.Send(new RecordSystemSparePartMovementCommand(
-            id, reqId, body.Quantity, direction, isComponent, body.Note,
+            id, body.ComponentId, body.ConsumableId, body.Quantity, direction, body.Note,
             currentUserService.GetLocalUserId()));
         if (!result.Success)
         {
@@ -168,25 +140,6 @@ public class SystemsController : ControllerBase
         });
     }
 
-    private IActionResult SparePartResponse(SparePartCommandResult result)
-    {
-        if (!result.Success)
-        {
-            if (result.ErrorCode == "NOT_FOUND")
-                return NotFound(new { status = "error", message = result.Message, error_code = result.ErrorCode });
-            if (result.ErrorCode == "SPARE_REQUIREMENT_DUPLICATE")
-                return Conflict(new { status = "error", message = result.Message, error_code = result.ErrorCode });
-            return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
-        }
-
-        return Ok(new
-        {
-            status = "success",
-            data = new { id = result.Id, systemInfoId = result.SystemInfoId, itemName = result.ItemName, minQty = result.MinQty },
-        });
-    }
-
-    public sealed record CreateSparePartRequest(Guid? ComponentId, Guid? ConsumableId, int MinQty, string? Note);
-    public sealed record UpdateSparePartRequest(int? MinQty, string? Note, bool? IsActive);
-    public sealed record SparePartMovementRequest(int Quantity, string? Note);
+    public sealed record SparePartMovementRequest(
+        Guid? ComponentId, Guid? ConsumableId, int Quantity, string? Note);
 }

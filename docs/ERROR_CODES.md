@@ -443,6 +443,21 @@ Import response thành công là FLAT: `status/created/failed/rows/errors` — k
 | `TARGET_REQUIRED` / `TARGET_NOT_FOUND` | 400 | checkout | Target rules |
 | `CONSUMABLE_COMPANY_MISMATCH` | 400 | checkout | Target khác company với vật tư |
 
+### Systems — spare parts (`/api/v1/systems/{id}/spare-parts`)
+
+| Code | HTTP | Endpoint | Điều kiện |
+|---|---|---|---|
+| `INVALID_SPARE_ITEM` | 400 | issue, return | Không chọn đúng một `componentId`/`consumableId` |
+| `INVALID_QUANTITY` | 400 | issue, return | Quantity ≤ 0 |
+| `SPARE_PART_INSUFFICIENT_STOCK` | **409** | issue | Cấp vượt tồn kho chung |
+| `SPARE_PART_RETURN_EXCEEDS_ISSUED` | 400 | return | Nhận lại vượt số đã cấp ròng cho hệ thống |
+| `SPARE_PART_SERIAL_UNSUPPORTED` | 400 | issue, return | Linh kiện quản lý theo serial (chưa hỗ trợ) |
+| `SPARE_PART_ITEM_MISMATCH` | 400 | issue, return | Item khác company với hệ thống |
+| `NOT_FOUND` | 404 | issue, return | System/item không tồn tại hoặc ngoài company scope |
+| `COMPONENT_HAS_SPARE_MOVEMENTS` | 400 | DELETE component | Linh kiện đã có lịch sử cấp/nhận |
+| `CONSUMABLE_HAS_SPARE_MOVEMENTS` | 400 | DELETE consumable | Vật tư đã có lịch sử cấp/nhận |
+| `SYSTEM_IN_USE_BY_SPARE_MOVEMENTS` | 400 | DELETE system | Hệ thống đã có lịch sử cấp/nhận |
+
 ### Accessories (`/api/v1/accessories`)
 
 | Code | HTTP | Endpoint | Điều kiện |
@@ -524,6 +539,9 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `CONFIRMED_CONSUMABLE_LOCKED` — Consumables (400)
 - `CONSUMABLE_COMPANY_MISMATCH` — Consumables checkout (400)
 - `CONSUMABLE_HAS_CHECKOUTS` — Consumables (400)
+- `CONSUMABLE_HAS_SPARE_MOVEMENTS` — Consumables DELETE (400)
+- `COMPONENT_HAS_SPARE_MOVEMENTS` — Components DELETE (400)
+- `SYSTEM_IN_USE_BY_SPARE_MOVEMENTS` — Systems DELETE (400)
 - `CONSUMABLE_NOT_CONFIRMED` — Consumables checkout (400)
 - `CORRECTION_NO_CHANGES` — Assets đính chính lý lịch lắp đặt (400)
 - `CORRECTION_REASON_REQUIRED` — Assets đính chính lý lịch lắp đặt (400, validator)
@@ -557,7 +575,12 @@ sử." / "Not found.") hoặc rỗng data theo scope. `GET /reports/checkout-his
 - `INVALID_ITEM_POSITION` — MaintenanceCampaigns (400)
 - `INVALID_ORDER` — MaintenanceTemplates (400)
 - `INVALID_POSITION` — MaintenanceTemplates (400)
-- `INVALID_QUANTITY` — Components, Consumables (400)
+- `INVALID_QUANTITY` — Components, Consumables, Systems spare parts (400)
+- `INVALID_SPARE_ITEM` — Systems spare parts (400)
+- `SPARE_PART_INSUFFICIENT_STOCK` — Systems spare parts (**409**)
+- `SPARE_PART_ITEM_MISMATCH` — Systems spare parts (400)
+- `SPARE_PART_RETURN_EXCEEDS_ISSUED` — Systems spare parts (400)
+- `SPARE_PART_SERIAL_UNSUPPORTED` — Systems spare parts (400)
 - `INVALID_RETURN_QTY` — Accessories (400)
 - `INVALID_STANDARD_PARAM` — MaintenanceCampaigns (400)
 - `INVALID_CREDENTIALS` — Auth login (400), Auth password (400), Auth passkeys/login (**401**)

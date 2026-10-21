@@ -38,12 +38,6 @@ public class DeleteConsumableCommandHandler : IRequestHandler<DeleteConsumableCo
         if (userCompanyId.HasValue && c.CompanyId.HasValue && c.CompanyId.Value != userCompanyId.Value)
             return new ConsumableResult(false, "Consumable not found.", "NOT_FOUND");
 
-        if (await _context.SystemSparePartRequirements.AsNoTracking()
-                .AnyAsync(r => r.ConsumableId == request.Id, cancellationToken))
-            return new ConsumableResult(false,
-                "Vật tư đang được dùng trong định mức vật tư dự phòng của hệ thống — không thể xóa.",
-                "SPARE_PART_REQUIREMENT_EXISTS");
-
         if (await _context.SystemSparePartMovements.AsNoTracking()
                 .AnyAsync(m => m.ConsumableId == request.Id, cancellationToken))
             return new ConsumableResult(false,

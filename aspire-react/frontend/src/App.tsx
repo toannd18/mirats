@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { ConfigProvider, App as AntApp, Spin, Layout, Menu, Button, Drawer, Grid, Badge, Avatar, Dropdown, Breadcrumb, Space } from 'antd';
+import { ConfigProvider, App as AntApp, Spin, Layout, Menu, Button, Drawer, Grid, Badge, Avatar, Dropdown, Breadcrumb, Space, Tooltip } from 'antd';
 import viVN from 'antd/locale/vi_VN';
 import type { MenuProps } from 'antd';
 import {
@@ -56,6 +56,7 @@ const SystemConfigPage = lazy(() => import('./features/admin/pages/SystemConfigP
 const SystemHistoryPage = lazy(() => import('./features/system/pages/SystemHistoryPage'));
 const SystemDetailPage = lazy(() => import('./features/system/pages/SystemDetailPage'));
 const ImportPage = lazy(() => import('./features/import/pages/ImportPage'));
+const LowStockPage = lazy(() => import('./features/inventory/pages/LowStockPage'));
 const MaintenanceTemplateListPage = lazy(() => import('./features/maintenance/pages/MaintenanceTemplateListPage'));
 const MaintenanceTemplateBuilderPage = lazy(() => import('./features/maintenance/pages/MaintenanceTemplateBuilderPage'));
 const MaintenanceCampaignListPage = lazy(() => import('./features/maintenance/pages/MaintenanceCampaignListPage'));
@@ -89,6 +90,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/maintenance/templates': 'Mẫu bảo dưỡng',
     '/maintenance/campaigns': 'Đợt bảo dưỡng',
     '/system-history': 'Lịch sử hệ thống', '/reports': 'Báo cáo', '/users': 'Người dùng',
+    '/inventory/low-stock': 'Dưới mức tồn',
     '/groups': 'Nhóm', '/permissions': 'Phân quyền',
     '/admin/categories': 'Danh mục', '/admin/manufacturers': 'Nhà SX', '/admin/suppliers': 'Nhà cung cấp',
     '/admin/asset-models': 'Model tài sản', '/admin/locations': 'Địa điểm',
@@ -98,6 +100,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   };
   const parentCrumbMap: Record<string, string> = {
     '/consumables': 'Vật tư', '/components': 'Vật tư', '/accessories': 'Vật tư',
+    '/inventory/low-stock': 'Vật tư',
     '/admin/categories': 'Quản trị', '/admin/manufacturers': 'Quản trị', '/admin/suppliers': 'Quản trị',
     '/admin/asset-models': 'Quản trị', '/admin/locations': 'Quản trị',
     '/admin/depreciations': 'Quản trị', '/admin/companies': 'Quản trị', '/admin/departments': 'Quản trị',
@@ -250,9 +253,20 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         //   - CSS override dùng class ổn định (KHÔNG phải css-dev-only) trong index.css:
         //     .ant-menu-dark .ant-menu-submenu-title .ant-badge { color: inherit; }
         //     → Badge root kế thừa màu sáng của submenu-title, span con sáng theo.
-        <Badge count={lowStock} size="small" overflowCount={999} offset={[8, 0]}>
-          <span style={{ color: 'inherit' }}>Vật tư</span>
-        </Badge>
+        <Tooltip title={`${lowStock} mục dưới mức tồn tối thiểu`}>
+          <span
+            style={{ color: 'inherit', cursor: lowStock > 0 ? 'pointer' : 'default' }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (lowStock > 0) navigate('/inventory/low-stock');
+            }}
+          >
+            <Badge count={lowStock} size="small" overflowCount={999} offset={[8, 0]}>
+              <span style={{ color: 'inherit' }}>Vật tư</span>
+            </Badge>
+          </span>
+        </Tooltip>
       ),
       children: inventoryChildren,
     });
@@ -282,7 +296,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     children: g.items,
   }));
 
-  const allLeafKeys = Object.keys(permMap).concat('/dashboard', '/system-history');
+  const allLeafKeys = Object.keys(permMap).concat('/dashboard', '/system-history', '/inventory/low-stock');
   const currentPath = location.pathname;
   const selectedKey = allLeafKeys
     .filter(k => currentPath === k || currentPath.startsWith(k + '/') || currentPath.startsWith(k))
@@ -291,6 +305,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   // Auto-expand the submenu group that contains the active item (so the active child is visible).
   const submenuByKey: Record<string, string> = {
     '/consumables': 'inventory', '/components': 'inventory', '/accessories': 'inventory',
+    '/inventory/low-stock': 'inventory',
     '/admin/categories': 'admin', '/admin/manufacturers': 'admin', '/admin/suppliers': 'admin',
     '/admin/asset-models': 'admin', '/admin/locations': 'admin',
     '/admin/depreciations': 'admin', '/admin/companies': 'admin', '/admin/departments': 'admin',
@@ -580,6 +595,9 @@ function App() {
             } />
             <Route path="/components/:id" element={
               <ProtectedRoute><AppLayout><ComponentDetailPage /></AppLayout></ProtectedRoute>
+            } />
+            <Route path="/inventory/low-stock" element={
+              <ProtectedRoute><AppLayout><LowStockPage /></AppLayout></ProtectedRoute>
             } />
             <Route path="/accessories" element={
               <ProtectedRoute><AppLayout><AccessoryListPage /></AppLayout></ProtectedRoute>

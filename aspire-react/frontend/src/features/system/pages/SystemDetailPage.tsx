@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  App, Button, Card, Descriptions, Divider, Empty, Form, Input, InputNumber, Modal, Segmented, Select, Space, Spin, Table, Tabs, Tag, Typography,
+  App, Button, Card, Descriptions, Empty, Form, Input, InputNumber, Modal, Segmented, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
 import {
-  ArrowLeftOutlined, CarOutlined, ClusterOutlined, DeleteOutlined, EditOutlined, EllipsisOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined, PlusOutlined, RollbackOutlined, ToolOutlined,
+  ArrowLeftOutlined, CarOutlined, ClusterOutlined, EllipsisOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined, RollbackOutlined, ToolOutlined,
 } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -19,7 +19,7 @@ import CampaignHistoryTable from '../../maintenance/components/CampaignHistoryTa
 import LicenseUsageTable from '../../../shared/components/LicenseUsageTable';
 import { licensesApi } from '../../license/services/licenses.service';
 import { ASSET_STATUS_COLORS, ASSET_STATUS_LABELS, type AssetStatus } from '../../asset/types/asset';
-import { formatDate } from '../../../utils/format';
+import { formatDate, formatDateTime } from '../../../utils/format';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { EllipsisText, NowrapText } from '../../../shared/components/list/ListText';
 import ListRowActions from '../../../shared/components/list/ListRowActions';
@@ -34,29 +34,35 @@ const ASSIGNMENT_TARGET_LABELS: Record<string, string> = {
 };
 
 interface SystemSparePartDto {
-  id: string;
   itemId: string;
   type: 'Component' | 'Consumable';
   name: string;
   code: string | null;
-  remaining: number;
   issuedToSystem: number;
-  minQty: number;
-  isSufficient: boolean;
+  remaining: number;
   isSerial: boolean;
-  note: string | null;
+  lastIssuedAt: string | null;
+}
+
+interface SpareItemOption {
+  label: string;
+  value: string;
+  type: 'Component' | 'Consumable';
+  name: string;
+  remaining: number;
+  isSerial: boolean;
 }
 
 export default function SystemDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const isMobile = useIsMobile();
-  const canEdit = usePermission('systems.edit');
   const canCheckoutComponent = usePermission('components.checkout');
   const canCheckoutConsumable = usePermission('consumables.checkout');
-  const [spareForm] = Form.useForm();
   const [movementForm] = Form.useForm();
+  const movementType = Form.useWatch('type', movementForm) as 'Component' | 'Consumable' | undefined;
+  const movementItemId = Form.useWatch('itemId', movementForm) as string | undefined;
 
   const [system, setSystem] = useState<SystemInfoDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,15 +73,12 @@ export default function SystemDetailPage() {
   const [maintenanceCount, setMaintenanceCount] = useState(0);
   const [licenseCount, setLicenseCount] = useState(0);
   const [spareParts, setSpareParts] = useState<SystemSparePartDto[]>([]);
-  const [spareModalOpen, setSpareModalOpen] = useState(false);
-  const [editingSpare, setEditingSpare] = useState<SystemSparePartDto | null>(null);
-  const [spareType, setSpareType] = useState<'Component' | 'Consumable'>('Component');
-  const [spareOptions, setSpareOptions] = useState<{ label: string; value: string; type: 'Component' | 'Consumable' }[]>([]);
-  const [spareSaving, setSpareSaving] = useState(false);
   const [movementModalOpen, setMovementModalOpen] = useState(false);
   const [movementRecord, setMovementRecord] = useState<SystemSparePartDto | null>(null);
   const [movementDirection, setMovementDirection] = useState<'issue' | 'return'>('issue');
   const [movementSaving, setMovementSaving] = useState(false);
+  const [movementOptions, setMovementOptions] = useState<SpareItemOption[]>([]);
+  const [movementOptionsLoading, setMovementOptionsLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -142,27 +145,21 @@ export default function SystemDetailPage() {
         : <Text type="secondary">—</Text>,
     },
     {
-      title: 'Còn lại', dataIndex: 'remaining', key: 'remaining', width: 100, align: 'right' as const,
-      render: (_: unknown, record: SystemSparePartDto) => <Text strong>{record.remaining}</Text>,
+      title: 'Đã cấp ròng', dataIndex: 'issuedToSystem', key: 'issuedToSystem', width: 130, align: 'right' as const,
+      render: (_: unknown, record: SystemSparePartDto) => <Text strong>{record.issuedToSystem}</Text>,
     },
     {
-      title: 'Đã cấp cho hệ thống', dataIndex: 'issuedToSystem', key: 'issuedToSystem', width: 150, align: 'right' as const,
-      render: (_: unknown, record: SystemSparePartDto) => <Text>{record.issuedToSystem}</Text>,
+      title: 'Tồn kho hiện tại', dataIndex: 'remaining', key: 'remaining', width: 140, align: 'right' as const,
+      render: (_: unknown, record: SystemSparePartDto) => <Text>{record.remaining}</Text>,
     },
     {
-      title: 'Định mức', dataIndex: 'minQty', key: 'minQty', width: 100, align: 'right' as const,
-      render: (_: unknown, record: SystemSparePartDto) => <Text>{record.minQty}</Text>,
+      title: 'Lần cấp gần nhất', dataIndex: 'lastIssuedAt', key: 'lastIssuedAt', width: 170,
+      render: (_: unknown, record: SystemSparePartDto) => record.lastIssuedAt
+        ? formatDateTime(record.lastIssuedAt)
+        : <Text type="secondary">—</Text>,
     },
-    {
-      title: 'Trạng thái', dataIndex: 'isSufficient', key: 'isSufficient', width: 130,
-      render: (_: unknown, record: SystemSparePartDto) => (
-        <Tag color={record.isSufficient ? 'green' : 'red'}>
-          {record.isSufficient ? 'Đủ' : 'Thiếu'}
-        </Tag>
-      ),
-    },
-    ...(canEdit || canCheckoutComponent || canCheckoutConsumable ? [{
-      title: 'Thao tác', key: 'actions', width: 150, fixed: 'right' as const,
+    ...(canCheckoutComponent || canCheckoutConsumable ? [{
+      title: 'Thao tác', key: 'actions', width: 160, fixed: 'right' as const,
       render: (_: unknown, record: SystemSparePartDto) => renderSpareActions(record),
     }] : []),
   ];
@@ -178,107 +175,62 @@ export default function SystemDetailPage() {
   };
 
   const loadSpareOptions = async () => {
+    setMovementOptionsLoading(true);
     try {
       const [components, consumables] = await Promise.all([
         apiClient.get('/components', { params: { page: 1, pageSize: 500 } }),
         apiClient.get('/consumables', { params: { page: 1, pageSize: 500 } }),
       ]);
-      setSpareOptions([
-        ...((components.data?.data ?? []) as Array<{ id: string; name: string }>)
-          .map((x) => ({ label: x.name, value: x.id, type: 'Component' as const })),
-        ...((consumables.data?.data ?? []) as Array<{ id: string; name: string }>)
-          .map((x) => ({ label: x.name, value: x.id, type: 'Consumable' as const })),
-      ]);
+      const componentOptions = ((components.data?.data ?? []) as Array<{
+        id: string; name: string; remaining: number; trackingType: string;
+      }>)
+        .filter((x) => x.trackingType !== 'Serial' && x.remaining > 0)
+        .map((x) => ({
+          label: `${x.name} — tồn ${x.remaining}`, value: x.id, type: 'Component' as const,
+          name: x.name, remaining: x.remaining, isSerial: false,
+        }));
+      const consumableOptions = ((consumables.data?.data ?? []) as Array<{
+        id: string; name: string; remaining: number;
+      }>)
+        .filter((x) => x.remaining > 0)
+        .map((x) => ({
+          label: `${x.name} — tồn ${x.remaining}`, value: x.id, type: 'Consumable' as const,
+          name: x.name, remaining: x.remaining, isSerial: false,
+        }));
+      setMovementOptions([...componentOptions, ...consumableOptions]);
     } catch {
-      setSpareOptions([]);
-    }
-  };
-
-  const openSpareCreate = () => {
-    setEditingSpare(null);
-    setSpareType('Component');
-    spareForm.resetFields();
-    spareForm.setFieldsValue({ type: 'Component' });
-    void loadSpareOptions();
-    setSpareModalOpen(true);
-  };
-
-  const openSpareEdit = (record: SystemSparePartDto) => {
-    setEditingSpare(record);
-    setSpareType(record.type);
-    void loadSpareOptions();
-    spareForm.setFieldsValue({ type: record.type, minQty: record.minQty, note: record.note ?? '' });
-    setSpareModalOpen(true);
-  };
-
-  const saveSpare = async () => {
-    const values = await spareForm.validateFields();
-    setSpareSaving(true);
-    try {
-      if (editingSpare) {
-        await apiClient.put(`/systems/${id}/spare-parts/${editingSpare.id}`, {
-          minQty: values.minQty,
-          note: values.note ?? null,
-        });
-        void message.success('Đã cập nhật định mức');
-      } else {
-        await apiClient.post(`/systems/${id}/spare-parts`, {
-          componentId: values.type === 'Component' ? values.itemId : null,
-          consumableId: values.type === 'Consumable' ? values.itemId : null,
-          minQty: values.minQty,
-          note: values.note ?? null,
-        });
-        void message.success('Đã thêm định mức');
-      }
-      setSpareModalOpen(false);
-      await reloadSpareParts();
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      void message.error(e?.response?.data?.message ?? 'Không thể lưu định mức');
+      setMovementOptions([]);
     } finally {
-      setSpareSaving(false);
+      setMovementOptionsLoading(false);
     }
   };
 
-  const confirmDeleteSpare = (record: SystemSparePartDto) => {
-    modal.confirm({
-      title: 'Xóa định mức vật tư dự phòng?',
-      content: `${record.name} — định mức ${record.minQty}.`,
-      okText: 'Xóa',
-      cancelText: 'Hủy',
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        try {
-          await apiClient.delete(`/systems/${id}/spare-parts/${record.id}`);
-          void message.success('Đã xóa định mức');
-          await reloadSpareParts();
-        } catch {
-          void message.error('Không thể xóa định mức');
-          throw new Error('delete failed');
-        }
-      },
-    });
-  };
-
-  const openMovement = (record: SystemSparePartDto, direction: 'issue' | 'return') => {
-    if (record.isSerial) return;
+  const openMovement = (record: SystemSparePartDto | null, direction: 'issue' | 'return') => {
+    if (record?.isSerial) return;
     setMovementRecord(record);
     setMovementDirection(direction);
     movementForm.resetFields();
-    movementForm.setFieldsValue({ quantity: 1 });
+    if (record) {
+      movementForm.setFieldsValue({
+        type: record.type, itemId: record.itemId, quantity: 1, note: '',
+      });
+    } else {
+      movementForm.setFieldsValue({ type: 'Component', quantity: 1 });
+      void loadSpareOptions();
+    }
     setMovementModalOpen(true);
   };
 
   const saveMovement = async () => {
-    if (!movementRecord) return;
     const values = await movementForm.validateFields();
     setMovementSaving(true);
     try {
-      const itemPath = movementRecord.type === 'Component' ? 'component' : 'consumable';
-      await apiClient.post(
-        `/systems/${id}/spare-parts/${movementRecord.id}/${movementDirection}/${itemPath}`,
-        { quantity: values.quantity, note: values.note ?? null },
-      );
+      await apiClient.post(`/systems/${id}/spare-parts/${movementDirection}`, {
+        componentId: values.type === 'Component' ? values.itemId : null,
+        consumableId: values.type === 'Consumable' ? values.itemId : null,
+        quantity: values.quantity,
+        note: values.note ?? null,
+      });
       void message.success(movementDirection === 'issue' ? 'Đã cấp vật tư cho hệ thống' : 'Đã nhận lại vật tư');
       setMovementModalOpen(false);
       await reloadSpareParts();
@@ -294,36 +246,32 @@ export default function SystemDetailPage() {
   const canMoveSpare = (record: SystemSparePartDto) => !record.isSerial
     && (record.type === 'Component' ? canCheckoutComponent : canCheckoutConsumable);
 
-  const movementMax = movementRecord
-    ? (movementDirection === 'issue' ? movementRecord.remaining : movementRecord.issuedToSystem)
-    : 0;
+  const selectedMovementOption = movementOptions.find(
+    (o) => o.value === movementItemId && o.type === movementType,
+  );
+  const movementMax = movementDirection === 'issue'
+    ? (movementRecord?.remaining ?? selectedMovementOption?.remaining ?? 0)
+    : (movementRecord?.issuedToSystem ?? 0);
+  const selectedMovementName = movementRecord?.name ?? selectedMovementOption?.name ?? '';
+  const selectedMovementType = movementRecord?.type ?? selectedMovementOption?.type ?? movementType;
+  const selectedMovementRemaining = movementRecord?.remaining ?? selectedMovementOption?.remaining ?? 0;
+  const selectedMovementIssued = movementRecord?.issuedToSystem
+    ?? spareParts.find((p) => p.itemId === movementItemId)?.issuedToSystem ?? 0;
 
   const renderSpareActions = (record: SystemSparePartDto) => {
-    const canMove = canMoveSpare(record);
-    const menuItems = [
-      ...(canMove ? [{
-        key: 'return', label: 'Nhận lại', icon: <RollbackOutlined />,
-        disabled: record.issuedToSystem <= 0,
-        onClick: () => openMovement(record, 'return'),
-      }] : []),
-      ...(canEdit ? [{
-        key: 'edit', label: 'Sửa định mức', icon: <EditOutlined />,
-        onClick: () => openSpareEdit(record),
-      }] : []),
-      ...(canEdit ? [{
-        key: 'delete', label: 'Xóa', icon: <DeleteOutlined />, danger: true,
-        onClick: () => confirmDeleteSpare(record),
-      }] : []),
-    ];
-
+    if (!canMoveSpare(record)) return null;
     return (
       <ListRowActions
-        primary={canMove ? {
-          key: 'issue', label: 'Cấp', icon: <GiftOutlined />,
+        primary={{
+          key: 'issue', label: 'Cấp thêm', icon: <GiftOutlined />,
           disabled: record.remaining <= 0,
           onClick: () => openMovement(record, 'issue'),
-        } : null}
-        menuItems={menuItems}
+        }}
+        menuItems={[{
+          key: 'return', label: 'Nhận lại', icon: <RollbackOutlined />,
+          disabled: record.issuedToSystem <= 0,
+          onClick: () => openMovement(record, 'return'),
+        }]}
       />
     );
   };
@@ -341,38 +289,45 @@ export default function SystemDetailPage() {
     {
       title: 'Tên tài sản',
       dataIndex: 'name',
-      width: 240,
+      width: 190,
       ellipsis: true,
       render: (_, record) => (
-        <Link to={`/assets/${record.id}`}>{record.name} <Text type="secondary">({record.assetTag})</Text></Link>
+        <Tooltip title={record.name} placement="topLeft">
+          <Link
+            to={`/assets/${record.id}`}
+            style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {record.name}
+          </Link>
+        </Tooltip>
       ),
     },
-    { title: 'Mã tài sản', dataIndex: 'assetTag', width: 140, render: (_, record) => <Text code>{record.assetTag}</Text> },
+    { title: 'Mã tài sản', dataIndex: 'assetTag', width: 130, render: (_, record) => <Text code>{record.assetTag}</Text> },
     {
       title: 'Vị trí trong hệ thống',
       dataIndex: ['systemPosition', 'name'],
-      width: 220,
-      render: (_, record) => record.systemPosition
-        ? `${record.systemPosition.name}${record.systemPosition.code ? ` (${record.systemPosition.code})` : ''}`
-        : '-',
+      width: 160,
+      render: (_, record) => <EllipsisText value={record.systemPosition?.name} />,
     },
     {
       title: 'Vị trí lưu kho',
       dataIndex: ['location', 'name'],
-      width: 160,
-      render: (_, record) => record.location?.name ?? '-',
+      width: 120,
+      render: (_, record) => <EllipsisText value={record.location?.name} />,
     },
     {
-      title: 'User đang gán',
+      title: 'Đang giữ',
       key: 'assignedTo',
-      width: 200,
+      width: 170,
       render: (_, record) => {
         if (!record.assignedTo?.name) return '-';
         const label = ASSIGNMENT_TARGET_LABELS[record.assignedTo.type] ?? record.assignedTo.type;
         return (
-          <Space size={4} wrap>
+          <Space size={4} wrap={false}>
             <Tag color="blue">{label}</Tag>
-            <Text>{record.assignedTo.name}</Text>
+            <span style={{ minWidth: 0, flex: 1 }}>
+              <EllipsisText value={record.assignedTo.name} />
+            </span>
           </Space>
         );
       },
@@ -380,13 +335,13 @@ export default function SystemDetailPage() {
     {
       title: 'Phòng ban',
       dataIndex: ['department', 'name'],
-      width: 140,
-      render: (_, record) => record.department?.name ?? '-',
+      width: 110,
+      render: (_, record) => <EllipsisText value={record.department?.name} />,
     },
     {
       title: 'Trạng thái',
       dataIndex: 'status',
-      width: 130,
+      width: 110,
       render: (_, record) => {
         const s = record.status as AssetStatus;
         return <Tag color={ASSET_STATUS_COLORS[s]}>{ASSET_STATUS_LABELS[s] ?? record.status}</Tag>;
@@ -471,7 +426,14 @@ export default function SystemDetailPage() {
           <Descriptions.Item label="Mô tả" span={{ xs: 1, sm: 2, md: 3 }}>{system.description || '-'}</Descriptions.Item>
         </Descriptions>
 
-        <Divider titlePlacement="left" plain style={{ whiteSpace: 'normal' }}>Vị trí hệ thống — bấm vào 1 dòng để lọc các bảng bên dưới</Divider>
+        <div style={{ margin: '8px 0 12px' }}>
+          <Text strong style={{ fontSize: 15 }}>Vị trí</Text>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Bấm vào một dòng để lọc các bảng bên dưới.
+            </Text>
+          </div>
+        </div>
         <Table
           rowKey="id"
           size="small"
@@ -652,70 +614,65 @@ export default function SystemDetailPage() {
               key: 'spare-parts',
               label: (
                 <Space size={4}>
-                  <ToolOutlined /> Vật tư dự phòng
+                  <ToolOutlined /> Vật tư đã cấp
                   <Tag color="cyan">{spareParts.length}</Tag>
                 </Space>
               ),
               children: (
                 <>
-                  {canEdit && (
+                  {(canCheckoutComponent || canCheckoutConsumable) && (
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-                      <Button type="primary" icon={<PlusOutlined />} onClick={openSpareCreate}>
-                        Thêm định mức
+                      <Button type="primary" icon={<GiftOutlined />} onClick={() => openMovement(null, 'issue')}>
+                        Cấp vật tư
                       </Button>
                     </div>
                   )}
                   {isMobile ? (
-                spareParts.length === 0 ? (
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description="Hệ thống chưa có định mức vật tư dự phòng. Bấm &quot;Thêm định mức&quot; để tạo."
-                  />
-                ) : (
-                  <Space orientation="vertical" size={12} style={{ width: '100%' }}>
-                    {spareParts.map((part) => (
-                      <Card key={part.id} size="small" style={{ borderRadius: 10 }}>
-                        <Space size={[4, 6]} wrap style={{ marginBottom: 8 }}>
-                          <Tag color={part.type === 'Component' ? 'blue' : 'cyan'}>
-                            {part.type === 'Component' ? 'Linh kiện' : 'Vật tư'}
-                          </Tag>
-                          <Tag color={part.isSufficient ? 'green' : 'red'}>
-                            {part.isSufficient ? 'Đủ' : 'Thiếu'}
-                          </Tag>
-                        </Space>
-                        <div style={{ fontWeight: 600, marginBottom: 4 }}>{part.name}</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontSize: 12 }}>
-                          <span><Text type="secondary">Mã:</Text> {part.code ? <NowrapText value={part.code} code /> : <Text type="secondary">—</Text>}</span>
-                          <span><Text type="secondary">Còn lại:</Text> <Text strong>{part.remaining}</Text></span>
-                          <span><Text type="secondary">Đã cấp:</Text> <Text>{part.issuedToSystem}</Text></span>
-                          <span><Text type="secondary">Định mức:</Text> <Text>{part.minQty}</Text></span>
-                        </div>
-                        {(canEdit || canCheckoutComponent || canCheckoutConsumable) && (
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-                            {renderSpareActions(part)}
-                          </div>
-                        )}
-                      </Card>
-                    ))}
-                  </Space>
-                )
-              ) : (
-                <Table<SystemSparePartDto>
-                  rowKey="id"
-                  size="small"
-                  columns={spareColumns}
-                  dataSource={spareParts}
-                  pagination={false}
-                  scroll={{ x: 'max-content' }}
-                  locale={{
-                    emptyText: (
+                    spareParts.length === 0 ? (
                       <Empty
                         image={Empty.PRESENTED_IMAGE_SIMPLE}
-                        description="Hệ thống chưa có định mức vật tư dự phòng. Bấm &quot;Thêm định mức&quot; để tạo."
+                        description="Hệ thống chưa nhận vật tư nào. Bấm &quot;Cấp vật tư&quot; để bắt đầu."
                       />
-                    ),
-                  }}
-                />
+                    ) : (
+                      <Space orientation="vertical" size={12} style={{ width: '100%' }}>
+                        {spareParts.map((part) => (
+                          <Card key={part.itemId} size="small" style={{ borderRadius: 10 }}>
+                            <Space size={[4, 6]} wrap style={{ marginBottom: 8 }}>
+                              <Tag color={part.type === 'Component' ? 'blue' : 'cyan'}>
+                                {part.type === 'Component' ? 'Linh kiện' : 'Vật tư'}
+                              </Tag>
+                            </Space>
+                            <div style={{ fontWeight: 600, marginBottom: 4 }}>{part.name}</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontSize: 12 }}>
+                              <span><Text type="secondary">Mã:</Text> {part.code ? <NowrapText value={part.code} code /> : <Text type="secondary">—</Text>}</span>
+                              <span><Text type="secondary">Đã cấp ròng:</Text> <Text strong>{part.issuedToSystem}</Text></span>
+                              <span><Text type="secondary">Tồn kho:</Text> <Text>{part.remaining}</Text></span>
+                              <span><Text type="secondary">Lần cấp gần nhất:</Text> <Text>{part.lastIssuedAt ? formatDateTime(part.lastIssuedAt) : '—'}</Text></span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+                              {renderSpareActions(part)}
+                            </div>
+                          </Card>
+                        ))}
+                      </Space>
+                    )
+                  ) : (
+                    <Table<SystemSparePartDto>
+                      rowKey="itemId"
+                      size="small"
+                      columns={spareColumns}
+                      dataSource={spareParts}
+                      pagination={false}
+                      scroll={{ x: 'max-content' }}
+                      locale={{
+                        emptyText: (
+                          <Empty
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                            description="Hệ thống chưa nhận vật tư nào. Bấm &quot;Cấp vật tư&quot; để bắt đầu."
+                          />
+                        ),
+                      }}
+                    />
                   )}
                 </>
               ),
@@ -738,8 +695,8 @@ export default function SystemDetailPage() {
                     params={tableParams}
                     extraColumns={[
                       {
-                        title: 'Tài sản', dataIndex: 'itemName', key: 'itemName', width: 220, ellipsis: true,
-                        render: (_, record) => record.itemName || '-',
+                        title: 'Tài sản', dataIndex: 'itemName', key: 'itemName', width: 180,
+                        render: (_, record) => <EllipsisText value={record.itemName} />,
                       },
                     ]}
                     request={async (params) => {
@@ -801,70 +758,8 @@ export default function SystemDetailPage() {
       </Card>
 
       <Modal
-        open={spareModalOpen}
-        title={editingSpare ? 'Sửa định mức vật tư dự phòng' : 'Thêm định mức vật tư dự phòng'}
-        onOk={() => void saveSpare()}
-        confirmLoading={spareSaving}
-        onCancel={() => setSpareModalOpen(false)}
-        okText="Lưu"
-        cancelText="Hủy"
-        destroyOnHidden
-        forceRender
-        width={isMobile ? '95%' : 520}
-      >
-        <Form form={spareForm} layout="vertical" initialValues={{ type: 'Component' }}>
-          <Form.Item label="Loại" name="type" rules={[{ required: true }]}>
-            <Segmented
-              disabled={!!editingSpare}
-              options={[
-                { label: 'Linh kiện', value: 'Component' },
-                { label: 'Vật tư', value: 'Consumable' },
-              ]}
-              onChange={(value) => {
-                setSpareType(value as 'Component' | 'Consumable');
-                spareForm.setFieldValue('itemId', undefined);
-              }}
-            />
-          </Form.Item>
-          <Form.Item
-            label={spareType === 'Component' ? 'Linh kiện' : 'Vật tư'}
-            name="itemId"
-            rules={[{ required: true, message: 'Chọn linh kiện/vật tư' }]}
-          >
-            <Select
-              showSearch
-              disabled={!!editingSpare}
-              placeholder="Tìm và chọn..."
-              optionFilterProp="label"
-              options={spareOptions.filter((o) =>
-                o.type === spareType
-                && (!spareParts.some((p) => p.itemId === o.value)
-                  || (editingSpare != null && editingSpare.itemId === o.value)))}
-            />
-          </Form.Item>
-          <Form.Item
-            label="Định mức"
-            name="minQty"
-            rules={[
-              { required: true, message: 'Nhập định mức' },
-              {
-                type: 'number',
-                min: editingSpare ? 0 : 1,
-                message: editingSpare ? 'Định mức phải >= 0' : 'Định mức phải >= 1',
-              },
-            ]}
-          >
-            <InputNumber min={editingSpare ? 0 : 1} precision={0} style={{ width: '100%' }} placeholder="Số lượng tối thiểu" />
-          </Form.Item>
-          <Form.Item label="Ghi chú" name="note">
-            <Input.TextArea rows={3} maxLength={1000} showCount />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
         open={movementModalOpen}
-        title={movementDirection === 'issue' ? 'Cấp vật tư dự phòng' : 'Nhận lại vật tư dự phòng'}
+        title={movementDirection === 'issue' ? 'Cấp vật tư' : 'Nhận lại vật tư'}
         onOk={() => void saveMovement()}
         confirmLoading={movementSaving}
         onCancel={() => setMovementModalOpen(false)}
@@ -872,40 +767,78 @@ export default function SystemDetailPage() {
         cancelText="Hủy"
         destroyOnHidden
         forceRender
-        width={isMobile ? '95%' : 480}
+        width={isMobile ? '95%' : 520}
       >
-        {movementRecord && (
-          <Form form={movementForm} layout="vertical">
+        <Form form={movementForm} layout="vertical">
+          {movementDirection === 'issue' && (
+            <>
+              <Form.Item label="Loại" name="type" rules={[{ required: true }]}>
+                <Segmented
+                  disabled={!!movementRecord}
+                  options={[
+                    { label: 'Linh kiện', value: 'Component' },
+                    { label: 'Vật tư', value: 'Consumable' },
+                  ]}
+                  onChange={() => movementForm.setFieldValue('itemId', undefined)}
+                />
+              </Form.Item>
+              <Form.Item
+                label="Mục"
+                name="itemId"
+                rules={[{ required: true, message: 'Chọn linh kiện/vật tư' }]}
+              >
+                <Select
+                  showSearch
+                  loading={movementOptionsLoading}
+                  disabled={!!movementRecord}
+                  placeholder="Tìm và chọn mục còn tồn kho..."
+                  optionFilterProp="label"
+                  options={movementOptions.filter((o) => o.type === movementType)}
+                />
+              </Form.Item>
+            </>
+          )}
+
+          {(movementRecord || selectedMovementOption) && (
             <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="Mục">{movementRecord.name}</Descriptions.Item>
+              <Descriptions.Item label="Mục">{selectedMovementName}</Descriptions.Item>
               <Descriptions.Item label="Loại">
-                {movementRecord.type === 'Component' ? 'Linh kiện' : 'Vật tư'}
+                {selectedMovementType === 'Component' ? 'Linh kiện' : 'Vật tư'}
               </Descriptions.Item>
-              <Descriptions.Item label="Tồn còn lại">
-                <Text strong>{movementRecord.remaining}</Text>
+              <Descriptions.Item label="Tồn kho hiện tại">
+                <Text strong>{selectedMovementRemaining}</Text>
               </Descriptions.Item>
               <Descriptions.Item label="Đã cấp cho hệ thống">
-                <Text strong>{movementRecord.issuedToSystem}</Text>
+                <Text strong>{selectedMovementIssued}</Text>
               </Descriptions.Item>
             </Descriptions>
-            <Form.Item
-              label="Số lượng"
-              name="quantity"
-              rules={[
-                { required: true, message: 'Nhập số lượng' },
-                {
-                  type: 'number', min: 1, max: movementMax,
-                  message: movementMax > 0 ? `Số lượng phải từ 1 đến ${movementMax}` : 'Không có số lượng khả dụng',
+          )}
+
+          <Form.Item
+            label="Số lượng"
+            name="quantity"
+            rules={[
+              { required: true, message: 'Nhập số lượng' },
+              {
+                validator: (_, value: number | null | undefined) => {
+                  if (value === null || value === undefined) return Promise.resolve();
+                  if (value < 1) return Promise.reject(new Error('Số lượng phải >= 1'));
+                  if (value > movementMax) {
+                    return Promise.reject(new Error(
+                      movementMax > 0 ? `Tối đa ${movementMax}` : 'Không có số lượng khả dụng',
+                    ));
+                  }
+                  return Promise.resolve();
                 },
-              ]}
-            >
-              <InputNumber min={1} max={movementMax} precision={0} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item label="Ghi chú" name="note">
-              <Input.TextArea rows={3} maxLength={1000} showCount />
-            </Form.Item>
-          </Form>
-        )}
+              },
+            ]}
+          >
+            <InputNumber min={1} precision={0} placeholder={`Tối đa ${movementMax}`} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item label="Ghi chú" name="note">
+            <Input.TextArea rows={3} maxLength={1000} showCount />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

@@ -1156,12 +1156,17 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
 | P0-7 | **Diễn tập nâng cấp/rollback thật** trên bản sao: deploy.sh backup → build/up → `/health/ready` → rollback bằng snapshot + commit cũ | ❌ **CHƯA LÀM** — ghi nhận 2026-10-20; không thử trong lượt này |
 | P0-8 | **Bản sao backup ngoài máy chủ** (bật `BACKUP_REMOTE`, kiểm tra restore từ bản offsite, retention/immutability) | ❌ **CHƯA LÀM** — `BACKUP_REMOTE` hiện mặc định TẮT; ghi nhận 2026-10-20 |
 
-### FEAT-SPARE — quyết định thiết kế (2026-10-20, làm sau UI-1)
+### FEAT-SPARE — quyết định thiết kế (2026-10-20, cập nhật 2026-10-21)
 
-- **Tồn kho chung** (global `Qty`/`Remaining`) + **định mức theo HỆ THỐNG** (chưa theo vị trí ở giai đoạn đầu).
-- Liên kết dùng **2 FK thật `ComponentId` / `ConsumableId`** + **CHECK đúng một cột có giá trị**;
-  **không** dùng cặp `ItemType` + `ItemId` mềm.
-- Chưa triển khai trong đợt UI-1; giữ làm backlog.
+- **Tồn kho chung** (global `Qty`/`Remaining`) + **ghi nhận cấp/nhận lại vật tư theo HỆ THỐNG**.
+- **BỎ định mức vật tư theo hệ thống**: vật tư dùng chung, mua cho hệ thống này có thể dùng cho hệ thống khác.
+  Bảng `system_spare_part_requirements` đã bị xóa bằng migration mới; cảnh báo tồn thấp vẫn theo
+  `MinAmt` của từng vật tư trong kho chung.
+- Ledger `system_spare_part_movements` giữ **2 FK thật `ComponentId` / `ConsumableId`** + CHECK đúng một cột;
+  **không** dùng cặp `ItemType` + `ItemId` mềm. Issue trừ tồn, Return cộng tồn; khóa `FOR UPDATE` khi ghi.
+- **Backlog:** cấp/nhận linh kiện quản lý theo **serial** chưa hỗ trợ (API trả 400
+  `SPARE_PART_SERIAL_UNSUPPORTED`, UI ẩn thao tác).
+
 
 ### UI-1 — việc ghi nhận thêm (2026-10-20)
 

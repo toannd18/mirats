@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Card, Divider, Empty, Space, Tag, Typography } from 'antd';
+import { Card, Divider, Empty, Space, Tag, Tooltip, Typography } from 'antd';
 import { UserSwitchOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -141,9 +141,6 @@ const CHANGE_LABELS: Record<string, string> = {
   min_qty: 'Định mức',
   note: 'Ghi chú',
   scope: 'Phạm vi',
-  direction: 'Chiều',
-  remaining: 'Còn lại',
-  issued_to_system: 'Đã cấp cho hệ thống',
   version: 'Phiên bản',
   version_id: 'Phiên bản',
   versionId: 'Phiên bản',
@@ -194,6 +191,24 @@ const SCOPE_LABELS: Record<string, string> = {
   param: 'Tham số',
 };
 
+/** Direction of a spare-part movement log, or null for every other action log. */
+function spareMovementDirection(logMeta: string | null): 'Issue' | 'Return' | null {
+  if (!logMeta) return null;
+  try {
+    const meta = JSON.parse(logMeta) as Record<string, unknown>;
+    if (typeof meta.quantity !== 'number'
+        || meta.remaining === undefined || meta.issued_to_system === undefined) return null;
+    return meta.direction === 'Return' ? 'Return' : 'Issue';
+  } catch {
+    return null;
+  }
+}
+
+/** True when LogMeta is a spare-part issue/return ledger row. */
+function isSpareMovementMeta(logMeta: string | null): boolean {
+  return spareMovementDirection(logMeta) !== null;
+}
+
 /** Keys whose value is a full timestamp — render date + time. */
 const DATE_TIME_KEYS = new Set([
   'published_at', 'effective_from', 'publishedAt', 'effectiveFrom', 'created_at', 'updated_at',
@@ -207,6 +222,20 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
   if (logMeta) {
     try {
       const meta = JSON.parse(logMeta) as Record<string, unknown>;
+      // [FEAT-SPARE 3] Compact ledger sentence. Item name and quantity are already represented
+      // by the movement itself, so the legacy free-text note is deliberately ignored here.
+      if (typeof meta.quantity === 'number'
+          && meta.remaining !== undefined && meta.issued_to_system !== undefined) {
+        const isReturn = meta.direction === 'Return';
+        const movementParts = [
+          `${isReturn ? 'Nhận lại' : 'Cấp'} ${meta.quantity}`,
+          `Tồn kho còn ${meta.remaining}`,
+          `Hệ thống đã nhận ${meta.issued_to_system}`,
+        ];
+        const movementNote = typeof meta.note === 'string' ? meta.note.trim() : '';
+        if (movementNote) movementParts.push(`Ghi chú: ${movementNote}`);
+        return movementParts.join(' · ');
+      }
       const changes = (meta as { changes?: Record<string, { old?: unknown; new?: unknown }> }).changes;
       if (changes) {
         for (const [k, v] of Object.entries(changes)) {
@@ -251,7 +280,6 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
           if (v === null || v === undefined || v === '') continue;
           if (typeof v === 'object') continue; // object lồng: không in "[object Object]"
           let val = typeof v === 'boolean' ? (v ? 'Có' : 'Không') : String(v);
-          if (k === 'direction') val = val === 'Issue' ? 'Cấp' : val === 'Return' ? 'Nhận lại' : val;
           if (k === 'scope') val = SCOPE_LABELS[val] ?? val;
           if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) continue;
           if (isDateOnlyKey(k)) val = formatDate(val);
@@ -268,35 +296,45 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
 
 function baseColumns(targetColumnTitle: string): ProColumns<ActionLogRow>[] {
   return [
-    { title: 'Thời gian', dataIndex: 'actionDate', key: 'actionDate', width: 160,
+    { title: 'Thời gian', dataIndex: 'actionDate', key: 'actionDate', width: 150,
       render: (_, record) => formatDateTime(record.actionDate) },
     {
-      title: 'Hành động', dataIndex: 'actionTypeValue', key: 'actionTypeValue', width: 130,
+      title: 'Hành động', dataIndex: 'actionTypeValue', key: 'actionTypeValue', width: 110,
       render: (_, record) => {
-        const info = ACTION_TYPE_TAGS[record.actionTypeValue] ?? { color: 'default', label: record.actionType };
+        let info = ACTION_TYPE_TAGS[record.actionTypeValue] ?? { color: 'default', label: record.actionType };
+        if (spareMovementDirection(record.logMeta) === 'Return') {
+          info = { color: 'purple', label: 'Nhận lại' };
+        }
         return <Tag color={info.color}>{info.label}</Tag>;
       },
     },
     {
-      title: 'Người thực hiện', dataIndex: 'creatorName', key: 'creatorName', width: 180, ellipsis: true,
+      title: 'Người thực hiện', dataIndex: 'creatorName', key: 'creatorName', width: 150, ellipsis: true,
       render: (_, record) => (
         <Space size={4}><UserSwitchOutlined style={{ color: uiColors.labelGray }} /><Text>{record.creatorName || '-'}</Text></Space>
       ),
     },
     {
-      title: targetColumnTitle, dataIndex: 'targetName', key: 'targetName', width: 200, ellipsis: true,
+      title: targetColumnTitle, dataIndex: 'targetName', key: 'targetName', width: 170, ellipsis: true,
       render: (_, record) => record.targetName || '-',
     },
     {
-      title: 'Chi tiết', dataIndex: 'note', key: 'detail', width: 320, ellipsis: true,
+      title: 'Chi tiết', dataIndex: 'note', key: 'detail', width: 300,
       render: (_, record) => {
         const parts: string[] = [];
         if (record.locationName) parts.push(`Vị trí: ${record.locationName}`);
         if (record.targetSystemInfoName) parts.push(`Hệ thống: ${record.targetSystemInfoName}`);
         const metaDetail = formatLogDetail(null, record.logMeta);
         if (metaDetail !== '—') parts.push(metaDetail);
-        if (record.note) parts.push(record.note);
-        return parts.join(' · ') || '—';
+        if (record.note && !isSpareMovementMeta(record.logMeta)) parts.push(record.note);
+        const detail = parts.join(' · ') || '—';
+        return (
+          <Tooltip title={detail} placement="topLeft">
+            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {detail}
+            </span>
+          </Tooltip>
+        );
       },
     },
   ];
@@ -382,13 +420,16 @@ const ActionLogTable: React.FC<ActionLogTableProps> = ({
           showTotal: (total, range) => `${range[0]}–${range[1]} / ${total} bản ghi` }}
         locale={{ emptyText: <Empty description={emptyText} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
         itemRender={(record) => {
-          const info = ACTION_TYPE_TAGS[record.actionTypeValue] ?? { color: 'default', label: record.actionType };
+          let info = ACTION_TYPE_TAGS[record.actionTypeValue] ?? { color: 'default', label: record.actionType };
+          if (spareMovementDirection(record.logMeta) === 'Return') {
+            info = { color: 'purple', label: 'Nhận lại' };
+          }
           const parts: string[] = [];
           if (record.locationName) parts.push(`Vị trí: ${record.locationName}`);
           if (record.targetSystemInfoName) parts.push(`Hệ thống: ${record.targetSystemInfoName}`);
           const metaDetail = formatLogDetail(null, record.logMeta);
           if (metaDetail !== '—') parts.push(metaDetail);
-          if (record.note) parts.push(record.note);
+          if (record.note && !isSpareMovementMeta(record.logMeta)) parts.push(record.note);
           const detail = parts.join(' · ') || '—';
           return (
             <Card size="small" style={{ borderRadius: 10, marginBottom: 12 }}>

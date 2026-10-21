@@ -1,6 +1,7 @@
 using System.Text.Json;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Inventory;
+using aspire_react.Server.Application.Systems.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -10,9 +11,10 @@ using Microsoft.EntityFrameworkCore;
 namespace aspire_react.Server.Application.Systems.Commands;
 
 /// <summary>
-/// [FEAT-SPARE 3] Issue or return a spare part for one system. The handler owns the transaction
-/// because the row must be locked with <c>FOR UPDATE</c>; the ActionLog is staged through
-/// <see cref="IActionLogService.Log"/> and saved in the SAME transaction (never ILoggableCommand).
+/// [FEAT-SPARE 3] Issue or return a spare part for one system. Parts are inventory-wide, so this
+/// command carries the item id directly (no per-system quota). The handler owns the transaction
+/// because the item row must be locked with <c>FOR UPDATE</c>; the ActionLog is staged through
+/// <see cref="IActionLogService.Log"/> and saved in the SAME transaction.
 /// </summary>
 public sealed record SparePartMovementResult(
     bool Success,
@@ -24,10 +26,10 @@ public sealed record SparePartMovementResult(
 
 public record RecordSystemSparePartMovementCommand(
     Guid SystemInfoId,
-    Guid RequirementId,
+    Guid? ComponentId,
+    Guid? ConsumableId,
     int Quantity,
     SparePartMovementDirection Direction,
-    bool IsComponent,
     string? Note,
     Guid CurrentUserId) : IRequest<SparePartMovementResult>;
 
@@ -82,34 +84,30 @@ public class RecordSystemSparePartMovementCommandHandler
         if (request.Quantity <= 0)
             return new(false, "Số lượng phải lớn hơn 0.", "INVALID_QUANTITY");
 
-        var system = await SparePartCommandSupport.GetVisibleSystemAsync(
-            _context, _scope, request.SystemInfoId, ct);
-        if (system == null)
+        if ((request.ComponentId.HasValue ? 1 : 0) + (request.ConsumableId.HasValue ? 1 : 0) != 1)
+            return new(false, "Phải chọn đúng một linh kiện hoặc vật tư.", "INVALID_SPARE_ITEM");
+
+        if (!await SystemsVisibility.IsSystemVisibleAsync(_context, _scope, request.SystemInfoId, ct))
             return new(false, "Không tìm thấy hệ thống hoặc ngoài phạm vi công ty.", "NOT_FOUND");
 
-        var requirement = await _context.SystemSparePartRequirements.AsNoTracking()
-            .FirstOrDefaultAsync(r => r.Id == request.RequirementId
-                && r.SystemInfoId == request.SystemInfoId
-                && r.IsActive, ct);
-        if (requirement == null)
-            return new(false, "Không tìm thấy định mức vật tư dự phòng.", "NOT_FOUND");
+        var system = await _context.SystemInfos.AsNoTracking()
+            .FirstAsync(s => s.Id == request.SystemInfoId, ct);
 
-        if (request.IsComponent)
+        if (request.ComponentId.HasValue)
         {
-            if (!requirement.ComponentId.HasValue)
-                return new(false, "Định mức này không phải linh kiện.", "SPARE_PART_ITEM_MISMATCH");
-
+            var componentId = request.ComponentId.Value;
             var componentQuery = _context.Database.IsRelational()
                 ? _context.Components.FromSqlRaw(
-                    "SELECT * FROM components WHERE \"Id\" = {0} FOR UPDATE", requirement.ComponentId.Value)
+                    "SELECT * FROM components WHERE \"Id\" = {0} FOR UPDATE", componentId)
                 : _context.Components;
             var component = await componentQuery
-                .FirstOrDefaultAsync(c => c.Id == requirement.ComponentId.Value, ct);
+                .FirstOrDefaultAsync(c => c.Id == componentId, ct);
             if (component == null)
                 return new(false, "Không tìm thấy linh kiện.", "NOT_FOUND");
             await _context.Entry(component).Collection(c => c.Assignments).LoadAsync(ct);
             await _context.Entry(component).Collection(c => c.Units).LoadAsync(ct);
             await _context.Entry(component).Collection(c => c.SparePartMovements).LoadAsync(ct);
+
             if (component.CompanyId != system.CompanyId)
                 return new(false, "Linh kiện không thuộc cùng công ty với hệ thống.", "SPARE_PART_ITEM_MISMATCH");
             if (component.TrackingType == TrackingType.Serial)
@@ -138,19 +136,18 @@ public class RecordSystemSparePartMovementCommandHandler
             return Success(request, movement.Id, remaining, issued);
         }
 
-        if (!requirement.ConsumableId.HasValue)
-            return new(false, "Định mức này không phải vật tư.", "SPARE_PART_ITEM_MISMATCH");
-
+        var consumableId = request.ConsumableId!.Value;
         var consumableQuery = _context.Database.IsRelational()
             ? _context.Consumables.FromSqlRaw(
-                "SELECT * FROM consumables WHERE \"Id\" = {0} FOR UPDATE", requirement.ConsumableId.Value)
+                "SELECT * FROM consumables WHERE \"Id\" = {0} FOR UPDATE", consumableId)
             : _context.Consumables;
         var consumable = await consumableQuery
-            .FirstOrDefaultAsync(c => c.Id == requirement.ConsumableId.Value, ct);
+            .FirstOrDefaultAsync(c => c.Id == consumableId, ct);
         if (consumable == null)
             return new(false, "Không tìm thấy vật tư.", "NOT_FOUND");
         await _context.Entry(consumable).Collection(c => c.Checkouts).LoadAsync(ct);
         await _context.Entry(consumable).Collection(c => c.SparePartMovements).LoadAsync(ct);
+
         if (consumable.CompanyId != system.CompanyId)
             return new(false, "Vật tư không thuộc cùng công ty với hệ thống.", "SPARE_PART_ITEM_MISMATCH");
 
@@ -221,9 +218,9 @@ public class RecordSystemSparePartMovementCommandHandler
             TargetType = AssignmentTargetType.SystemInfo,
             TargetId = system.Id,
             TargetSystemInfoId = system.Id,
-            Note = request.Direction == SparePartMovementDirection.Issue
-                ? $"Cấp {request.Quantity} {itemName} cho hệ thống \"{system.Name}\""
-                : $"Nhận lại {request.Quantity} {itemName} từ hệ thống \"{system.Name}\"",
+            // UI builds the compact movement sentence from LogMeta; the note here is only the
+            // operator's free-text note so the audit line never repeats item name/quantity.
+            Note = request.Note,
             LogMeta = JsonSerializer.Serialize(new
             {
                 item_name = itemName,
@@ -231,6 +228,7 @@ public class RecordSystemSparePartMovementCommandHandler
                 direction = request.Direction.ToString(),
                 remaining = remainingBefore - signed,
                 issued_to_system = issuedBefore + signed,
+                note = request.Note,
             }),
         });
     }

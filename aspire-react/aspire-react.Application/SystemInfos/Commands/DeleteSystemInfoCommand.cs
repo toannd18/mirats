@@ -60,12 +60,6 @@ public class DeleteSystemInfoCommandHandler : IRequestHandler<DeleteSystemInfoCo
         if (userCompanyIdDelete.HasValue && s.CompanyId.HasValue && s.CompanyId.Value != userCompanyIdDelete.Value)
             return new SystemInfoResult(false, "Not found.", "NOT_FOUND");
 
-        if (await _context.SystemSparePartRequirements.AsNoTracking()
-                .AnyAsync(r => r.SystemInfoId == request.Id, cancellationToken))
-            return new SystemInfoResult(false,
-                "Hệ thống đang có định mức vật tư dự phòng — không thể xóa.",
-                "SPARE_PART_REQUIREMENT_EXISTS");
-
         if (await _context.SystemSparePartMovements.AsNoTracking()
                 .AnyAsync(m => m.SystemInfoId == request.Id, cancellationToken))
             return new SystemInfoResult(false,

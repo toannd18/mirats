@@ -1,5 +1,6 @@
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Inventory;
+using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
@@ -7,22 +8,24 @@ using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Application.Systems.Queries;
 
+/// <summary>
+/// [FEAT-SPARE 3] One item currently held by a system. Quantities are derived exclusively from the
+/// append-only movement ledger: <see cref="IssuedToSystem"/> is the net issued quantity for this
+/// system, while <see cref="Remaining"/> is the shared inventory stock.
+/// </summary>
 public sealed record SystemSparePartDto(
-    Guid Id,
     Guid ItemId,
     string Type,
     string Name,
     string? Code,
-    int Remaining,
     int IssuedToSystem,
-    int MinQty,
-    bool IsSufficient,
+    int Remaining,
     bool IsSerial,
-    string? Note);
+    DateTime? LastIssuedAt);
 
 /// <summary>
-/// [FEAT-SPARE 1] Read-only spare-part requirements for one system. Remaining quantity uses the
-/// SAME formulas as the Component/Consumable list endpoints.
+/// [FEAT-SPARE 3] Items with a positive net issued quantity for one system. There is deliberately
+/// no per-system quota anymore — spare parts are shared inventory.
 /// </summary>
 public record GetSystemSparePartsQuery(Guid SystemId) : IRequest<IReadOnlyList<SystemSparePartDto>?>;
 
@@ -44,45 +47,73 @@ public class GetSystemSparePartsQueryHandler
         if (!await SystemsVisibility.IsSystemVisibleAsync(_context, _companyScope, request.SystemId, cancellationToken))
             return null;
 
-        var rows = await _context.SystemSparePartRequirements.AsNoTracking()
-            .Where(r => r.SystemInfoId == request.SystemId && r.IsActive)
-            .Include(r => r.Component).ThenInclude(c => c!.Units)
-            .Include(r => r.Component).ThenInclude(c => c!.Assignments)
-            .Include(r => r.Component).ThenInclude(c => c!.SparePartMovements)
-            .Include(r => r.Consumable).ThenInclude(c => c!.Checkouts)
-            .Include(r => r.Consumable).ThenInclude(c => c!.SparePartMovements)
-            .OrderBy(r => r.ComponentId != null ? 0 : 1)
-            .ThenBy(r => r.Component != null ? r.Component.Name : r.Consumable!.Name)
+        var movements = await _context.SystemSparePartMovements.AsNoTracking()
+            .Where(m => m.SystemInfoId == request.SystemId)
             .ToListAsync(cancellationToken);
 
-        var result = rows.Select(r =>
-        {
-            var isComponent = r.Component != null;
-            var name = isComponent ? r.Component!.Name : r.Consumable!.Name;
-            var code = isComponent
-                ? (r.Component!.ItemNo ?? r.Component.Serial)
-                : r.Consumable!.ItemNo;
-            var remaining = isComponent
-                ? InventoryRemaining.ForComponent(r.Component!)
-                : InventoryRemaining.ForConsumable(r.Consumable!);
-            var issued = isComponent
-                ? InventoryRemaining.IssuedToSystem(r.Component!.SparePartMovements, request.SystemId)
-                : InventoryRemaining.IssuedToSystem(r.Consumable!.SparePartMovements, request.SystemId);
+        var componentIds = movements.Where(m => m.ComponentId.HasValue)
+            .Select(m => m.ComponentId!.Value).Distinct().ToList();
+        var consumableIds = movements.Where(m => m.ConsumableId.HasValue)
+            .Select(m => m.ConsumableId!.Value).Distinct().ToList();
 
-            return new SystemSparePartDto(
-                r.Id,
-                r.ComponentId ?? r.ConsumableId!.Value,
-                isComponent ? "Component" : "Consumable",
-                name,
-                code,
-                remaining,
-                issued,
-                r.MinQty,
-                remaining >= r.MinQty,
-                isComponent && r.Component!.TrackingType == TrackingType.Serial,
-                r.Note);
-        }).ToList();
+        var components = await _context.Components.AsNoTracking()
+            .Where(c => componentIds.Contains(c.Id))
+            .Include(c => c.Units)
+            .Include(c => c.Assignments)
+            .Include(c => c.SparePartMovements)
+            .ToDictionaryAsync(c => c.Id, cancellationToken);
+        var consumables = await _context.Consumables.AsNoTracking()
+            .Where(c => consumableIds.Contains(c.Id))
+            .Include(c => c.Checkouts)
+            .Include(c => c.SparePartMovements)
+            .ToDictionaryAsync(c => c.Id, cancellationToken);
 
-        return result;
+        return movements
+            .GroupBy(m => new { m.ComponentId, m.ConsumableId })
+            .Select(g =>
+            {
+                var first = g.First();
+                var isComponent = first.ComponentId.HasValue;
+                var issued = InventoryRemaining.IssuedToSystem(g, request.SystemId);
+                if (issued <= 0) return null;
+
+                Component? component = null;
+                Consumable? consumable = null;
+                if (isComponent)
+                {
+                    if (!components.TryGetValue(first.ComponentId!.Value, out component)) return null;
+                }
+                else if (!consumables.TryGetValue(first.ConsumableId!.Value, out consumable))
+                {
+                    return null;
+                }
+
+                var name = isComponent ? component!.Name : consumable!.Name;
+                var code = isComponent
+                    ? (component!.ItemNo ?? component.Serial)
+                    : consumable!.ItemNo;
+                var remaining = isComponent
+                    ? InventoryRemaining.ForComponent(component!)
+                    : InventoryRemaining.ForConsumable(consumable!);
+                var isSerial = isComponent && component!.TrackingType == TrackingType.Serial;
+                var lastIssuedAt = g.Where(m => m.Direction == SparePartMovementDirection.Issue)
+                    .Select(m => (DateTime?)m.CreatedAt)
+                    .Max();
+
+                return new SystemSparePartDto(
+                    first.ComponentId ?? first.ConsumableId!.Value,
+                    isComponent ? "Component" : "Consumable",
+                    name,
+                    code,
+                    issued,
+                    remaining,
+                    isSerial,
+                    lastIssuedAt);
+            })
+            .Where(x => x != null)
+            .Select(x => x!)
+            .OrderBy(x => x.Type)
+            .ThenBy(x => x.Name)
+            .ToList();
     }
 }

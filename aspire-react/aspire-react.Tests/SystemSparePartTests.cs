@@ -1,6 +1,6 @@
-using aspire_react.Server.Application.Components.Commands;
+using System.Reflection;
+using System.Security.Claims;
 using aspire_react.Server.Application.Components.Queries;
-using aspire_react.Server.Application.Consumables.Commands;
 using aspire_react.Server.Application.Consumables.Queries;
 using aspire_react.Server.Application.Dashboard.Queries;
 using aspire_react.Server.Application.Systems.Commands;
@@ -14,8 +14,6 @@ using aspire_react.Server.Web.Controllers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using System.Reflection;
-using System.Security.Claims;
 using Xunit;
 
 namespace aspire_react.Tests;
@@ -29,205 +27,9 @@ public class SystemSparePartTests
         public Task<Guid?> GetCurrentUserCompanyIdAsync() => Task.FromResult<Guid?>(companyId);
         public Task<bool> IsCompanyIdInUserScopeAsync(Guid id) => Task.FromResult(id == companyId);
     }
-    private static AppDbContext InMemoryDb(string name = "spare")
-    {
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(name + Guid.NewGuid())
-            .Options;
-        return new AppDbContext(options, new TestHelpers.SuperUserScope());
-    }
 
-    [Fact]
-    public async Task SpareParts_Status_UsesListRemainingFormula()
-    {
-        await using var db = InMemoryDb();
-        var company = new Company { Name = "Spare Co" };
-        var system = new SystemInfo { Code = "SPR-2026-001", Name = "System", CompanyId = company.Id };
-        var component = new Component { Name = "RAM", CompanyId = company.Id, Qty = 10, MinAmt = 0, TrackingType = TrackingType.Bulk };
-        var consumable = new Consumable { Name = "Toner", CompanyId = company.Id, Qty = 10, MinAmt = 0, Status = ConsumableStatus.Confirmed };
-        db.AddRange(company, system, component, consumable);
-        await db.SaveChangesAsync();
-        db.ComponentAssignments.Add(new ComponentAssignment { ComponentId = component.Id, AssetId = Guid.NewGuid(), AssignedQty = 8 });
-        db.ConsumableCheckouts.Add(new ConsumableCheckout { ConsumableId = consumable.Id, UserId = Guid.NewGuid(), Quantity = 7 });
-        db.SystemSparePartRequirements.AddRange(
-            new SystemSparePartRequirement { CompanyId = company.Id, SystemInfoId = system.Id, ComponentId = component.Id, MinQty = 5 },
-            new SystemSparePartRequirement { CompanyId = company.Id, SystemInfoId = system.Id, ConsumableId = consumable.Id, MinQty = 2 });
-        await db.SaveChangesAsync();
-
-        var handler = new GetSystemSparePartsQueryHandler(db, new TestHelpers.SuperUserScope());
-        var rows = await handler.Handle(new GetSystemSparePartsQuery(system.Id), default);
-
-        Assert.NotNull(rows);
-        Assert.Equal(2, rows!.Count);
-        var ram = rows.Single(r => r.Type == "Component");
-        var toner = rows.Single(r => r.Type == "Consumable");
-        Assert.Equal(2, ram.Remaining);
-        Assert.False(ram.IsSufficient); // 2 < 5
-        Assert.Equal(3, toner.Remaining);
-        Assert.True(toner.IsSufficient); // 3 >= 2
-    }
-
-    [Fact]
-    public async Task SpareParts_OutOfCompanySystem_ReturnsNull()
-    {
-        await using var db = InMemoryDb();
-        var own = Guid.NewGuid();
-        var other = Guid.NewGuid();
-        var system = new SystemInfo { Code = "SPR-2026-002", Name = "Other", CompanyId = other };
-        db.SystemInfos.Add(system);
-        await db.SaveChangesAsync();
-
-        var handler = new GetSystemSparePartsQueryHandler(
-            db, new SingleCompanyScope(own));
-        var rows = await handler.Handle(new GetSystemSparePartsQuery(system.Id), default);
-
-        Assert.Null(rows);
-    }
-
-    [Fact]
-    public async Task DeleteGuards_ReturnSparePartErrorCode()
-    {
-        await using var db = InMemoryDb();
-        var company = new Company { Name = "Guard Co" };
-        var system = new SystemInfo { Code = "SPR-2026-003", Name = "Guard", CompanyId = company.Id };
-        var component = new Component { Name = "Guard comp", CompanyId = company.Id };
-        var consumable = new Consumable { Name = "Guard cons", CompanyId = company.Id };
-        db.AddRange(company, system, component, consumable);
-        await db.SaveChangesAsync();
-        db.SystemSparePartRequirements.AddRange(
-            new SystemSparePartRequirement { CompanyId = company.Id, SystemInfoId = system.Id, ComponentId = component.Id, MinQty = 1 },
-            new SystemSparePartRequirement { CompanyId = company.Id, SystemInfoId = system.Id, ConsumableId = consumable.Id, MinQty = 1 });
-        await db.SaveChangesAsync();
-
-        var componentResult = await new DeleteComponentCommandHandler(db, new TestHelpers.SuperUserScope(), null!)
-            .Handle(new DeleteComponentCommand(component.Id, Guid.NewGuid()), default);
-        var consumableResult = await new DeleteConsumableCommandHandler(db, new TestHelpers.SuperUserScope(), null!)
-            .Handle(new DeleteConsumableCommand(consumable.Id, Guid.NewGuid()), default);
-        var systemResult = await new aspire_react.Server.Application.SystemInfos.Commands.DeleteSystemInfoCommandHandler(
-                db, new TestHelpers.SuperUserScope())
-            .Handle(new aspire_react.Server.Application.SystemInfos.Commands.DeleteSystemInfoCommand(system.Id, Guid.NewGuid()), default);
-
-        Assert.False(componentResult.Success);
-        Assert.Equal("SPARE_PART_REQUIREMENT_EXISTS", componentResult.ErrorCode);
-        Assert.False(consumableResult.Success);
-        Assert.Equal("SPARE_PART_REQUIREMENT_EXISTS", consumableResult.ErrorCode);
-        Assert.False(systemResult.Success);
-        Assert.Equal("SPARE_PART_REQUIREMENT_EXISTS", systemResult.ErrorCode);
-    }
-
-    [Fact]
-    public async Task SpareCrud_CreateUpdateDelete_AndDuplicateNegative()
-    {
-        await using var db = InMemoryDb();
-        var company = new Company { Name = "CRUD Co" };
-        var system = new SystemInfo { Code = "SPR-2026-010", Name = "CRUD system", CompanyId = company.Id };
-        var component = new Component { Name = "CRUD comp", CompanyId = company.Id };
-        db.AddRange(company, system, component);
-        await db.SaveChangesAsync();
-        var scope = new TestHelpers.SuperUserScope();
-        var actor = Guid.NewGuid();
-
-        var create = new CreateSystemSparePartCommandHandler(db, scope);
-        var negative = await create.Handle(new CreateSystemSparePartCommand(
-            system.Id, component.Id, null, -1, "bad", actor), default);
-        Assert.Equal("INVALID_MIN_QTY", negative.ErrorCode);
-
-        var created = await create.Handle(new CreateSystemSparePartCommand(
-            system.Id, component.Id, null, 3, "first", actor), default);
-        Assert.True(created.Success);
-        Assert.NotNull(created.Id);
-
-        var duplicate = await create.Handle(new CreateSystemSparePartCommand(
-            system.Id, component.Id, null, 5, "duplicate", actor), default);
-        Assert.Equal("SPARE_REQUIREMENT_DUPLICATE", duplicate.ErrorCode);
-
-        var update = new UpdateSystemSparePartCommandHandler(db, scope);
-        var updated = await update.Handle(new UpdateSystemSparePartCommand(
-            system.Id, created.Id!.Value, 7, null, null, actor), default);
-        Assert.True(updated.Success);
-        Assert.Equal(7, (await db.SystemSparePartRequirements.FindAsync(created.Id))!.MinQty);
-        Assert.Equal("first", (await db.SystemSparePartRequirements.FindAsync(created.Id))!.Note);
-
-        var deleted = await new DeleteSystemSparePartCommandHandler(db, scope)
-            .Handle(new DeleteSystemSparePartCommand(system.Id, created.Id.Value, actor), default);
-        Assert.True(deleted.Success);
-        Assert.Empty(db.SystemSparePartRequirements);
-    }
-
-    [Fact]
-    public async Task SpareCrud_ItemFromAnotherCompany_IsRejected()
-    {
-        await using var db = InMemoryDb();
-        var systemCompany = Guid.NewGuid();
-        var itemCompany = Guid.NewGuid();
-        var system = new SystemInfo { Code = "SPR-2026-011", Name = "Scoped", CompanyId = systemCompany };
-        var component = new Component { Name = "Other comp", CompanyId = itemCompany };
-        db.AddRange(system, component);
-        await db.SaveChangesAsync();
-
-        var result = await new CreateSystemSparePartCommandHandler(db, new TestHelpers.SuperUserScope())
-            .Handle(new CreateSystemSparePartCommand(system.Id, component.Id, null, 1, null, Guid.NewGuid()), default);
-
-        Assert.Equal("INVALID_SPARE_ITEM", result.ErrorCode);
-    }
-
-    [ThrowawayDbFact]
-    public async Task Constraints_OneItem_And_Unique_OnRealPostgres()
-    {
-        var connectionString = Environment.GetEnvironmentVariable("MIRATS_TEST_POSTGRES")?.Trim();
-        if (string.IsNullOrWhiteSpace(connectionString))
-            throw new InvalidOperationException("Thiếu MIRATS_TEST_POSTGRES.");
-
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(connectionString, npgsql => npgsql.MigrationsAssembly("aspire-react.Server"))
-            .Options;
-        await using var db = new AppDbContext(options, new TestHelpers.SuperUserScope());
-        await ThrowawayDbMigrator.MigrateOnceAsync(db, connectionString);
-
-        var suffix = Guid.NewGuid().ToString("N")[..8];
-        var company = new Company { Name = "SPARE-" + suffix, Code = "SPC-" + suffix };
-        var system = new SystemInfo { Code = "SPR-" + suffix, Name = "Spare PG", CompanyId = company.Id };
-        var component = new Component { Name = "Spare comp " + suffix, CompanyId = company.Id };
-        db.AddRange(company, system, component);
-        await db.SaveChangesAsync();
-
-        db.SystemSparePartRequirements.Add(new SystemSparePartRequirement
-        {
-            CompanyId = company.Id,
-            SystemInfoId = system.Id,
-            MinQty = 1,
-        });
-        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
-        db.ChangeTracker.Clear();
-
-        db.SystemSparePartRequirements.Add(new SystemSparePartRequirement
-        {
-            CompanyId = company.Id,
-            SystemInfoId = system.Id,
-            ComponentId = component.Id,
-            ConsumableId = Guid.NewGuid(),
-            MinQty = 1,
-        });
-        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
-        db.ChangeTracker.Clear();
-
-        db.SystemSparePartRequirements.Add(new SystemSparePartRequirement
-        {
-            CompanyId = company.Id,
-            SystemInfoId = system.Id,
-            ComponentId = component.Id,
-            MinQty = 1,
-        });
-        await db.SaveChangesAsync();
-        db.SystemSparePartRequirements.Add(new SystemSparePartRequirement
-        {
-            CompanyId = company.Id,
-            SystemInfoId = system.Id,
-            ComponentId = component.Id,
-            MinQty = 2,
-        });
-        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
-    }
+    private static AppDbContext InMemoryDb()
+        => TestHelpers.CreateContext("spare-" + Guid.NewGuid().ToString("N"));
 
     private sealed class CapturingActionLogService(AppDbContext db)
         : aspire_react.Server.Domain.Interfaces.IActionLogService
@@ -269,38 +71,25 @@ public class SystemSparePartTests
         };
         db.AddRange(company, system, component, consumable);
         await db.SaveChangesAsync();
-        var componentReq = new SystemSparePartRequirement
-        {
-            CompanyId = company.Id,
-            SystemInfoId = system.Id,
-            ComponentId = component.Id,
-            MinQty = 5,
-        };
-        var consumableReq = new SystemSparePartRequirement
-        {
-            CompanyId = company.Id,
-            SystemInfoId = system.Id,
-            ConsumableId = consumable.Id,
-            MinQty = 2,
-        };
-        db.SystemSparePartRequirements.AddRange(componentReq, consumableReq);
-        await db.SaveChangesAsync();
 
         var handler = new RecordSystemSparePartMovementCommandHandler(
             db, scope, new CapturingActionLogService(db));
         var actor = Guid.NewGuid();
 
         var issued = await handler.Handle(new RecordSystemSparePartMovementCommand(
-            system.Id, componentReq.Id, 4, SparePartMovementDirection.Issue, true, "issue", actor), default);
+            system.Id, component.Id, null, 4, SparePartMovementDirection.Issue, "issue", actor), default);
         Assert.True(issued.Success);
         Assert.Equal(6, issued.Remaining);
         Assert.Equal(4, issued.IssuedToSystem);
 
         var spareRows = await new GetSystemSparePartsQueryHandler(db, scope)
             .Handle(new GetSystemSparePartsQuery(system.Id), default);
-        var spareRow = spareRows!.Single(r => r.Id == componentReq.Id);
+        var spareRow = Assert.Single(spareRows!);
+        Assert.Equal(component.Id, spareRow.ItemId);
+        Assert.Equal("Component", spareRow.Type);
         Assert.Equal(6, spareRow.Remaining);
         Assert.Equal(4, spareRow.IssuedToSystem);
+        Assert.NotNull(spareRow.LastIssuedAt);
 
         var detail = await new GetComponentByIdQueryHandler(db, scope)
             .Handle(new GetComponentByIdQuery(component.Id), default);
@@ -318,7 +107,7 @@ public class SystemSparePartTests
         Assert.Equal(1, summary.LowStockCount);
 
         var consumableIssued = await handler.Handle(new RecordSystemSparePartMovementCommand(
-            system.Id, consumableReq.Id, 3, SparePartMovementDirection.Issue, false, null, actor), default);
+            system.Id, null, consumable.Id, 3, SparePartMovementDirection.Issue, null, actor), default);
         Assert.True(consumableIssued.Success);
         Assert.Equal(7, consumableIssued.Remaining);
         var consumableDetail = await new GetConsumableByIdQueryHandler(db, scope)
@@ -329,7 +118,7 @@ public class SystemSparePartTests
         Assert.Equal(7, consumableList.Items.Single(i => i.Id == consumable.Id).Remaining);
 
         var returned = await handler.Handle(new RecordSystemSparePartMovementCommand(
-            system.Id, componentReq.Id, 2, SparePartMovementDirection.Return, true, "return", actor), default);
+            system.Id, component.Id, null, 2, SparePartMovementDirection.Return, "return", actor), default);
         Assert.True(returned.Success);
         Assert.Equal(8, returned.Remaining);
         Assert.Equal(2, returned.IssuedToSystem);
@@ -339,8 +128,9 @@ public class SystemSparePartTests
         Assert.Equal(8, afterReturn!.Remaining);
         var spareAfterReturn = await new GetSystemSparePartsQueryHandler(db, scope)
             .Handle(new GetSystemSparePartsQuery(system.Id), default);
-        Assert.Equal(8, spareAfterReturn!.Single(r => r.Id == componentReq.Id).Remaining);
-        Assert.Equal(2, spareAfterReturn.Single(r => r.Id == componentReq.Id).IssuedToSystem);
+        var componentAfterReturn = spareAfterReturn!.Single(r => r.ItemId == component.Id);
+        Assert.Equal(8, componentAfterReturn.Remaining);
+        Assert.Equal(2, componentAfterReturn.IssuedToSystem);
 
         var summaryAfterReturn = await new GetDashboardSummaryQueryHandler(db, scope)
             .Handle(new GetDashboardSummaryQuery(), default);
@@ -370,41 +160,29 @@ public class SystemSparePartTests
         };
         db.AddRange(company, system, component, serial);
         await db.SaveChangesAsync();
-        var req = new SystemSparePartRequirement
-        {
-            CompanyId = company.Id,
-            SystemInfoId = system.Id,
-            ComponentId = component.Id,
-            MinQty = 1,
-        };
-        var serialReq = new SystemSparePartRequirement
-        {
-            CompanyId = company.Id,
-            SystemInfoId = system.Id,
-            ComponentId = serial.Id,
-            MinQty = 1,
-        };
-        db.SystemSparePartRequirements.AddRange(req, serialReq);
-        await db.SaveChangesAsync();
 
         var handler = new RecordSystemSparePartMovementCommandHandler(
             db, scope, new CapturingActionLogService(db));
         var actor = Guid.NewGuid();
 
         var overIssue = await handler.Handle(new RecordSystemSparePartMovementCommand(
-            system.Id, req.Id, 6, SparePartMovementDirection.Issue, true, null, actor), default);
+            system.Id, component.Id, null, 6, SparePartMovementDirection.Issue, null, actor), default);
         Assert.False(overIssue.Success);
         Assert.Equal("SPARE_PART_INSUFFICIENT_STOCK", overIssue.ErrorCode);
 
         var overReturn = await handler.Handle(new RecordSystemSparePartMovementCommand(
-            system.Id, req.Id, 1, SparePartMovementDirection.Return, true, null, actor), default);
+            system.Id, component.Id, null, 1, SparePartMovementDirection.Return, null, actor), default);
         Assert.False(overReturn.Success);
         Assert.Equal("SPARE_PART_RETURN_EXCEEDS_ISSUED", overReturn.ErrorCode);
 
         var serialIssue = await handler.Handle(new RecordSystemSparePartMovementCommand(
-            system.Id, serialReq.Id, 1, SparePartMovementDirection.Issue, true, null, actor), default);
+            system.Id, serial.Id, null, 1, SparePartMovementDirection.Issue, null, actor), default);
         Assert.False(serialIssue.Success);
         Assert.Equal("SPARE_PART_SERIAL_UNSUPPORTED", serialIssue.ErrorCode);
+
+        var invalidItem = await handler.Handle(new RecordSystemSparePartMovementCommand(
+            system.Id, component.Id, component.Id, 1, SparePartMovementDirection.Issue, null, actor), default);
+        Assert.Equal("INVALID_SPARE_ITEM", invalidItem.ErrorCode);
 
         var otherCompanySystem = new SystemInfo
         {
@@ -417,7 +195,7 @@ public class SystemSparePartTests
         var crossCompany = await new RecordSystemSparePartMovementCommandHandler(
                 db, new SingleCompanyScope(company.Id), new CapturingActionLogService(db))
             .Handle(new RecordSystemSparePartMovementCommand(
-                otherCompanySystem.Id, req.Id, 1, SparePartMovementDirection.Issue, true, null, actor), default);
+                otherCompanySystem.Id, component.Id, null, 1, SparePartMovementDirection.Issue, null, actor), default);
         Assert.False(crossCompany.Success);
         Assert.Equal("NOT_FOUND", crossCompany.ErrorCode);
 
@@ -425,23 +203,14 @@ public class SystemSparePartTests
     }
 
     [Fact]
-    public void MovementEndpoints_DeclareCheckoutPolicies_AndPermissionHandlerEnforcesThem()
+    public void MovementEndpoints_AreAuthenticated_AndPermissionHandlerEnforcesCheckoutPolicies()
     {
-        var expected = new Dictionary<string, string>
-        {
-            [nameof(SystemsController.IssueComponentSparePart)] = "components.checkout",
-            [nameof(SystemsController.ReturnComponentSparePart)] = "components.checkout",
-            [nameof(SystemsController.IssueConsumableSparePart)] = "consumables.checkout",
-            [nameof(SystemsController.ReturnConsumableSparePart)] = "consumables.checkout",
-        };
-        foreach (var (methodName, policy) in expected)
-        {
-            var method = typeof(SystemsController).GetMethod(methodName,
-                BindingFlags.Instance | BindingFlags.Public);
-            Assert.NotNull(method);
-            var authorize = Assert.Single(method!.GetCustomAttributes<AuthorizeAttribute>(inherit: true));
-            Assert.Equal(policy, authorize.Policy);
-        }
+        var controllerType = typeof(SystemsController);
+        Assert.NotNull(controllerType.GetCustomAttribute<AuthorizeAttribute>(inherit: true));
+        Assert.NotNull(controllerType.GetMethod(nameof(SystemsController.IssueSparePart),
+            BindingFlags.Instance | BindingFlags.Public));
+        Assert.NotNull(controllerType.GetMethod(nameof(SystemsController.ReturnSparePart),
+            BindingFlags.Instance | BindingFlags.Public));
     }
 
     [Fact]
@@ -516,21 +285,10 @@ public class SystemSparePartTests
             FirstName = "QA",
             LastName = "Spare",
         };
-        Guid requirementId;
         await using (var setup = new AppDbContext(options, new TestHelpers.SuperUserScope()))
         {
             setup.AddRange(company, system, component, actor);
             await setup.SaveChangesAsync();
-            var requirement = new SystemSparePartRequirement
-            {
-                CompanyId = company.Id,
-                SystemInfoId = system.Id,
-                ComponentId = component.Id,
-                MinQty = 1,
-            };
-            setup.SystemSparePartRequirements.Add(requirement);
-            await setup.SaveChangesAsync();
-            requirementId = requirement.Id;
         }
 
         var scope = new TestHelpers.SuperUserScope();
@@ -541,9 +299,9 @@ public class SystemSparePartTests
         var handler2 = new RecordSystemSparePartMovementCommandHandler(
             db2, scope, new CapturingActionLogService(db2));
         var command1 = new RecordSystemSparePartMovementCommand(
-            system.Id, requirementId, 6, SparePartMovementDirection.Issue, true, "race 1", actor.Id);
+            system.Id, component.Id, null, 6, SparePartMovementDirection.Issue, "race 1", actor.Id);
         var command2 = new RecordSystemSparePartMovementCommand(
-            system.Id, requirementId, 6, SparePartMovementDirection.Issue, true, "race 2", actor.Id);
+            system.Id, component.Id, null, 6, SparePartMovementDirection.Issue, "race 2", actor.Id);
 
         var results = await Task.WhenAll(
             handler1.Handle(command1, CancellationToken.None),
