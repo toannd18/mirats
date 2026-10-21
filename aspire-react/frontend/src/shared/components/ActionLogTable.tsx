@@ -140,6 +140,7 @@ const CHANGE_LABELS: Record<string, string> = {
   item_name: 'Tên mục',
   min_qty: 'Định mức',
   note: 'Ghi chú',
+  scope: 'Phạm vi',
   version: 'Phiên bản',
   version_id: 'Phiên bản',
   versionId: 'Phiên bản',
@@ -180,6 +181,16 @@ const DATE_ONLY_KEYS = new Set([
   'terminationDate', 'nextMaintenanceDueDate',
 ]);
 
+/** Any key ending in `_date`/`Date` is a calendar date, including future fields. */
+const isDateOnlyKey = (key: string) => DATE_ONLY_KEYS.has(key)
+  || /(?:^|_)date$/i.test(key) || /Date$/.test(key);
+
+const SCOPE_LABELS: Record<string, string> = {
+  version: 'Phiên bản',
+  item: 'Mục',
+  param: 'Tham số',
+};
+
 /** Keys whose value is a full timestamp — render date + time. */
 const DATE_TIME_KEYS = new Set([
   'published_at', 'effective_from', 'publishedAt', 'effectiveFrom', 'created_at', 'updated_at',
@@ -202,7 +213,7 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
             if (val === null || val === undefined || val === '') return '—';
             if (typeof val === 'string'
                 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) return '—';
-            if (typeof val === 'string' && DATE_ONLY_KEYS.has(k)) return formatDate(val);
+            if (typeof val === 'string' && isDateOnlyKey(k)) return formatDate(val);
             if (typeof val === 'string' && DATE_TIME_KEYS.has(k)) return formatDateTime(val);
             if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(val)) return formatDateTime(val);
             if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) return formatDate(val);
@@ -215,6 +226,7 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
             })[String(val)] ?? String(val);
             if (k === 'isConfirmed') return /true/i.test(String(val)) ? 'Đã xác nhận' : 'Chưa xác nhận';
             if (k === 'checkout_type') return CHECKOUT_TYPE_LABELS[String(val)] ?? String(val);
+            if (k === 'scope') return SCOPE_LABELS[String(val)] ?? String(val);
             // Cờ boolean (is_active / is_super_user / isActive / isSuperUser…) hiển thị
             // tiếng Việt thay vì "True"/"False" thô — áp dụng cho cả log cũ và mới.
             if (typeof val === 'boolean') return val ? 'Có' : 'Không';
@@ -236,8 +248,9 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
           if (v === null || v === undefined || v === '') continue;
           if (typeof v === 'object') continue; // object lồng: không in "[object Object]"
           let val = typeof v === 'boolean' ? (v ? 'Có' : 'Không') : String(v);
+          if (k === 'scope') val = SCOPE_LABELS[val] ?? val;
           if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) continue;
-          if (DATE_ONLY_KEYS.has(k)) val = formatDate(val);
+          if (isDateOnlyKey(k)) val = formatDate(val);
           else if (DATE_TIME_KEYS.has(k)) val = formatDateTime(val);
           else if (/^\d{4}-\d{2}-\d{2}T/.test(val)) val = formatDateTime(val);
           else if (/^\d{4}-\d{2}-\d{2}$/.test(val)) val = formatDate(val);
