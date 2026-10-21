@@ -40,6 +40,12 @@ public class DeleteComponentCommandHandler : IRequestHandler<DeleteComponentComm
         if (userCompanyId.HasValue && c.CompanyId.HasValue && c.CompanyId.Value != userCompanyId.Value)
             return new ComponentOperationResult(false, "Component not found.", "NOT_FOUND");
 
+        if (await _context.SystemSparePartRequirements.AsNoTracking()
+                .AnyAsync(r => r.ComponentId == request.Id, cancellationToken))
+            return new ComponentOperationResult(false,
+                "Linh kiện đang được dùng trong định mức vật tư dự phòng của hệ thống — không thể xóa.",
+                "SPARE_PART_REQUIREMENT_EXISTS");
+
         // ─── Delete guard ───
         // A component that has EVER been checked out (Component-level or any of its serial units)
         // cannot be deleted — the ActionLog audit trail must stay intact. Even if everything has

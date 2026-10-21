@@ -5,7 +5,7 @@ import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { uiColors } from '../../theme/designTokens';
-import { formatDateTime } from '../../utils/format';
+import { formatDate, formatDateTime } from '../../utils/format';
 
 const { Text } = Typography;
 
@@ -137,6 +137,9 @@ const CHANGE_LABELS: Record<string, string> = {
   permissions: 'Quyền',
   format: 'Định dạng mã',
   enabled: 'Bật',
+  item_name: 'Tên vật tư',
+  min_qty: 'Định mức',
+  note: 'Ghi chú',
   template_id: 'Mẫu bảo dưỡng',
   templateId: 'Mẫu bảo dưỡng',
   template_version_id: 'Phiên bản mẫu',
@@ -181,6 +184,10 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
           if (k === 'current_assignment_id' || k === 'system_position_id' || k === 'location_id') continue;
           const fmt = (val: unknown) => {
             if (val === null || val === undefined || val === '') return '—';
+            if (typeof val === 'string'
+                && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) return '—';
+            if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(val)) return formatDateTime(val);
+            if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) return formatDate(val);
             // [AUDIT-LOG B7a] `status` dùng chung cho NHIỀU enum khác nhau: AssetStatus
             // (Pending/Deployed/Archived) và ComponentUnitStatus (InStock/Allocated/Damaged/Disposed —
             // log cấp phát/thu hồi serial + đổi trạng thái unit). Hai tập giá trị không trùng nhau.
@@ -212,7 +219,10 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
         for (const [k, v] of Object.entries(meta)) {
           if (v === null || v === undefined || v === '') continue;
           if (typeof v === 'object') continue; // object lồng: không in "[object Object]"
-          const val = typeof v === 'boolean' ? (v ? 'Có' : 'Không') : String(v);
+          let val = typeof v === 'boolean' ? (v ? 'Có' : 'Không') : String(v);
+          if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) continue;
+          if (/^\d{4}-\d{2}-\d{2}T/.test(val)) val = formatDateTime(val);
+          else if (/^\d{4}-\d{2}-\d{2}$/.test(val)) val = formatDate(val);
           parts.push(`${CHANGE_LABELS[k] ?? k}: ${val}`);
         }
       }
@@ -223,7 +233,8 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
 
 function baseColumns(targetColumnTitle: string): ProColumns<ActionLogRow>[] {
   return [
-    { title: 'Thời gian', dataIndex: 'actionDate', key: 'actionDate', valueType: 'dateTime', width: 160 },
+    { title: 'Thời gian', dataIndex: 'actionDate', key: 'actionDate', width: 160,
+      render: (_, record) => formatDateTime(record.actionDate) },
     {
       title: 'Hành động', dataIndex: 'actionTypeValue', key: 'actionTypeValue', width: 130,
       render: (_, record) => {
@@ -279,8 +290,7 @@ interface ActionLogTableProps {
   request?: ActionLogRequest;
   params?: Record<string, unknown>;
   actionRef?: React.Ref<ActionType> | undefined;
-  pagination?: false | { pageSize?: number; showSizeChanger?: boolean };
-  emptyText?: React.ReactNode;
+  pagination?: false | { pageSize?: number; showSizeChanger?: boolean };  emptyText?: React.ReactNode;
 }
 
 /**
@@ -312,6 +322,12 @@ const ActionLogTable: React.FC<ActionLogTableProps> = ({
     [columns],
   );
 
+  const paginationConfig = pagination === false ? false : {
+    ...pagination,
+    pageSize: pagination.pageSize ?? 10,
+    showTotal: (total: number, range: [number, number]) => `${range[0]}–${range[1]} / ${total} bản ghi`,
+  };
+
   // ─── Mobile (T-RESP4, ST7b): Card list thay Table — dùng chung request/params của caller.
   // Áp dụng TẠI ĐÂY (component dùng chung) nên MỌI Detail page nhúng ActionLogTable đều
   // responsive mà không cần sửa từng trang (Asset/Component/System/SystemHistory).
@@ -327,7 +343,8 @@ const ActionLogTable: React.FC<ActionLogTableProps> = ({
         headerTitle={headerTitle}
         request={request as never}
         params={params}
-        pagination={{ pageSize: pagination === false ? 10 : (pagination.pageSize ?? 10), showSizeChanger: false }}
+        pagination={{ pageSize: pagination === false ? 10 : (pagination.pageSize ?? 10), showSizeChanger: false,
+          showTotal: (total, range) => `${range[0]}–${range[1]} / ${total} bản ghi` }}
         locale={{ emptyText: <Empty description={emptyText} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
         itemRender={(record) => {
           const info = ACTION_TYPE_TAGS[record.actionTypeValue] ?? { color: 'default', label: record.actionType };
@@ -383,7 +400,7 @@ const ActionLogTable: React.FC<ActionLogTableProps> = ({
       toolBarRender={false}
       scroll={{ x: totalWidth || 'max-content' }}
       tableLayout="fixed"
-      pagination={pagination}
+      pagination={paginationConfig}
       params={params}
       request={request}
       locale={{ emptyText: <Empty description={emptyText} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}

@@ -4,9 +4,9 @@ import {
   App, Button, Card, Descriptions, Divider, Empty, Space, Spin, Table, Tabs, Tag, Typography,
 } from 'antd';
 import {
-  ArrowLeftOutlined, CarOutlined, ClusterOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined,
+  ArrowLeftOutlined, CarOutlined, ClusterOutlined, EllipsisOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined, ToolOutlined,
 } from '@ant-design/icons';
-import { ProTable } from '@ant-design/pro-components';
+import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import {
@@ -20,6 +20,8 @@ import LicenseUsageTable from '../../../shared/components/LicenseUsageTable';
 import { licensesApi } from '../../license/services/licenses.service';
 import { ASSET_STATUS_COLORS, ASSET_STATUS_LABELS, type AssetStatus } from '../../asset/types/asset';
 import { formatDate } from '../../../utils/format';
+import { useIsMobile } from '../../../hooks/useIsMobile';
+import { EllipsisText, NowrapText } from '../../../shared/components/list/ListText';
 
 const { Title, Text } = Typography;
 
@@ -29,10 +31,22 @@ const ASSIGNMENT_TARGET_LABELS: Record<string, string> = {
   SystemPosition: 'Hệ thống',
 };
 
+interface SystemSparePartDto {
+  id: string;
+  type: 'Component' | 'Consumable';
+  name: string;
+  code: string | null;
+  remaining: number;
+  minQty: number;
+  isSufficient: boolean;
+  note: string | null;
+}
+
 export default function SystemDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { message } = App.useApp();
+  const isMobile = useIsMobile();
 
   const [system, setSystem] = useState<SystemInfoDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,6 +56,7 @@ export default function SystemDetailPage() {
   const [accessoryCount, setAccessoryCount] = useState(0);
   const [maintenanceCount, setMaintenanceCount] = useState(0);
   const [licenseCount, setLicenseCount] = useState(0);
+  const [spareParts, setSpareParts] = useState<SystemSparePartDto[]>([]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -63,17 +78,19 @@ export default function SystemDetailPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const [aRes, accRes, mRes, licRes] = await Promise.all([
+        const [aRes, accRes, mRes, licRes, spareRes] = await Promise.all([
           systemsService.listAssets(id, { page: 1, pageSize: 1 }),
           systemsService.listAccessories(id),
           apiClient.get('/maintenances', { params: { systemInfoId: id, page: 1, pageSize: 1 } }),
           licensesApi.forSystem(id),
+          apiClient.get(`/systems/${id}/spare-parts`).catch(() => ({ data: { data: [] } })),
         ]);
         if (cancelled) return;
         setAssetCount(aRes.data.pagination?.totalItems ?? 0);
         setAccessoryCount((accRes.data?.data ?? []).length);
         setMaintenanceCount(mRes.data.pagination?.totalItems ?? 0);
         setLicenseCount((licRes.data?.data ?? []).length);
+        setSpareParts((spareRes.data?.data ?? []) as SystemSparePartDto[]);
       } catch {
         /* non-critical */
       }
@@ -85,6 +102,43 @@ export default function SystemDetailPage() {
     () => ({ refreshKey: `${id}|${positionFilter ?? ''}` }),
     [id, positionFilter],
   );
+
+  const spareColumns = [
+    {
+      title: 'Loại', dataIndex: 'type', key: 'type', width: 120,
+      render: (value: string) => (
+        <Tag color={value === 'Component' ? 'blue' : 'cyan'}>
+          {value === 'Component' ? 'Linh kiện' : 'Vật tư'}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Tên', dataIndex: 'name', key: 'name', width: 220,
+      render: (_: unknown, record: SystemSparePartDto) => <EllipsisText value={record.name} />,
+    },
+    {
+      title: 'Mã', dataIndex: 'code', key: 'code', width: 150,
+      render: (_: unknown, record: SystemSparePartDto) => record.code
+        ? <NowrapText value={record.code} code />
+        : <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Còn lại', dataIndex: 'remaining', key: 'remaining', width: 100, align: 'right' as const,
+      render: (_: unknown, record: SystemSparePartDto) => <Text strong>{record.remaining}</Text>,
+    },
+    {
+      title: 'Định mức', dataIndex: 'minQty', key: 'minQty', width: 100, align: 'right' as const,
+      render: (_: unknown, record: SystemSparePartDto) => <Text>{record.minQty}</Text>,
+    },
+    {
+      title: 'Trạng thái', dataIndex: 'isSufficient', key: 'isSufficient', width: 130,
+      render: (_: unknown, record: SystemSparePartDto) => (
+        <Tag color={record.isSufficient ? 'green' : 'red'}>
+          {record.isSufficient ? 'Đủ' : 'Thiếu'}
+        </Tag>
+      ),
+    },
+  ];
 
   if (loading) return <Spin style={{ display: 'block', margin: '80px auto' }} />;
   if (!system) return (
@@ -229,7 +283,7 @@ export default function SystemDetailPage() {
           <Descriptions.Item label="Mô tả" span={{ xs: 1, sm: 2, md: 3 }}>{system.description || '-'}</Descriptions.Item>
         </Descriptions>
 
-        <Divider titlePlacement="left" plain>Vị trí hệ thống — bấm vào 1 dòng để lọc các bảng bên dưới</Divider>
+        <Divider titlePlacement="left" plain style={{ whiteSpace: 'normal' }}>Vị trí hệ thống — bấm vào 1 dòng để lọc các bảng bên dưới</Divider>
         <Table
           rowKey="id"
           size="small"
@@ -248,42 +302,12 @@ export default function SystemDetailPage() {
       </Card>
 
       {/* ─── B. Lịch sử hệ thống ─── */}
-      <Card
-        title="Lịch sử hệ thống"
-        size="small"
-        style={{ marginBottom: 16 }}
-        extra={<Link to="/system-history"><HistoryOutlined /> Xem đầy đủ lịch sử</Link>}
-      >
-        <ActionLogTable
-          targetColumnTitle="Vị trí lắp đặt"
-          emptyText="Chưa có lịch sử cấp phát nào cho hệ thống này."
-          params={tableParams}
-          extraColumns={[
-            {
-              title: 'Tài sản', dataIndex: 'itemName', key: 'itemName', width: 220, ellipsis: true,
-              render: (_, record) => record.itemName || '-',
-            },
-          ]}
-          request={async (params) => {
-            try {
-              const res = await apiClient.get('/action-logs/by-system', {
-                params: {
-                  systemInfoId: id,
-                  page: params.current ?? 1,
-                  pageSize: params.pageSize ?? 10,
-                },
-              });
-              return { data: (res.data?.data ?? []) as ActionLogRow[], success: true, total: res.data?.total ?? 0 };
-            } catch {
-              return { data: [], success: false, total: 0 };
-            }
-          }}
-        />
-      </Card>
-
       {/* ─── C. Tài sản / Phụ kiện / Bảo trì đang cấp phát ─── */}
-      <Card size="small">
+      <Card size="small" style={{ overflow: 'hidden' }}>
         <Tabs
+          className="system-detail-tabs"
+          tabBarGutter={12}
+          more={{ icon: <EllipsisOutlined /> }}
           items={[
             {
               key: 'assets',
@@ -293,14 +317,58 @@ export default function SystemDetailPage() {
                   <Tag color="blue">{assetCount}</Tag>
                 </Space>
               ),
-              children: (
+              children: isMobile ? (
+                <ProList<SystemAssetDto>
+                  rowKey="id"
+                  ghost
+                  cardProps={false}
+                  grid={{ gutter: 12, xs: 1, sm: 1, md: 2, lg: 2, xl: 2, xxl: 2 }}
+                  search={false}
+                  params={tableParams}
+                  request={async (params) => {
+                    try {
+                      const res = await systemsService.listAssets(id!, {
+                        page: params.current ?? 1,
+                        pageSize: params.pageSize ?? 10,
+                        systemPositionId: positionFilter || undefined,
+                      });
+                      return {
+                        data: (res.data?.data ?? []) as SystemAssetDto[],
+                        total: res.data.pagination?.totalItems ?? 0,
+                        success: true,
+                      };
+                    } catch {
+                      return { data: [], success: false, total: 0 };
+                    }
+                  }}
+                  pagination={{ pageSize: 10, showSizeChanger: false,
+                    showTotal: (total, range) => `${range[0]}–${range[1]} / ${total} tài sản` }}
+                  itemRender={(record) => (
+                    <Card size="small" style={{ borderRadius: 10, marginBottom: 12 }}>
+                      <Link to={`/assets/${record.id}`} style={{ fontWeight: 600 }}>{record.name}</Link>
+                      <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <NowrapText value={record.assetTag} code />
+                        <Tag color={ASSET_STATUS_COLORS[record.status as AssetStatus]}>
+                          {ASSET_STATUS_LABELS[record.status as AssetStatus] ?? record.status}
+                        </Tag>
+                      </div>
+                      <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontSize: 12 }}>
+                        <span><Text type="secondary">Vị trí:</Text> <EllipsisText value={record.systemPosition?.name} /></span>
+                        <span><Text type="secondary">Lưu kho:</Text> <EllipsisText value={record.location?.name} /></span>
+                      </div>
+                    </Card>
+                  )}
+                  locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Hệ thống chưa có tài sản nào được cấp phát" /> }}
+                />
+              ) : (
                 <ProTable<SystemAssetDto>
                   rowKey="id"
                   search={false}
                   options={{ density: true, reload: true }}
                   params={tableParams}
                   scroll={{ x: 'max-content' }}
-                  pagination={{ pageSize: 10, showSizeChanger: true }}
+                  pagination={{ pageSize: 10, showSizeChanger: true,
+                    showTotal: (total, range) => `${range[0]}–${range[1]} / ${total} tài sản` }}
                   columns={assetColumns}
                   request={async (params) => {
                     try {
@@ -330,14 +398,52 @@ export default function SystemDetailPage() {
                   <Tag color="blue">{accessoryCount}</Tag>
                 </Space>
               ),
-              children: (
+              children: isMobile ? (
+                <ProList<SystemAccessoryDto>
+                  rowKey="id"
+                  ghost
+                  cardProps={false}
+                  grid={{ gutter: 12, xs: 1, sm: 1, md: 2, lg: 2, xl: 2, xxl: 2 }}
+                  search={false}
+                  params={tableParams}
+                  request={async () => {
+                    try {
+                      const res = await systemsService.listAccessories(id!, {
+                        systemPositionId: positionFilter || undefined,
+                      });
+                      const data = (res.data?.data ?? []) as SystemAccessoryDto[];
+                      return { data, total: data.length, success: true };
+                    } catch {
+                      return { data: [], success: false, total: 0 };
+                    }
+                  }}
+                  pagination={{ pageSize: 10, showSizeChanger: false,
+                    showTotal: (total, range) => `${range[0]}–${range[1]} / ${total} phụ kiện` }}
+                  itemRender={(record) => (
+                    <Card size="small" style={{ borderRadius: 10, marginBottom: 12 }}>
+                      <Link to={`/accessories/${record.accessoryId}/view`} style={{ fontWeight: 600 }}>
+                        {record.accessoryName}
+                      </Link>
+                      <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {record.accessoryItemNo && <NowrapText value={record.accessoryItemNo} code />}
+                        <Tag color="blue">{record.remainingCheckedOut}</Tag>
+                      </div>
+                      <div style={{ marginTop: 8, fontSize: 12 }}>
+                        <Text type="secondary">Vị trí:</Text> <EllipsisText value={record.systemPosition?.name} />
+                      </div>
+                    </Card>
+                  )}
+                  locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Hệ thống chưa có phụ kiện nào được cấp phát" /> }}
+                />
+              ) : (
                 <ProTable<SystemAccessoryDto>
                   rowKey="id"
                   search={false}
                   options={{ density: true, reload: true }}
                   params={tableParams}
                   scroll={{ x: 'max-content' }}
-                  pagination={{ pageSize: 10, showSizeChanger: true }}
+                  pagination={{ pageSize: 10, showSizeChanger: true,
+                    showTotal: (total, range) => `${range[0]}–${range[1]} / ${total} phụ kiện` }}
                   columns={accessoryColumns}
                   request={async () => {
                     try {
@@ -352,6 +458,101 @@ export default function SystemDetailPage() {
                   }}
                   locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Hệ thống chưa có phụ kiện nào được cấp phát" /> }}
                 />
+              ),
+            },
+            {
+              key: 'spare-parts',
+              label: (
+                <Space size={4}>
+                  <ToolOutlined /> Vật tư dự phòng
+                  <Tag color="cyan">{spareParts.length}</Tag>
+                </Space>
+              ),
+              children: isMobile ? (
+                spareParts.length === 0 ? (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="Hệ thống chưa có định mức vật tư dự phòng."
+                  />
+                ) : (
+                  <Space orientation="vertical" size={12} style={{ width: '100%' }}>
+                    {spareParts.map((part) => (
+                      <Card key={part.id} size="small" style={{ borderRadius: 10 }}>
+                        <Space size={[4, 6]} wrap style={{ marginBottom: 8 }}>
+                          <Tag color={part.type === 'Component' ? 'blue' : 'cyan'}>
+                            {part.type === 'Component' ? 'Linh kiện' : 'Vật tư'}
+                          </Tag>
+                          <Tag color={part.isSufficient ? 'green' : 'red'}>
+                            {part.isSufficient ? 'Đủ' : 'Thiếu'}
+                          </Tag>
+                        </Space>
+                        <div style={{ fontWeight: 600, marginBottom: 4 }}>{part.name}</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontSize: 12 }}>
+                          <span><Text type="secondary">Mã:</Text> {part.code ? <NowrapText value={part.code} code /> : <Text type="secondary">—</Text>}</span>
+                          <span><Text type="secondary">Còn lại:</Text> <Text strong>{part.remaining}</Text></span>
+                          <span><Text type="secondary">Định mức:</Text> <Text>{part.minQty}</Text></span>
+                        </div>
+                      </Card>
+                    ))}
+                  </Space>
+                )
+              ) : (
+                <Table<SystemSparePartDto>
+                  rowKey="id"
+                  size="small"
+                  columns={spareColumns}
+                  dataSource={spareParts}
+                  pagination={false}
+                  scroll={{ x: 'max-content' }}
+                  locale={{
+                    emptyText: (
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description="Hệ thống chưa có định mức vật tư dự phòng."
+                      />
+                    ),
+                  }}
+                />
+              ),
+            },
+            {
+              key: 'history',
+              label: (
+                <Space size={4}>
+                  <HistoryOutlined /> Lịch sử hệ thống
+                </Space>
+              ),
+              children: (
+                <div>
+                  <div style={{ textAlign: 'right', marginBottom: 8 }}>
+                    <Link to="/system-history"><HistoryOutlined /> Xem đầy đủ lịch sử</Link>
+                  </div>
+                  <ActionLogTable
+                    targetColumnTitle="Vị trí lắp đặt"
+                    emptyText="Chưa có lịch sử cấp phát nào cho hệ thống này."
+                    params={tableParams}
+                    extraColumns={[
+                      {
+                        title: 'Tài sản', dataIndex: 'itemName', key: 'itemName', width: 220, ellipsis: true,
+                        render: (_, record) => record.itemName || '-',
+                      },
+                    ]}
+                    request={async (params) => {
+                      try {
+                        const res = await apiClient.get('/action-logs/by-system', {
+                          params: {
+                            systemInfoId: id,
+                            page: params.current ?? 1,
+                            pageSize: params.pageSize ?? 10,
+                          },
+                        });
+                        return { data: (res.data?.data ?? []) as ActionLogRow[], success: true, total: res.data?.total ?? 0 };
+                      } catch {
+                        return { data: [], success: false, total: 0 };
+                      }
+                    }}
+                  />
+                </div>
               ),
             },
             {

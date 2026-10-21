@@ -65,4 +65,16 @@ public class SystemsController : ControllerBase
 
         return Ok(new { status = "success", data = items });
     }
+
+    /// <summary>[FEAT-SPARE 1] Read-only spare-part requirements for this system.</summary>
+    [HttpGet("{id:guid}/spare-parts")]
+    [Authorize(Policy = "systems.view")]
+    public async Task<IActionResult> GetSpareParts(Guid id)
+    {
+        var items = await _mediator.Send(new GetSystemSparePartsQuery(id));
+        if (items == null)
+            return NotFound(new { status = "error", message = "Hệ thống không tồn tại hoặc ngoài phạm vi công ty của bạn." });
+
+        return Ok(new { status = "success", data = items });
+    }
 }

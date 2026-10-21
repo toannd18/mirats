@@ -2066,6 +2066,68 @@ namespace aspirereact.Server.Migrations
                     b.ToTable("system_settings", (string)null);
                 });
 
+            modelBuilder.Entity("aspire_react.Server.Domain.Entities.SystemSparePartRequirement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid?>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ComponentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ConsumableId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValueSql("true");
+
+                    b.Property<int>("MinQty")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SystemInfoId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("ComponentId");
+
+                    b.HasIndex("ConsumableId");
+
+                    b.HasIndex("SystemInfoId", "ComponentId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_spare_requirements_system_component")
+                        .HasFilter("\"ComponentId\" IS NOT NULL");
+
+                    b.HasIndex("SystemInfoId", "ConsumableId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_spare_requirements_system_consumable")
+                        .HasFilter("\"ConsumableId\" IS NOT NULL");
+
+                    b.ToTable("system_spare_part_requirements", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_system_spare_part_requirements_min_qty", "\"MinQty\" >= 0");
+
+                            t.HasCheckConstraint("CK_system_spare_part_requirements_one_item", "((\"ComponentId\" IS NOT NULL)::int + (\"ConsumableId\" IS NOT NULL)::int) = 1");
+                        });
+                });
+
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2959,6 +3021,38 @@ namespace aspirereact.Server.Migrations
                         .HasForeignKey("SystemInfoId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("SystemInfo");
+                });
+
+            modelBuilder.Entity("aspire_react.Server.Domain.Entities.SystemSparePartRequirement", b =>
+                {
+                    b.HasOne("aspire_react.Server.Domain.Entities.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("aspire_react.Server.Domain.Entities.Component", "Component")
+                        .WithMany()
+                        .HasForeignKey("ComponentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("aspire_react.Server.Domain.Entities.Consumable", "Consumable")
+                        .WithMany()
+                        .HasForeignKey("ConsumableId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("aspire_react.Server.Domain.Entities.SystemInfo", "SystemInfo")
+                        .WithMany()
+                        .HasForeignKey("SystemInfoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Company");
+
+                    b.Navigation("Component");
+
+                    b.Navigation("Consumable");
 
                     b.Navigation("SystemInfo");
                 });

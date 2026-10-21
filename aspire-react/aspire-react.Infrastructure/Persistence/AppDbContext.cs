@@ -70,6 +70,7 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<SystemInfo> SystemInfos => Set<SystemInfo>();
+    public DbSet<SystemSparePartRequirement> SystemSparePartRequirements => Set<SystemSparePartRequirement>();
     public DbSet<SystemPosition> SystemPositions => Set<SystemPosition>();
     public DbSet<Location> Locations => Set<Location>();
     // [Giai đoạn 2-cleanup] StatusLabel entity + status_labels table REMOVED (feature was
@@ -358,6 +359,41 @@ public class AppDbContext : DbContext, IApplicationDbContext
             entity.Property(e => e.Name).IsRequired().HasColumnType("text");
             entity.HasIndex(e => e.Code).IsUnique();
             entity.HasOne(e => e.SystemInfo).WithMany(s => s.Positions).HasForeignKey(e => e.SystemInfoId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // [FEAT-SPARE 1] Per-system spare-part quotas. Exactly one item FK must be populated.
+        modelBuilder.Entity<SystemSparePartRequirement>(entity =>
+        {
+            entity.ToTable("system_spare_part_requirements", t =>
+            {
+                t.HasCheckConstraint(
+                    "CK_system_spare_part_requirements_one_item",
+                    "((\"ComponentId\" IS NOT NULL)::int + (\"ConsumableId\" IS NOT NULL)::int) = 1");
+                t.HasCheckConstraint(
+                    "CK_system_spare_part_requirements_min_qty",
+                    "\"MinQty\" >= 0");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.MinQty).IsRequired();
+            entity.Property(e => e.IsActive).HasDefaultValueSql("true");
+            entity.Property(e => e.Note).HasColumnType("text");
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp with time zone");
+
+            entity.HasIndex(e => new { e.SystemInfoId, e.ComponentId })
+                .IsUnique()
+                .HasFilter("\"ComponentId\" IS NOT NULL")
+                .HasDatabaseName("UX_spare_requirements_system_component");
+            entity.HasIndex(e => new { e.SystemInfoId, e.ConsumableId })
+                .IsUnique()
+                .HasFilter("\"ConsumableId\" IS NOT NULL")
+                .HasDatabaseName("UX_spare_requirements_system_consumable");
+
+            entity.HasOne(e => e.SystemInfo).WithMany().HasForeignKey(e => e.SystemInfoId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Component).WithMany().HasForeignKey(e => e.ComponentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Consumable).WithMany().HasForeignKey(e => e.ConsumableId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Company).WithMany().HasForeignKey(e => e.CompanyId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // ─── Maintenance checklist (MC) — template/version/campaign hierarchy ───
