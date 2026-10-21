@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Inventory;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
@@ -30,11 +31,15 @@ public class GetLowStockQueryHandler : IRequestHandler<GetLowStockQuery, IReadOn
     public async Task<IReadOnlyList<LowStockItemDto>> Handle(GetLowStockQuery request, CancellationToken cancellationToken)
     {
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        var consumables = await _context.Consumables.Include(c => c.Checkouts).AsNoTracking()
-            .Where(c => (userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value)
-                        && (c.Qty - c.Checkouts.Sum(ch => (int?)ch.Quantity ?? 0)) <= c.MinAmt)
-            .Select(c => new LowStockItemDto(c.Id, c.Name, c.Qty, c.MinAmt, c.Qty - c.Checkouts.Sum(ch => (int?)ch.Quantity ?? 0), "Consumable"))
-            .Take(10).ToListAsync(cancellationToken);
+        var consumableRows = await _context.Consumables
+            .Include(c => c.Checkouts).Include(c => c.SparePartMovements).AsNoTracking()
+            .Where(c => userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value)
+            .ToListAsync(cancellationToken);
+        var consumables = consumableRows
+            .Select(c => new { c, Remaining = InventoryRemaining.ForConsumable(c) })
+            .Where(x => x.Remaining <= x.c.MinAmt)
+            .Select(x => new LowStockItemDto(x.c.Id, x.c.Name, x.c.Qty, x.c.MinAmt, x.Remaining, "Consumable"))
+            .Take(10).ToList();
 
         var accessories = await _context.Accessories.Include(a => a.Checkouts).AsNoTracking()
             .Where(a => (userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value)
@@ -42,18 +47,15 @@ public class GetLowStockQueryHandler : IRequestHandler<GetLowStockQuery, IReadOn
             .Select(a => new LowStockItemDto(a.Id, a.Name, a.Qty, a.MinAmt, a.Qty - a.Checkouts.Sum(ch => (int?)(ch.AssignedQty - ch.ReturnedQty) ?? 0), "Accessory"))
             .Take(10).ToListAsync(cancellationToken);
 
-        var components = await _context.Components.AsNoTracking()
-            .Where(c => (userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value)
-                        && (c.TrackingType == TrackingType.Serial
-                            ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
-                            : c.Qty - c.Assignments.Sum(a => (int?)a.AssignedQty ?? 0)) <= c.MinAmt)
-            .Select(c => new LowStockItemDto(
-                c.Id, c.Name, c.Qty, c.MinAmt,
-                c.TrackingType == TrackingType.Serial
-                    ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
-                    : c.Qty - c.Assignments.Sum(a => (int?)a.AssignedQty ?? 0),
-                "Component"))
-            .Take(10).ToListAsync(cancellationToken);
+        var componentRows = await _context.Components
+            .Include(c => c.Units).Include(c => c.Assignments).Include(c => c.SparePartMovements).AsNoTracking()
+            .Where(c => userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value)
+            .ToListAsync(cancellationToken);
+        var components = componentRows
+            .Select(c => new { c, Remaining = InventoryRemaining.ForComponent(c) })
+            .Where(x => x.Remaining <= x.c.MinAmt)
+            .Select(x => new LowStockItemDto(x.c.Id, x.c.Name, x.c.Qty, x.c.MinAmt, x.Remaining, "Component"))
+            .Take(10).ToList();
 
         var all = consumables.Concat(accessories).Concat(components).ToList();
         return all;

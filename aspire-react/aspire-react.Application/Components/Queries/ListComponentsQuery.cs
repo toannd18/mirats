@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Inventory;
 using aspire_react.Server.Application.Common.Sorting;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -72,6 +73,7 @@ public class ListComponentsQueryHandler : IRequestHandler<ListComponentsQuery, C
         var query = _context.Components
             .Include(c => c.Assignments)
             .Include(c => c.Units)
+            .Include(c => c.SparePartMovements)
             .Include(c => c.Category)
             .Include(c => c.Company)
             .Include(c => c.Location)
@@ -98,25 +100,23 @@ public class ListComponentsQueryHandler : IRequestHandler<ListComponentsQuery, C
         var desc = string.Equals(request.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
         query = ComponentListSort.Apply(query, request.SortBy, desc);
 
-        var items = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
-            .Select(c => new ComponentListItemDto(
-                c.Id, c.Name, c.Serial, c.ItemNo, c.Qty, c.MinAmt, c.ModelNumber, c.OrderNumber,
-                c.PurchaseCost, c.PurchaseDate, c.Notes,
-                c.TrackingType.ToString(),
-                c.TrackingType == TrackingType.Serial
-                    ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
-                    : c.Qty - c.Assignments.Sum(a => a.AssignedQty),
-                (c.TrackingType == TrackingType.Serial
-                    ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
-                    : c.Qty - c.Assignments.Sum(a => a.AssignedQty)) <= c.MinAmt,
-                false, // canDelete resolved below via checkout-log scan
-                c.CreatedAt,
-                c.Category == null ? null : new ComponentRefDto(c.Category.Id, c.Category.Name),
-                c.Company == null ? null : new ComponentRefDto(c.Company.Id, c.Company.Name),
-                c.Location == null ? null : new ComponentRefDto(c.Location.Id, c.Location.Name),
-                c.Supplier == null ? null : new ComponentRefDto(c.Supplier.Id, c.Supplier.Name),
-                c.Manufacturer == null ? null : new ComponentRefDto(c.Manufacturer.Id, c.Manufacturer.Name)))
+        var entities = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
             .ToListAsync(cancellationToken);
+
+        var items = entities.Select(c => new ComponentListItemDto(
+            c.Id, c.Name, c.Serial, c.ItemNo, c.Qty, c.MinAmt, c.ModelNumber, c.OrderNumber,
+            c.PurchaseCost, c.PurchaseDate, c.Notes,
+            c.TrackingType.ToString(),
+            InventoryRemaining.ForComponent(c),
+            InventoryRemaining.ForComponent(c) <= c.MinAmt,
+            false, // canDelete resolved below via checkout-log scan
+            c.CreatedAt,
+            c.Category == null ? null : new ComponentRefDto(c.Category.Id, c.Category.Name),
+            c.Company == null ? null : new ComponentRefDto(c.Company.Id, c.Company.Name),
+            c.Location == null ? null : new ComponentRefDto(c.Location.Id, c.Location.Name),
+            c.Supplier == null ? null : new ComponentRefDto(c.Supplier.Id, c.Supplier.Name),
+            c.Manufacturer == null ? null : new ComponentRefDto(c.Manufacturer.Id, c.Manufacturer.Name)))
+            .ToList();
 
         // canDelete = the component (or any of its serial units) has NEVER been checked out.
         var pageIds = items.Select(i => i.Id).ToList();

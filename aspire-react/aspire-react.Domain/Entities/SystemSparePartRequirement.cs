@@ -3,8 +3,8 @@ using aspire_react.Server.Domain.Interfaces;
 namespace aspire_react.Server.Domain.Entities;
 
 /// <summary>
-/// [FEAT-SPARE 1] Per-system spare-part quota. Exactly one of ComponentId/ConsumableId must be set;
-/// movement/ledger is intentionally out of scope for this phase.
+/// [FEAT-SPARE 1] Per-system spare-part quota. Exactly one of ComponentId/ConsumableId must be set.
+/// [FEAT-SPARE 3] Issued/returned quantities live in the append-only <see cref="SystemSparePartMovement"/> ledger.
 /// </summary>
 public class SystemSparePartRequirement : IAuditable, ICompanyable
 {

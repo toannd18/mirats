@@ -57,6 +57,7 @@ public interface IApplicationDbContext
     DbSet<Department> Departments { get; }
     DbSet<SystemInfo> SystemInfos { get; }
     DbSet<SystemSparePartRequirement> SystemSparePartRequirements { get; }
+    DbSet<SystemSparePartMovement> SystemSparePartMovements { get; }
     DbSet<SystemPosition> SystemPositions { get; }
     DbSet<Location> Locations { get; }
     DbSet<Depreciation> Depreciations { get; }

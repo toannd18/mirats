@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Inventory;
 using aspire_react.Server.Application.Common.Sorting;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -62,8 +63,8 @@ public class ListConsumablesQueryHandler : IRequestHandler<ListConsumablesQuery,
 
     public async Task<ConsumableListResult> Handle(ListConsumablesQuery request, CancellationToken cancellationToken)
     {
-        var query = _context.Consumables.Include(c => c.Checkouts).Include(c => c.Category)
-            .Include(c => c.Location).Include(c => c.Company).AsNoTracking();
+        var query = _context.Consumables.Include(c => c.Checkouts).Include(c => c.SparePartMovements)
+            .Include(c => c.Category).Include(c => c.Location).Include(c => c.Company).AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
@@ -82,15 +83,17 @@ public class ListConsumablesQueryHandler : IRequestHandler<ListConsumablesQuery,
         var desc = string.Equals(request.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
         query = ConsumableListSort.Apply(query, request.SortBy, desc);
 
-        var items = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
-            .Select(c => new ConsumableListItemDto(
-                c.Id, c.Name, c.ItemNo, c.Notes, c.Qty, c.MinAmt, c.Status.ToString(), c.CompanyId,
-                c.Company != null ? c.Company.Name : null,
-                c.Qty - c.Checkouts.Sum(ch => ch.Quantity),
-                (c.Qty - c.Checkouts.Sum(ch => ch.Quantity)) <= c.MinAmt,
-                c.Category == null ? null : new ConsumableRefDto(c.Category.Id, c.Category.Name),
-                c.Location == null ? null : new ConsumableRefDto(c.Location.Id, c.Location.Name)))
+        var entities = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
             .ToListAsync(cancellationToken);
+
+        var items = entities.Select(c => new ConsumableListItemDto(
+            c.Id, c.Name, c.ItemNo, c.Notes, c.Qty, c.MinAmt, c.Status.ToString(), c.CompanyId,
+            c.Company != null ? c.Company.Name : null,
+            InventoryRemaining.ForConsumable(c),
+            InventoryRemaining.ForConsumable(c) <= c.MinAmt,
+            c.Category == null ? null : new ConsumableRefDto(c.Category.Id, c.Category.Name),
+            c.Location == null ? null : new ConsumableRefDto(c.Location.Id, c.Location.Name)))
+            .ToList();
 
         return new ConsumableListResult(items, total);
     }

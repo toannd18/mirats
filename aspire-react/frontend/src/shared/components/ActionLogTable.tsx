@@ -141,6 +141,9 @@ const CHANGE_LABELS: Record<string, string> = {
   min_qty: 'Định mức',
   note: 'Ghi chú',
   scope: 'Phạm vi',
+  direction: 'Chiều',
+  remaining: 'Còn lại',
+  issued_to_system: 'Đã cấp cho hệ thống',
   version: 'Phiên bản',
   version_id: 'Phiên bản',
   versionId: 'Phiên bản',
@@ -248,6 +251,7 @@ export function formatLogDetail(note: string | null, logMeta: string | null): st
           if (v === null || v === undefined || v === '') continue;
           if (typeof v === 'object') continue; // object lồng: không in "[object Object]"
           let val = typeof v === 'boolean' ? (v ? 'Có' : 'Không') : String(v);
+          if (k === 'direction') val = val === 'Issue' ? 'Cấp' : val === 'Return' ? 'Nhận lại' : val;
           if (k === 'scope') val = SCOPE_LABELS[val] ?? val;
           if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) continue;
           if (isDateOnlyKey(k)) val = formatDate(val);

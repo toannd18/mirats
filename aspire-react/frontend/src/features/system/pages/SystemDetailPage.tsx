@@ -4,7 +4,7 @@ import {
   App, Button, Card, Descriptions, Divider, Empty, Form, Input, InputNumber, Modal, Segmented, Select, Space, Spin, Table, Tabs, Tag, Typography,
 } from 'antd';
 import {
-  ArrowLeftOutlined, CarOutlined, ClusterOutlined, DeleteOutlined, EditOutlined, EllipsisOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined, PlusOutlined, ToolOutlined,
+  ArrowLeftOutlined, CarOutlined, ClusterOutlined, DeleteOutlined, EditOutlined, EllipsisOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined, PlusOutlined, RollbackOutlined, ToolOutlined,
 } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -40,8 +40,10 @@ interface SystemSparePartDto {
   name: string;
   code: string | null;
   remaining: number;
+  issuedToSystem: number;
   minQty: number;
   isSufficient: boolean;
+  isSerial: boolean;
   note: string | null;
 }
 
@@ -51,7 +53,10 @@ export default function SystemDetailPage() {
   const { message, modal } = App.useApp();
   const isMobile = useIsMobile();
   const canEdit = usePermission('systems.edit');
+  const canCheckoutComponent = usePermission('components.checkout');
+  const canCheckoutConsumable = usePermission('consumables.checkout');
   const [spareForm] = Form.useForm();
+  const [movementForm] = Form.useForm();
 
   const [system, setSystem] = useState<SystemInfoDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,6 +72,10 @@ export default function SystemDetailPage() {
   const [spareType, setSpareType] = useState<'Component' | 'Consumable'>('Component');
   const [spareOptions, setSpareOptions] = useState<{ label: string; value: string; type: 'Component' | 'Consumable' }[]>([]);
   const [spareSaving, setSpareSaving] = useState(false);
+  const [movementModalOpen, setMovementModalOpen] = useState(false);
+  const [movementRecord, setMovementRecord] = useState<SystemSparePartDto | null>(null);
+  const [movementDirection, setMovementDirection] = useState<'issue' | 'return'>('issue');
+  const [movementSaving, setMovementSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -137,6 +146,10 @@ export default function SystemDetailPage() {
       render: (_: unknown, record: SystemSparePartDto) => <Text strong>{record.remaining}</Text>,
     },
     {
+      title: 'Đã cấp cho hệ thống', dataIndex: 'issuedToSystem', key: 'issuedToSystem', width: 150, align: 'right' as const,
+      render: (_: unknown, record: SystemSparePartDto) => <Text>{record.issuedToSystem}</Text>,
+    },
+    {
       title: 'Định mức', dataIndex: 'minQty', key: 'minQty', width: 100, align: 'right' as const,
       render: (_: unknown, record: SystemSparePartDto) => <Text>{record.minQty}</Text>,
     },
@@ -148,7 +161,7 @@ export default function SystemDetailPage() {
         </Tag>
       ),
     },
-    ...(canEdit ? [{
+    ...(canEdit || canCheckoutComponent || canCheckoutConsumable ? [{
       title: 'Thao tác', key: 'actions', width: 150, fixed: 'right' as const,
       render: (_: unknown, record: SystemSparePartDto) => renderSpareActions(record),
     }] : []),
@@ -247,15 +260,73 @@ export default function SystemDetailPage() {
     });
   };
 
-  const renderSpareActions = (record: SystemSparePartDto) => (
-    <ListRowActions
-      primary={{ key: 'edit', label: 'Sửa', icon: <EditOutlined />, onClick: () => openSpareEdit(record) }}
-      menuItems={[{
+  const openMovement = (record: SystemSparePartDto, direction: 'issue' | 'return') => {
+    if (record.isSerial) return;
+    setMovementRecord(record);
+    setMovementDirection(direction);
+    movementForm.resetFields();
+    movementForm.setFieldsValue({ quantity: 1 });
+    setMovementModalOpen(true);
+  };
+
+  const saveMovement = async () => {
+    if (!movementRecord) return;
+    const values = await movementForm.validateFields();
+    setMovementSaving(true);
+    try {
+      const itemPath = movementRecord.type === 'Component' ? 'component' : 'consumable';
+      await apiClient.post(
+        `/systems/${id}/spare-parts/${movementRecord.id}/${movementDirection}/${itemPath}`,
+        { quantity: values.quantity, note: values.note ?? null },
+      );
+      void message.success(movementDirection === 'issue' ? 'Đã cấp vật tư cho hệ thống' : 'Đã nhận lại vật tư');
+      setMovementModalOpen(false);
+      await reloadSpareParts();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      void message.error(e?.response?.data?.message
+        ?? (movementDirection === 'issue' ? 'Không thể cấp vật tư' : 'Không thể nhận lại vật tư'));
+    } finally {
+      setMovementSaving(false);
+    }
+  };
+
+  const canMoveSpare = (record: SystemSparePartDto) => !record.isSerial
+    && (record.type === 'Component' ? canCheckoutComponent : canCheckoutConsumable);
+
+  const movementMax = movementRecord
+    ? (movementDirection === 'issue' ? movementRecord.remaining : movementRecord.issuedToSystem)
+    : 0;
+
+  const renderSpareActions = (record: SystemSparePartDto) => {
+    const canMove = canMoveSpare(record);
+    const menuItems = [
+      ...(canMove ? [{
+        key: 'return', label: 'Nhận lại', icon: <RollbackOutlined />,
+        disabled: record.issuedToSystem <= 0,
+        onClick: () => openMovement(record, 'return'),
+      }] : []),
+      ...(canEdit ? [{
+        key: 'edit', label: 'Sửa định mức', icon: <EditOutlined />,
+        onClick: () => openSpareEdit(record),
+      }] : []),
+      ...(canEdit ? [{
         key: 'delete', label: 'Xóa', icon: <DeleteOutlined />, danger: true,
         onClick: () => confirmDeleteSpare(record),
-      }]}
-    />
-  );
+      }] : []),
+    ];
+
+    return (
+      <ListRowActions
+        primary={canMove ? {
+          key: 'issue', label: 'Cấp', icon: <GiftOutlined />,
+          disabled: record.remaining <= 0,
+          onClick: () => openMovement(record, 'issue'),
+        } : null}
+        menuItems={menuItems}
+      />
+    );
+  };
 
   if (loading) return <Spin style={{ display: 'block', margin: '80px auto' }} />;
   if (!system) return (
@@ -616,9 +687,14 @@ export default function SystemDetailPage() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontSize: 12 }}>
                           <span><Text type="secondary">Mã:</Text> {part.code ? <NowrapText value={part.code} code /> : <Text type="secondary">—</Text>}</span>
                           <span><Text type="secondary">Còn lại:</Text> <Text strong>{part.remaining}</Text></span>
+                          <span><Text type="secondary">Đã cấp:</Text> <Text>{part.issuedToSystem}</Text></span>
                           <span><Text type="secondary">Định mức:</Text> <Text>{part.minQty}</Text></span>
                         </div>
-                        {canEdit && <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>{renderSpareActions(part)}</div>}
+                        {(canEdit || canCheckoutComponent || canCheckoutConsumable) && (
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+                            {renderSpareActions(part)}
+                          </div>
+                        )}
                       </Card>
                     ))}
                   </Space>
@@ -784,6 +860,52 @@ export default function SystemDetailPage() {
             <Input.TextArea rows={3} maxLength={1000} showCount />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        open={movementModalOpen}
+        title={movementDirection === 'issue' ? 'Cấp vật tư dự phòng' : 'Nhận lại vật tư dự phòng'}
+        onOk={() => void saveMovement()}
+        confirmLoading={movementSaving}
+        onCancel={() => setMovementModalOpen(false)}
+        okText={movementDirection === 'issue' ? 'Cấp' : 'Nhận lại'}
+        cancelText="Hủy"
+        destroyOnHidden
+        forceRender
+        width={isMobile ? '95%' : 480}
+      >
+        {movementRecord && (
+          <Form form={movementForm} layout="vertical">
+            <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
+              <Descriptions.Item label="Mục">{movementRecord.name}</Descriptions.Item>
+              <Descriptions.Item label="Loại">
+                {movementRecord.type === 'Component' ? 'Linh kiện' : 'Vật tư'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Tồn còn lại">
+                <Text strong>{movementRecord.remaining}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Đã cấp cho hệ thống">
+                <Text strong>{movementRecord.issuedToSystem}</Text>
+              </Descriptions.Item>
+            </Descriptions>
+            <Form.Item
+              label="Số lượng"
+              name="quantity"
+              rules={[
+                { required: true, message: 'Nhập số lượng' },
+                {
+                  type: 'number', min: 1, max: movementMax,
+                  message: movementMax > 0 ? `Số lượng phải từ 1 đến ${movementMax}` : 'Không có số lượng khả dụng',
+                },
+              ]}
+            >
+              <InputNumber min={1} max={movementMax} precision={0} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item label="Ghi chú" name="note">
+              <Input.TextArea rows={3} maxLength={1000} showCount />
+            </Form.Item>
+          </Form>
+        )}
       </Modal>
     </div>
   );

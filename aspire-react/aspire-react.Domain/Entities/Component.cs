@@ -41,6 +41,8 @@ public class Component : IAuditable, ICompanyable
     public ICollection<ComponentAssignment> Assignments { get; set; } = new List<ComponentAssignment>();
     /// <summary>Serial-tracked units (empty for Bulk components).</summary>
     public ICollection<ComponentUnit> Units { get; set; } = new List<ComponentUnit>();
+    /// <summary>[FEAT-SPARE 3] Spare-part issuance ledger rows for this component.</summary>
+    public ICollection<SystemSparePartMovement> SparePartMovements { get; set; } = new List<SystemSparePartMovement>();
 
     [NotMapped] public int Remaining => Qty - Assignments.Sum(a => a.AssignedQty);
     [NotMapped] public double PercentRemaining => Qty > 0 ? Math.Round((double)Remaining / Qty * 100, 2) : 0;

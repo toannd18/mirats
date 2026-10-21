@@ -46,6 +46,12 @@ public class DeleteComponentCommandHandler : IRequestHandler<DeleteComponentComm
                 "Linh kiện đang được dùng trong định mức vật tư dự phòng của hệ thống — không thể xóa.",
                 "SPARE_PART_REQUIREMENT_EXISTS");
 
+        if (await _context.SystemSparePartMovements.AsNoTracking()
+                .AnyAsync(m => m.ComponentId == request.Id, cancellationToken))
+            return new ComponentOperationResult(false,
+                "Linh kiện đã có lịch sử cấp/nhận vật tư dự phòng — không thể xóa.",
+                "COMPONENT_HAS_SPARE_MOVEMENTS");
+
         // ─── Delete guard ───
         // A component that has EVER been checked out (Component-level or any of its serial units)
         // cannot be deleted — the ActionLog audit trail must stay intact. Even if everything has

@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Inventory;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
@@ -13,8 +14,10 @@ public sealed record SystemSparePartDto(
     string Name,
     string? Code,
     int Remaining,
+    int IssuedToSystem,
     int MinQty,
     bool IsSufficient,
+    bool IsSerial,
     string? Note);
 
 /// <summary>
@@ -45,7 +48,9 @@ public class GetSystemSparePartsQueryHandler
             .Where(r => r.SystemInfoId == request.SystemId && r.IsActive)
             .Include(r => r.Component).ThenInclude(c => c!.Units)
             .Include(r => r.Component).ThenInclude(c => c!.Assignments)
+            .Include(r => r.Component).ThenInclude(c => c!.SparePartMovements)
             .Include(r => r.Consumable).ThenInclude(c => c!.Checkouts)
+            .Include(r => r.Consumable).ThenInclude(c => c!.SparePartMovements)
             .OrderBy(r => r.ComponentId != null ? 0 : 1)
             .ThenBy(r => r.Component != null ? r.Component.Name : r.Consumable!.Name)
             .ToListAsync(cancellationToken);
@@ -58,10 +63,11 @@ public class GetSystemSparePartsQueryHandler
                 ? (r.Component!.ItemNo ?? r.Component.Serial)
                 : r.Consumable!.ItemNo;
             var remaining = isComponent
-                ? (r.Component!.TrackingType == TrackingType.Serial
-                    ? r.Component.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
-                    : r.Component.Qty - r.Component.Assignments.Sum(a => a.AssignedQty))
-                : r.Consumable!.Qty - r.Consumable.Checkouts.Sum(c => c.Quantity);
+                ? InventoryRemaining.ForComponent(r.Component!)
+                : InventoryRemaining.ForConsumable(r.Consumable!);
+            var issued = isComponent
+                ? InventoryRemaining.IssuedToSystem(r.Component!.SparePartMovements, request.SystemId)
+                : InventoryRemaining.IssuedToSystem(r.Consumable!.SparePartMovements, request.SystemId);
 
             return new SystemSparePartDto(
                 r.Id,
@@ -70,8 +76,10 @@ public class GetSystemSparePartsQueryHandler
                 name,
                 code,
                 remaining,
+                issued,
                 r.MinQty,
                 remaining >= r.MinQty,
+                isComponent && r.Component!.TrackingType == TrackingType.Serial,
                 r.Note);
         }).ToList();
 

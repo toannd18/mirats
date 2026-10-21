@@ -35,6 +35,8 @@ public class Consumable : IAuditable, ICompanyable
     public Location? Location { get; set; }
     public Company? Company { get; set; }
     public ICollection<ConsumableCheckout> Checkouts { get; set; } = new List<ConsumableCheckout>();
+    /// <summary>[FEAT-SPARE 3] Spare-part issuance ledger rows for this consumable.</summary>
+    public ICollection<SystemSparePartMovement> SparePartMovements { get; set; } = new List<SystemSparePartMovement>();
 
     // Computed (not mapped, calculated via DTO projection or after Include)
     [NotMapped] public int Remaining => Qty - Checkouts.Sum(c => c.Quantity);

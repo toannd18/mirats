@@ -66,6 +66,12 @@ public class DeleteSystemInfoCommandHandler : IRequestHandler<DeleteSystemInfoCo
                 "Hệ thống đang có định mức vật tư dự phòng — không thể xóa.",
                 "SPARE_PART_REQUIREMENT_EXISTS");
 
+        if (await _context.SystemSparePartMovements.AsNoTracking()
+                .AnyAsync(m => m.SystemInfoId == request.Id, cancellationToken))
+            return new SystemInfoResult(false,
+                "Hệ thống đã có lịch sử cấp/nhận vật tư dự phòng — không thể xóa.",
+                "SYSTEM_IN_USE_BY_SPARE_MOVEMENTS");
+
         // [MC-7a delete-guard] Nếu có vị trí thuộc hệ thống này đang được ChecklistItem của template
         // bảo dưỡng tham chiếu → chặn (FK RESTRICT ở DB sẽ chặn cascade; guard trước để trả 400 mềm,
         // không để lộ 500 FK thô). Mirror delete-guard Company (AR-2).

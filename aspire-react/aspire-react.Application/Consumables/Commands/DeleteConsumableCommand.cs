@@ -44,6 +44,12 @@ public class DeleteConsumableCommandHandler : IRequestHandler<DeleteConsumableCo
                 "Vật tư đang được dùng trong định mức vật tư dự phòng của hệ thống — không thể xóa.",
                 "SPARE_PART_REQUIREMENT_EXISTS");
 
+        if (await _context.SystemSparePartMovements.AsNoTracking()
+                .AnyAsync(m => m.ConsumableId == request.Id, cancellationToken))
+            return new ConsumableResult(false,
+                "Vật tư đã có lịch sử cấp/nhận vật tư dự phòng — không thể xóa.",
+                "CONSUMABLE_HAS_SPARE_MOVEMENTS");
+
         if (c.Status == ConsumableStatus.Confirmed)
             return new ConsumableResult(false, "Không thể xóa vật tư đã được xác nhận.");
         // Delete guard: a consumable that has ever been checked out must keep its allocation history

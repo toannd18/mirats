@@ -2066,6 +2066,63 @@ namespace aspirereact.Server.Migrations
                     b.ToTable("system_settings", (string)null);
                 });
 
+            modelBuilder.Entity("aspire_react.Server.Domain.Entities.SystemSparePartMovement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid?>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ComponentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ConsumableId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Direction")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SystemInfoId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("ComponentId")
+                        .HasDatabaseName("IX_spare_movements_component");
+
+                    b.HasIndex("ConsumableId")
+                        .HasDatabaseName("IX_spare_movements_consumable");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("SystemInfoId", "CreatedAt")
+                        .HasDatabaseName("IX_spare_movements_system_created");
+
+                    b.ToTable("system_spare_part_movements", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_system_spare_part_movements_one_item", "((\"ComponentId\" IS NOT NULL)::int + (\"ConsumableId\" IS NOT NULL)::int) = 1");
+
+                            t.HasCheckConstraint("CK_system_spare_part_movements_quantity", "\"Quantity\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.SystemSparePartRequirement", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3025,6 +3082,46 @@ namespace aspirereact.Server.Migrations
                     b.Navigation("SystemInfo");
                 });
 
+            modelBuilder.Entity("aspire_react.Server.Domain.Entities.SystemSparePartMovement", b =>
+                {
+                    b.HasOne("aspire_react.Server.Domain.Entities.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("aspire_react.Server.Domain.Entities.Component", "Component")
+                        .WithMany("SparePartMovements")
+                        .HasForeignKey("ComponentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("aspire_react.Server.Domain.Entities.Consumable", "Consumable")
+                        .WithMany("SparePartMovements")
+                        .HasForeignKey("ConsumableId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("aspire_react.Server.Domain.Entities.User", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("aspire_react.Server.Domain.Entities.SystemInfo", "SystemInfo")
+                        .WithMany()
+                        .HasForeignKey("SystemInfoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Company");
+
+                    b.Navigation("Component");
+
+                    b.Navigation("Consumable");
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("SystemInfo");
+                });
+
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.SystemSparePartRequirement", b =>
                 {
                     b.HasOne("aspire_react.Server.Domain.Entities.Company", "Company")
@@ -3166,12 +3263,16 @@ namespace aspirereact.Server.Migrations
                 {
                     b.Navigation("Assignments");
 
+                    b.Navigation("SparePartMovements");
+
                     b.Navigation("Units");
                 });
 
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.Consumable", b =>
                 {
                     b.Navigation("Checkouts");
+
+                    b.Navigation("SparePartMovements");
                 });
 
             modelBuilder.Entity("aspire_react.Server.Domain.Entities.CustomField", b =>

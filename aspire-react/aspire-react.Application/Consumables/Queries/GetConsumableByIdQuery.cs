@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Inventory;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
@@ -34,16 +35,16 @@ public class GetConsumableByIdQueryHandler : IRequestHandler<GetConsumableByIdQu
 
     public async Task<ConsumableDetailDto?> Handle(GetConsumableByIdQuery request, CancellationToken cancellationToken)
     {
-        var c = await _context.Consumables.Include(x => x.Checkouts).Include(x => x.Category)
-            .Include(x => x.Manufacturer).Include(x => x.Supplier).Include(x => x.Location)
-            .Include(x => x.Company).AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.Id, cancellationToken);
+        var c = await _context.Consumables.Include(x => x.Checkouts).Include(x => x.SparePartMovements)
+            .Include(x => x.Category).Include(x => x.Manufacturer).Include(x => x.Supplier)
+            .Include(x => x.Location).Include(x => x.Company).AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.Id, cancellationToken);
         if (c == null) return null;
 
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
         if (userCompanyId.HasValue && c.CompanyId.HasValue && c.CompanyId.Value != userCompanyId.Value)
             return null;
 
-        var remaining = c.Qty - c.Checkouts.Sum(ch => ch.Quantity);
+        var remaining = InventoryRemaining.ForConsumable(c);
         return new ConsumableDetailDto(
             c.Id, c.Name, c.ItemNo, c.Qty, c.MinAmt, c.Status.ToString(),
             c.ModelNumber, c.OrderNumber, c.PurchaseDate, c.PurchaseCost, c.Notes,

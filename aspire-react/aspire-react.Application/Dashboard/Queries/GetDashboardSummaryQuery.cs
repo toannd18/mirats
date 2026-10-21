@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Inventory;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
@@ -40,11 +41,12 @@ public class GetDashboardSummaryQueryHandler : IRequestHandler<GetDashboardSumma
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
         var assets = _context.Assets.AsNoTracking()
             .Where(a => userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value);
-        var consumables = _context.Consumables.Include(c => c.Checkouts).AsNoTracking()
+        var consumables = _context.Consumables.Include(c => c.Checkouts).Include(c => c.SparePartMovements).AsNoTracking()
             .Where(c => userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value);
         var accessories = _context.Accessories.Include(a => a.Checkouts).AsNoTracking()
             .Where(a => userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value);
-        var components = _context.Components.Include(c => c.Assignments).AsNoTracking()
+        var components = _context.Components.Include(c => c.Units).Include(c => c.Assignments)
+            .Include(c => c.SparePartMovements).AsNoTracking()
             .Where(c => userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value);
 
         var totalAssets = await assets.CountAsync(cancellationToken);
@@ -56,13 +58,11 @@ public class GetDashboardSummaryQueryHandler : IRequestHandler<GetDashboardSumma
 
         var totalValue = await assets.SumAsync(a => a.PurchaseCost ?? 0, cancellationToken);
 
-        var lowConsumables = await consumables.CountAsync(c => (c.Qty - c.Checkouts.Sum(ch => (int?)ch.Quantity ?? 0)) <= c.MinAmt, cancellationToken);
+        var lowConsumables = (await consumables.ToListAsync(cancellationToken))
+            .Count(c => InventoryRemaining.ForConsumable(c) <= c.MinAmt);
         var lowAccessories = await accessories.CountAsync(a => (a.Qty - a.Checkouts.Sum(ch => (int?)(ch.AssignedQty - ch.ReturnedQty) ?? 0)) <= a.MinAmt, cancellationToken);
-        var lowComponents = await components.CountAsync(c =>
-            (c.TrackingType == TrackingType.Serial
-                ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
-                : c.Qty - c.Assignments.Sum(a => (int?)a.AssignedQty ?? 0)) <= c.MinAmt,
-            cancellationToken);
+        var lowComponents = (await components.ToListAsync(cancellationToken))
+            .Count(c => InventoryRemaining.ForComponent(c) <= c.MinAmt);
 
         // [MC-4] Systems with an overdue maintenance schedule — same company-scoped count pattern as
         // overdueAudits. A system is "quá hạn" when its next maintenance due date is in the past

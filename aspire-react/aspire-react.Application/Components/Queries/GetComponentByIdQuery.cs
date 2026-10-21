@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Inventory;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -51,6 +52,7 @@ public class GetComponentByIdQueryHandler : IRequestHandler<GetComponentByIdQuer
         var c = await _context.Components
             .Include(x => x.Assignments).ThenInclude(a => a.Asset)
             .Include(x => x.Units).ThenInclude(u => u.CurrentAsset)
+            .Include(x => x.SparePartMovements)
             .Include(x => x.Category).Include(x => x.Location)
             .Include(x => x.Company).Include(x => x.Supplier).Include(x => x.Manufacturer)
             .AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.Id, cancellationToken);
@@ -60,6 +62,7 @@ public class GetComponentByIdQueryHandler : IRequestHandler<GetComponentByIdQuer
         var inStock = c.TrackingType == TrackingType.Serial
             ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
             : c.Qty - c.Assignments.Sum(a => a.AssignedQty);
+        var remaining = InventoryRemaining.ForComponent(c);
         var allocated = c.TrackingType == TrackingType.Serial
             ? c.Units.Count(u => u.Status == ComponentUnitStatus.Allocated)
             : c.Assignments.Sum(a => a.AssignedQty);
@@ -76,7 +79,7 @@ public class GetComponentByIdQueryHandler : IRequestHandler<GetComponentByIdQuer
         return new ComponentDetailDto(
             c.Id, c.Name, c.Serial, c.ItemNo, c.Qty, c.MinAmt,
             c.ModelNumber, c.OrderNumber, c.PurchaseCost, c.PurchaseDate,
-            c.Notes, c.UpdatedAt, c.TrackingType.ToString(), inStock, inStock <= c.MinAmt,
+            c.Notes, c.UpdatedAt, c.TrackingType.ToString(), remaining, remaining <= c.MinAmt,
             new UnitsSummaryDto(inStock, allocated, damaged, disposed),
             !hasCheckout,
             c.Category == null ? null : new ComponentRefDto(c.Category.Id, c.Category.Name),

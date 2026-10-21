@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Inventory;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -67,11 +68,11 @@ public class ExportConsumablesQueryHandler : IRequestHandler<ExportConsumablesQu
     public async Task<IReadOnlyList<ExportConsumableRowDto>> Handle(ExportConsumablesQuery request, CancellationToken cancellationToken)
     {
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        var items = await _context.Consumables.Include(c => c.Checkouts).AsNoTracking()
+        var items = await _context.Consumables.Include(c => c.Checkouts).Include(c => c.SparePartMovements).AsNoTracking()
             .Where(c => userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value)
             .Take(1000).ToListAsync(cancellationToken);
 
         return items.Select(c => new ExportConsumableRowDto(
-            c.Name, c.ItemNo, c.Qty, c.MinAmt, c.Qty - c.Checkouts.Sum(ch => ch.Quantity))).ToList();
+            c.Name, c.ItemNo, c.Qty, c.MinAmt, InventoryRemaining.ForConsumable(c))).ToList();
     }
 }

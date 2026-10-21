@@ -71,6 +71,7 @@ public class AppDbContext : DbContext, IApplicationDbContext
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<SystemInfo> SystemInfos => Set<SystemInfo>();
     public DbSet<SystemSparePartRequirement> SystemSparePartRequirements => Set<SystemSparePartRequirement>();
+    public DbSet<SystemSparePartMovement> SystemSparePartMovements => Set<SystemSparePartMovement>();
     public DbSet<SystemPosition> SystemPositions => Set<SystemPosition>();
     public DbSet<Location> Locations => Set<Location>();
     // [Giai đoạn 2-cleanup] StatusLabel entity + status_labels table REMOVED (feature was
@@ -393,6 +394,38 @@ public class AppDbContext : DbContext, IApplicationDbContext
             entity.HasOne(e => e.SystemInfo).WithMany().HasForeignKey(e => e.SystemInfoId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(e => e.Component).WithMany().HasForeignKey(e => e.ComponentId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(e => e.Consumable).WithMany().HasForeignKey(e => e.ConsumableId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Company).WithMany().HasForeignKey(e => e.CompanyId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // [FEAT-SPARE 3] Append-only issuance/return ledger. Exactly one item FK, quantity > 0.
+        modelBuilder.Entity<SystemSparePartMovement>(entity =>
+        {
+            entity.ToTable("system_spare_part_movements", t =>
+            {
+                t.HasCheckConstraint(
+                    "CK_system_spare_part_movements_one_item",
+                    "((\"ComponentId\" IS NOT NULL)::int + (\"ConsumableId\" IS NOT NULL)::int) = 1");
+                t.HasCheckConstraint(
+                    "CK_system_spare_part_movements_quantity",
+                    "\"Quantity\" > 0");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.Quantity).IsRequired();
+            entity.Property(e => e.Direction).IsRequired();
+            entity.Property(e => e.Note).HasColumnType("text");
+            entity.Property(e => e.CreatedById).IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone").IsRequired();
+
+            entity.HasIndex(e => new { e.SystemInfoId, e.CreatedAt })
+                .HasDatabaseName("IX_spare_movements_system_created");
+            entity.HasIndex(e => e.ComponentId).HasDatabaseName("IX_spare_movements_component");
+            entity.HasIndex(e => e.ConsumableId).HasDatabaseName("IX_spare_movements_consumable");
+
+            entity.HasOne(e => e.SystemInfo).WithMany().HasForeignKey(e => e.SystemInfoId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Component).WithMany(c => c.SparePartMovements).HasForeignKey(e => e.ComponentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Consumable).WithMany(c => c.SparePartMovements).HasForeignKey(e => e.ConsumableId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.CreatedBy).WithMany().HasForeignKey(e => e.CreatedById).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(e => e.Company).WithMany().HasForeignKey(e => e.CompanyId).OnDelete(DeleteBehavior.SetNull);
         });
 

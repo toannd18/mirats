@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Inventory;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
@@ -28,11 +29,13 @@ public class GetConsumableLowStockQueryHandler : IRequestHandler<GetConsumableLo
     public async Task<IReadOnlyList<ConsumableLowStockRowDto>> Handle(GetConsumableLowStockQuery request, CancellationToken cancellationToken)
     {
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        var items = await _context.Consumables.Include(c => c.Checkouts).AsNoTracking()
-            .Where(c => (userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value)
-                        && (c.Qty - c.Checkouts.Sum(ch => ch.Quantity)) <= c.MinAmt)
-            .Select(c => new ConsumableLowStockRowDto(c.Id, c.Name, c.ItemNo, c.Qty, c.MinAmt, c.Qty - c.Checkouts.Sum(ch => ch.Quantity)))
+        var scoped = await _context.Consumables.Include(c => c.Checkouts).Include(c => c.SparePartMovements).AsNoTracking()
+            .Where(c => userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value)
             .ToListAsync(cancellationToken);
-        return items;
+        return scoped
+            .Select(c => new { c, Remaining = InventoryRemaining.ForConsumable(c) })
+            .Where(x => x.Remaining <= x.c.MinAmt)
+            .Select(x => new ConsumableLowStockRowDto(x.c.Id, x.c.Name, x.c.ItemNo, x.c.Qty, x.c.MinAmt, x.Remaining))
+            .ToList();
     }
 }

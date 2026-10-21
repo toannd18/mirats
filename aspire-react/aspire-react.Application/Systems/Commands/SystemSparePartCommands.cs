@@ -237,6 +237,14 @@ public class DeleteSystemSparePartCommandHandler
             r => r.Id == request.RequirementId && r.SystemInfoId == request.SystemInfoId, ct);
         if (entity == null) return new(false, "Not found.", "NOT_FOUND");
 
+        if (await _context.SystemSparePartMovements.AsNoTracking().AnyAsync(m =>
+                m.SystemInfoId == request.SystemInfoId &&
+                ((entity.ComponentId.HasValue && m.ComponentId == entity.ComponentId) ||
+                 (entity.ConsumableId.HasValue && m.ConsumableId == entity.ConsumableId)), ct))
+            return new(false,
+                "Định mức đã có lịch sử cấp/nhận vật tư dự phòng — không thể xóa.",
+                "SPARE_REQUIREMENT_HAS_MOVEMENTS");
+
         var name = entity.ComponentId.HasValue
             ? await _context.Components.AsNoTracking().Where(c => c.Id == entity.ComponentId).Select(c => c.Name).FirstOrDefaultAsync(ct)
             : await _context.Consumables.AsNoTracking().Where(c => c.Id == entity.ConsumableId).Select(c => c.Name).FirstOrDefaultAsync(ct);
