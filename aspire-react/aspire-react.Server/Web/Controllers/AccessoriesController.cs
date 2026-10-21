@@ -36,9 +36,12 @@ public class AccessoriesController : ControllerBase
     [HttpGet]
     [Authorize(Policy = "accessories.view")]
     public async Task<IActionResult> GetAccessories([FromQuery] string? search, [FromQuery] Guid? categoryId,
-        [FromQuery] Guid? locationId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+        [FromQuery] Guid? locationId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null)
     {
-        var result = await _mediator.Send(new ListAccessoriesQuery(search, categoryId, locationId, page, pageSize));
+        // [ACCESSORY-SORT 2026-10-21] sortBy/sortDir are whitelisted in AccessoryListSort (DB columns
+        // only, ItemNo via the shared natural collation); anything else falls back to newest-created.
+        var result = await _mediator.Send(new ListAccessoriesQuery(search, categoryId, locationId, page, pageSize, sortBy, sortDir));
 
         return Ok(new
         {

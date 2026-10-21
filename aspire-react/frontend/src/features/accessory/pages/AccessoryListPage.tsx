@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Button, Tag, Space, Popconfirm, Modal, InputNumber, App,
-  Typography, Divider, Card,
+  Button, Tag, Space, Modal, InputNumber, App,
+  Typography, Divider, Card, Empty, Tooltip,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined,
-  EyeOutlined, SendOutlined,
+  SendOutlined,
   GiftOutlined, EnvironmentOutlined, InboxOutlined,
-  AlertOutlined, RollbackOutlined, FileTextOutlined,
+  AlertOutlined, RollbackOutlined,
 } from '@ant-design/icons';
-import { ProList } from '@ant-design/pro-components';
+import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import { accessoriesApi, checkoutTypeToLabel } from '../services/accessories.service';
@@ -17,11 +18,16 @@ import type { AccessoryDto, AccessoryCheckoutDto, CheckinRequest } from '../serv
 import { formatNumber } from '../../../utils/format';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { usePermission } from '../../../hooks/usePermission';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import AccessoryCheckoutModal from '../components/AccessoryCheckoutModal';
 import AccessoryFormModal from '../components/AccessoryFormModal';
 import { statusColors, uiColors, cardBadgeGradients } from '../../../theme/designTokens';
+import ListRowActions from '../../../shared/components/list/ListRowActions';
+import type { ListPrimaryAction } from '../../../shared/components/list/ListRowActions';
+import { EllipsisText, NowrapText } from '../../../shared/components/list/ListText';
+import { useListColumnsState } from '../../../shared/hooks/useListColumnsState';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text, Title } = Typography;
 
 // ==================== Styles ====================
 
@@ -57,13 +63,47 @@ const labelIconStyle: React.CSSProperties = {
   fontSize: 13,
 };
 
+// ==================== Columns ====================
+
+/**
+ * `GET /accessories` (ListAccessoriesQuery) ships category/location refs + companyName AND, since
+ * ACCESSORY-SORT 2026-10-21, the entity-backed modelNumber/manufacturer/supplier. They are declared
+ * optional here only because `AccessoryDto` (accessories.service.ts) is outside this change's file
+ * scope — the API always returns them.
+ */
+type AccessoryRow = AccessoryDto & {
+  modelNumber?: string | null;
+  manufacturer?: { id: string; name: string } | null;
+  supplier?: { id: string; name: string } | null;
+};
+
+/** Versioned once, outside the component: a fresh object each render would defeat ProTable persistence.
+ *  v2 (ACCESSORY-SORT 2026-10-21): `model` column removed (Accessory has no Model nav — it rendered a
+ *  permanent "-"); `modelNumber` added (real column). Bumped so stale v1 saved states don't linger. */
+const ACCESSORY_COLUMN_STATE_KEY = 'accessory-list-columns-v2';
+const DEFAULT_COLUMN_STATE = {
+  name: { show: true },
+  itemNo: { show: true },
+  checkedOutQty: { show: true },
+  remaining: { show: true },
+  location: { show: true },
+  category: { show: false },
+  modelNumber: { show: false },
+  manufacturer: { show: false },
+  supplier: { show: false },
+  company: { show: false },
+  notes: { show: false },
+};
+
 // ==================== Component ====================
 
 const AccessoryListPage: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
   const actionRef = useRef<ActionType>(null);
+  const columnsState = useListColumnsState(ACCESSORY_COLUMN_STATE_KEY, DEFAULT_COLUMN_STATE);
 
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
   const [checkoutTarget, setCheckoutTarget] = useState<AccessoryDto | null>(null);
@@ -81,6 +121,7 @@ const AccessoryListPage: React.FC = () => {
 
   // Deep-link support: /accessories/new (create) & /accessories/:id (edit) open the form modal
   // on THIS page by setting local state — no redirect through another page.
+  // (/accessories/:id/view is a real detail page route and must NOT open this modal.)
   useEffect(() => {
     if (location.pathname === '/accessories/new') {
       setFormModalAccessoryId(null);
@@ -111,6 +152,17 @@ const AccessoryListPage: React.FC = () => {
       const e = err as { response?: { data?: { message?: string } } };
       void message.error(e?.response?.data?.message ?? 'Lỗi xóa');
     }
+  };
+
+  const confirmDelete = (record: AccessoryDto) => {
+    modal.confirm({
+      title: 'Xóa phụ kiện này?',
+      content: 'Hành động này không thể hoàn tác.',
+      okText: 'Xóa',
+      cancelText: 'Hủy',
+      okButtonProps: { danger: true },
+      onOk: () => handleDelete(record.id),
+    });
   };
 
   const openCheckout = (record: AccessoryDto) => {
@@ -167,6 +219,69 @@ const AccessoryListPage: React.FC = () => {
       const e = err as { response?: { data?: { message?: string } } };
       void message.error(e?.response?.data?.message ?? 'Lỗi thu hồi');
     }
+  };
+
+  // ──── Row actions: ONE primary action + ⋯ menu (UI-1 pattern) ────
+
+  const primaryActionFor = (record: AccessoryDto): ListPrimaryAction | null => {
+    if (record.checkedOutQty > 0) {
+      if (!canCheckout) return null;
+      return {
+        key: 'checkin',
+        label: 'Thu hồi',
+        icon: <RollbackOutlined />,
+        onClick: () => { void openCheckin(record); },
+      };
+    }
+    if (!canCheckout) return null;
+    return {
+      key: 'checkout',
+      label: 'Cấp phát',
+      icon: <SendOutlined />,
+      // ListRowActions has no `disabled` prop (shared, do not fork) → block the click instead of
+      // opening the modal for an out-of-stock accessory.
+      onClick: () => {
+        if (record.remaining <= 0) {
+          void message.warning('Phụ kiện đã hết số lượng khả dụng, không thể cấp phát');
+          return;
+        }
+        openCheckout(record);
+      },
+    };
+  };
+
+  const menuItemsFor = (record: AccessoryDto): MenuProps['items'] => {
+    const items: NonNullable<MenuProps['items']> = [];
+    if (canEdit) {
+      items.push({
+        key: 'edit',
+        label: 'Sửa',
+        icon: <EditOutlined />,
+        onClick: () => { setFormModalAccessoryId(record.id); setFormModalOpen(true); },
+      });
+    }
+    // The ⋯ menu NEVER repeats the primary action. Primary is "Thu hồi" when checkedOutQty > 0,
+    // else "Cấp phát" — so "Cấp phát" may only appear here in that first case, and only when it is
+    // genuinely available (stock left). No disabled ghost entries: omit instead.
+    if (record.checkedOutQty > 0 && canCheckout && record.remaining > 0) {
+      items.push({
+        key: 'checkout',
+        label: 'Cấp phát',
+        icon: <SendOutlined />,
+        onClick: () => openCheckout(record),
+      });
+    }
+    if (canDelete) {
+      items.push({
+        key: 'delete',
+        label: 'Xóa',
+        icon: <DeleteOutlined />,
+        danger: true,
+        disabled: record.checkedOutQty > 0,
+        onClick: () => confirmDelete(record),
+      });
+    }
+    return items;
   };
 
   // ──── Checkin Row Component ────
@@ -239,7 +354,7 @@ const AccessoryListPage: React.FC = () => {
 
   // ──── Search Columns ────
 
-  const searchColumns: ProColumns<AccessoryDto>[] = [
+  const searchColumns: ProColumns<AccessoryRow>[] = [
     {
       title: 'Tìm kiếm',
       dataIndex: 'search',
@@ -278,248 +393,319 @@ const AccessoryListPage: React.FC = () => {
     },
   ];
 
+  // ──── Desktop columns: Tên, Mã, Đã cấp, Còn lại, Vị trí (optional ones hidden by default) ────
+  // Only DB-backed columns are sortable (`sorter: true` → server-side whitelist: name/itemNo).
+  // checkedOutQty/remaining are computed SUM() aggregates — never sortable (no client sort either).
+
+  const desktopColumns: ProColumns<AccessoryRow>[] = ([
+    {
+      title: 'Tên phụ kiện', dataIndex: 'name', width: 200,
+      sorter: true,
+      render: (_: unknown, record: AccessoryRow) => (
+        <Tooltip title={record.name} placement="topLeft">
+          <Typography.Link
+            onClick={() => navigate(`/accessories/${record.id}/view`)}
+            style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {record.name}
+          </Typography.Link>
+        </Tooltip>
+      ),
+    },
+    {
+      title: 'Mã', dataIndex: 'itemNo', width: 120,
+      sorter: true,
+      render: (_: unknown, record: AccessoryRow) => <NowrapText value={record.itemNo} code />,
+    },
+    {
+      title: 'Đã cấp', dataIndex: 'checkedOutQty', width: 100, align: 'right',
+      render: (_: unknown, record: AccessoryRow) => <Text>{formatNumber(record.checkedOutQty)}</Text>,
+    },
+    {
+      title: 'Còn lại', dataIndex: 'remaining', width: 110, align: 'right',
+      render: (_: unknown, record: AccessoryRow) => (
+        <Text strong type={record.isLowStock ? 'danger' : undefined}>{formatNumber(record.remaining)}</Text>
+      ),
+    },
+    {
+      title: 'Vị trí', key: 'location', width: 150,
+      render: (_: unknown, record: AccessoryRow) => <EllipsisText value={record.location?.name} />,
+    },
+    {
+      title: 'Danh mục', key: 'category', width: 160,
+      render: (_: unknown, record: AccessoryRow) => <EllipsisText value={record.category?.name} />,
+    },
+    {
+      // Accessory has no Model entity — the DB column is the free-text Accessory.ModelNumber.
+      title: 'Số model', dataIndex: 'modelNumber', width: 160,
+      render: (_: unknown, record: AccessoryRow) => <EllipsisText value={record.modelNumber} />,
+    },
+    {
+      title: 'Nhà sản xuất', key: 'manufacturer', width: 160,
+      render: (_: unknown, record: AccessoryRow) => <EllipsisText value={record.manufacturer?.name} />,
+    },
+    {
+      title: 'Nhà cung cấp', key: 'supplier', width: 160,
+      render: (_: unknown, record: AccessoryRow) => <EllipsisText value={record.supplier?.name} />,
+    },
+    {
+      title: 'Công ty', key: 'company', width: 160,
+      render: (_: unknown, record: AccessoryRow) => <EllipsisText value={record.companyName} />,
+    },
+    {
+      title: 'Ghi chú', key: 'notes', width: 220,
+      render: (_: unknown, record: AccessoryRow) => <EllipsisText value={record.notes} />,
+    },
+    {
+      title: 'Thao tác', key: 'actions', width: 150, fixed: 'right',
+      render: (_: unknown, record: AccessoryRow) => (
+        <ListRowActions primary={primaryActionFor(record)} menuItems={menuItemsFor(record)} />
+      ),
+    },
+  ] as ProColumns<AccessoryRow>[]).map((column) => ({ ...column, hideInSearch: true, search: false }));
+
   // ──── Render ────
 
   return (
     <>
-      <ProList<AccessoryDto>
-        headerTitle={
-          <Title level={4} style={{ margin: 0 }}>
-            Phụ kiện
-          </Title>
-        }
-        actionRef={actionRef}
-        rowKey="id"
-        ghost
-        cardProps={false}
-        columns={searchColumns}
-        grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3, xxl: 3 }}
-        search={{
-          labelWidth: 'auto',
-          defaultCollapsed: false,
-        }}
-        toolBarRender={() => [
-          canCreate && (
-            <Button
-              key="create"
-              type="primary"
-              size="middle"
-              icon={<PlusOutlined />}
-              onClick={() => { setFormModalAccessoryId(null); setFormModalOpen(true); }}
-            >
-              Thêm Phụ kiện
-            </Button>
-          ),
-        ]}
-        request={async (params) => {
-          try {
-            const { current, pageSize, ...rest } = params;
-            const res = await accessoriesApi.list({ ...rest, page: current, pageSize });
-            return {
-              data: res.data.data,
-              success: true,
-              total: res.data.pagination?.totalItems ?? 0,
-            };
-          } catch {
-            void message.error('Không thể tải danh sách phụ kiện');
-            return { data: [], success: false, total: 0 };
+      {isMobile ? (
+        <ProList<AccessoryRow>
+          headerTitle={
+            <Title level={4} style={{ margin: 0 }}>
+              Phụ kiện
+            </Title>
           }
-        }}
-        pagination={{
-          defaultPageSize: 12,
-          showSizeChanger: true,
-          showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} mục`,
-        }}
-        itemRender={(record) => (
-          <Card
-            hoverable
-            onClick={() => navigate(`/accessories/${record.id}/view`)}
-            style={{
-              borderRadius: 12,
-              marginBottom: 16,
-              cursor: 'pointer',
-              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-            styles={{ body: { padding: '20px 20px 16px' } }}
-          >
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-              <div style={iconBadgeStyle}>
-                <GiftOutlined style={{ fontSize: 22, color: '#722ed1' }} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                  <Text strong style={{ fontSize: 16, lineHeight: 1.4 }}>
-                    {record.name}
-                  </Text>
-                  {record.itemNo && (
-                    <Text
-                      type="secondary"
-                      style={{
-                        fontSize: 12,
-                        fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
-                        background: '#f5f5f5',
-                        padding: '1px 8px',
-                        borderRadius: 4,
-                        border: '1px solid #e8e8e8',
-                        whiteSpace: 'nowrap',
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
+          actionRef={actionRef}
+          rowKey="id"
+          ghost
+          cardProps={false}
+          columns={searchColumns}
+          grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3, xxl: 3 }}
+          search={{
+            labelWidth: 'auto',
+            defaultCollapsed: true,
+          }}
+          toolBarRender={() => [
+            canCreate && (
+              <Button
+                key="create"
+                type="primary"
+                size="middle"
+                icon={<PlusOutlined />}
+                onClick={() => { setFormModalAccessoryId(null); setFormModalOpen(true); }}
+              >
+                Thêm Phụ kiện
+              </Button>
+            ),
+          ]}
+          request={async (params) => {
+            try {
+              const { current, pageSize, ...rest } = params;
+              const res = await accessoriesApi.list({ ...rest, page: current, pageSize });
+              return {
+                data: res.data.data,
+                success: true,
+                total: res.data.pagination?.totalItems ?? 0,
+              };
+            } catch {
+              void message.error('Không thể tải danh sách phụ kiện');
+              return { data: [], success: false, total: 0 };
+            }
+          }}
+          pagination={{
+            defaultPageSize: 12,
+            showSizeChanger: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} mục`,
+          }}
+          locale={{ emptyText: <Empty description="Không tìm thấy phụ kiện phù hợp" /> }}
+          itemRender={(record) => (
+            <Card
+              hoverable
+              onClick={() => navigate(`/accessories/${record.id}/view`)}
+              style={{
+                borderRadius: 12,
+                marginBottom: 16,
+                cursor: 'pointer',
+                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+              }}
+              styles={{ body: { padding: '20px 20px 16px' } }}
+            >
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                <div style={iconBadgeStyle}>
+                  <GiftOutlined style={{ fontSize: 22, color: '#722ed1' }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <Typography.Link
+                      style={{ fontSize: 16, lineHeight: 1.4, fontWeight: 600 }}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/accessories/${record.id}/view`); }}
                     >
-                      {record.itemNo}
+                      {record.name}
+                    </Typography.Link>
+                    {record.itemNo && (
+                      <Text
+                        type="secondary"
+                        style={{
+                          fontSize: 12,
+                          fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
+                          background: '#f5f5f5',
+                          padding: '1px 8px',
+                          borderRadius: 4,
+                          border: '1px solid #e8e8e8',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '100%',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {record.itemNo}
+                      </Text>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tags */}
+              <Space size={[4, 4]} wrap style={{ marginBottom: 12, paddingLeft: 60 }}>
+                {record.category?.name && (
+                  <Tag color="purple" style={{ borderRadius: 4, margin: 0 }}>
+                    {record.category.name}
+                  </Tag>
+                )}
+                {record.checkedOutQty > 0 ? (
+                  <Tag color="orange" style={{ borderRadius: 4, margin: 0 }}>
+                    Đang cấp phát
+                  </Tag>
+                ) : (
+                  <Tag color={statusColors.ready} style={{ borderRadius: 4, margin: 0 }}>
+                    Sẵn sàng
+                  </Tag>
+                )}
+                {record.isLowStock && (
+                  <Tag
+                    color="error"
+                    icon={<AlertOutlined />}
+                    style={{ borderRadius: 4, margin: 0, fontWeight: 500 }}
+                  >
+                    Tồn kho thấp
+                  </Tag>
+                )}
+              </Space>
+
+              {/* Data Grid */}
+              <div style={dataGridStyle}>
+                <div style={dataRowStyle}>
+                  <EnvironmentOutlined style={labelIconStyle} />
+                  <Text type="secondary" style={{ fontSize: 12 }}>Vị trí</Text>
+                </div>
+                <div style={dataRowStyle}>
+                  {record.location?.name ? (
+                    <Text style={{ fontSize: 13, fontWeight: 500 }}>{record.location.name}</Text>
+                  ) : (
+                    <Text type="secondary" italic style={{ fontSize: 13 }}>Chưa gán</Text>
+                  )}
+                </div>
+
+                <div style={dataRowStyle}>
+                  <InboxOutlined style={labelIconStyle} />
+                  <Text type="secondary" style={{ fontSize: 12 }}>Tổng số lượng</Text>
+                </div>
+                <div style={dataRowStyle}>
+                  <Text strong style={{ fontSize: 14 }}>{formatNumber(record.qty)}</Text>
+                </div>
+
+                <div style={dataRowStyle}>
+                  <InboxOutlined style={labelIconStyle} />
+                  <Text type="secondary" style={{ fontSize: 12 }}>Còn lại</Text>
+                </div>
+                <div style={dataRowStyle}>
+                  {record.isLowStock ? (
+                    <Text strong type="danger" style={{ fontSize: 15, lineHeight: 1 }}>
+                      {formatNumber(record.remaining)}
+                      <Text type="secondary" style={{ fontSize: 11, marginLeft: 4, fontWeight: 400 }}>
+                        (Ngưỡng: {record.minAmt})
+                      </Text>
                     </Text>
+                  ) : (
+                    <Text strong style={{ fontSize: 14 }}>{formatNumber(record.remaining)}</Text>
                   )}
                 </div>
               </div>
-            </div>
 
-            {/* Tags */}
-            <Space size={[4, 4]} wrap style={{ marginBottom: 12, paddingLeft: 60 }}>
-              {record.category?.name && (
-                <Tag color="purple" style={{ borderRadius: 4, margin: 0 }}>
-                  {record.category.name}
-                </Tag>
-              )}
-              {record.checkedOutQty > 0 ? (
-                <Tag color="orange" style={{ borderRadius: 4, margin: 0 }}>
-                  Đang cấp phát
-                </Tag>
-              ) : (
-                <Tag color={statusColors.ready} style={{ borderRadius: 4, margin: 0 }}>
-                  Sẵn sàng
-                </Tag>
-              )}
-              {record.isLowStock && (
-                <Tag
-                  color="error"
-                  icon={<AlertOutlined />}
-                  style={{ borderRadius: 4, margin: 0, fontWeight: 500 }}
-                >
-                  Tồn kho thấp
-                </Tag>
-              )}
-            </Space>
+              {/* Divider + Actions */}
+              <Divider style={{ margin: '12px 0' }} />
 
-            {/* Data Grid */}
-            <div style={dataGridStyle}>
-              <div style={dataRowStyle}>
-                <EnvironmentOutlined style={labelIconStyle} />
-                <Text type="secondary" style={{ fontSize: 12 }}>Vị trí</Text>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <ListRowActions
+                  primary={primaryActionFor(record)}
+                  menuItems={menuItemsFor(record)}
+                  stopPropagation
+                />
               </div>
-              <div style={dataRowStyle}>
-                {record.location?.name ? (
-                  <Text style={{ fontSize: 13, fontWeight: 500 }}>{record.location.name}</Text>
-                ) : (
-                  <Text type="secondary" italic style={{ fontSize: 13 }}>Chưa gán</Text>
-                )}
-              </div>
-
-              <div style={dataRowStyle}>
-                <InboxOutlined style={labelIconStyle} />
-                <Text type="secondary" style={{ fontSize: 12 }}>Tổng số lượng</Text>
-              </div>
-              <div style={dataRowStyle}>
-                <Text strong style={{ fontSize: 14 }}>{formatNumber(record.qty)}</Text>
-              </div>
-
-              <div style={dataRowStyle}>
-                <InboxOutlined style={labelIconStyle} />
-                <Text type="secondary" style={{ fontSize: 12 }}>Còn lại</Text>
-              </div>
-              <div style={dataRowStyle}>
-                {record.isLowStock ? (
-                  <Text strong type="danger" style={{ fontSize: 15, lineHeight: 1 }}>
-                    {formatNumber(record.remaining)}
-                    <Text type="secondary" style={{ fontSize: 11, marginLeft: 4, fontWeight: 400 }}>
-                      (Ngưỡng: {record.minAmt})
-                    </Text>
-                  </Text>
-                ) : (
-                  <Text strong style={{ fontSize: 14 }}>{formatNumber(record.remaining)}</Text>
-                )}
-              </div>
-
-              {record.notes && (
-                <>
-                  <div style={{ ...dataRowStyle, gridColumn: '1 / -1' }}>
-                    <FileTextOutlined style={labelIconStyle} />
-                    <Text type="secondary" style={{ fontSize: 12 }}>Ghi chú</Text>
-                  </div>
-                  <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
-                    <Paragraph
-                      ellipsis={{ rows: 2, tooltip: record.notes }}
-                      style={{ fontSize: 13, margin: 0 }}
-                    >
-                      {record.notes}
-                    </Paragraph>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Divider + Actions */}
-            <Divider style={{ margin: '12px 0' }} />
-
-            <Space size="small" wrap style={{ justifyContent: 'flex-end', width: '100%' }}>
-              {canEdit && (
-                <Button
-                  size="middle"
-                  icon={<EditOutlined />}
-                  onClick={(e) => { e.stopPropagation(); setFormModalAccessoryId(record.id); setFormModalOpen(true); }}
-                >
-                  Sửa
-                </Button>
-              )}
+            </Card>
+          )}
+        />
+      ) : (
+        <ProTable<AccessoryRow>
+          headerTitle={
+            <Title level={4} style={{ margin: 0 }}>
+              Phụ kiện
+            </Title>
+          }
+          actionRef={actionRef}
+          rowKey="id"
+          columns={[...searchColumns, ...desktopColumns]}
+          search={{
+            labelWidth: 'auto',
+            defaultCollapsed: false,
+          }}
+          options={{ reload: true, density: true, setting: true }}
+          columnsState={columnsState}
+          toolBarRender={() => [
+            canCreate && (
               <Button
+                key="create"
+                type="primary"
                 size="middle"
-                icon={<EyeOutlined />}
-                onClick={(e) => { e.stopPropagation(); navigate(`/accessories/${record.id}/view`); }}
+                icon={<PlusOutlined />}
+                onClick={() => { setFormModalAccessoryId(null); setFormModalOpen(true); }}
               >
-                Xem
+                Thêm Phụ kiện
               </Button>
-              {canCheckout && (
-                <Button
-                  size="middle"
-                  type="primary"
-                  ghost
-                  icon={<SendOutlined />}
-                  onClick={(e) => { e.stopPropagation(); openCheckout(record); }}
-                  disabled={record.remaining <= 0}
-                >
-                  Cấp phát
-                </Button>
-              )}
-              {canCheckout && (
-                <Button
-                  size="middle"
-                  icon={<RollbackOutlined />}
-                  onClick={(e) => { e.stopPropagation(); openCheckin(record); }}
-                  disabled={record.checkedOutQty <= 0}
-                >
-                  Thu hồi
-                </Button>
-              )}
-              {canDelete && (
-                <Popconfirm
-                  title="Xóa phụ kiện này?"
-                  description="Hành động này không thể hoàn tác."
-                  onConfirm={() => handleDelete(record.id)}
-                  okText="Xóa"
-                  okButtonProps={{ danger: true }}
-                  cancelText="Hủy"
-                >
-                  <Button size="middle" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()}
-                    disabled={record.checkedOutQty > 0}>
-                    Xóa
-                  </Button>
-                </Popconfirm>
-              )}
-            </Space>
-          </Card>
-        )}
-      />
+            ),
+          ]}
+          request={async (params, sort) => {
+            try {
+              const { current, pageSize, ...rest } = params;
+              // [ACCESSORY-SORT 2026-10-21] Server-side sort only — ProTable holds no client sorter,
+              // it just forwards the single active column. Server whitelists name/itemNo.
+              const sortEntry = Object.entries(sort ?? {}).find(([, order]) => order === 'ascend' || order === 'descend');
+              const sortBy = sortEntry?.[0];
+              const sortDir = sortEntry?.[1] === 'descend' ? 'desc' : 'asc';
+              const res = await accessoriesApi.list({
+                ...rest, page: current, pageSize,
+                ...(sortBy ? { sortBy, sortDir } : {}),
+              });
+              return {
+                data: res.data.data,
+                success: true,
+                total: res.data.pagination?.totalItems ?? 0,
+              };
+            } catch {
+              void message.error('Không thể tải danh sách phụ kiện');
+              return { data: [], success: false, total: 0 };
+            }
+          }}
+          pagination={{
+            defaultPageSize: 12,
+            showSizeChanger: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} mục`,
+          }}
+          locale={{ emptyText: <Empty description="Không tìm thấy phụ kiện phù hợp" /> }}
+          scroll={{ x: 'max-content' }}
+        />
+      )}
 
       {/* Checkout Modal */}
       <AccessoryCheckoutModal

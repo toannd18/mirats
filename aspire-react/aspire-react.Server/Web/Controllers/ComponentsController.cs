@@ -43,9 +43,10 @@ public class ComponentsController : ControllerBase
     public async Task<IActionResult> GetComponents([FromQuery] string? search, [FromQuery] Guid? categoryId,
         [FromQuery] Guid? companyId, [FromQuery] Guid? locationId,
         [FromQuery] bool uncategorized = false, [FromQuery] bool uncompanied = false,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null)
     {
-        var result = await _mediator.Send(new ListComponentsQuery(search, categoryId, companyId, locationId, uncategorized, uncompanied, page, pageSize));
+        var result = await _mediator.Send(new ListComponentsQuery(search, categoryId, companyId, locationId, uncategorized, uncompanied, page, pageSize, sortBy, sortDir));
         return Ok(new { status = "success", data = result.Items, pagination = new { page, pageSize, totalItems = result.Total, totalPages = (int)Math.Ceiling((double)result.Total / pageSize), hasNextPage = page * pageSize < result.Total, hasPreviousPage = page > 1 } });
     }
 

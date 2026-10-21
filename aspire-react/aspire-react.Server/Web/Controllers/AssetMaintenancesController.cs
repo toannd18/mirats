@@ -61,9 +61,11 @@ public class AssetMaintenancesController : ControllerBase
 
     [HttpGet("maintenances")]
     [Authorize(Policy = "assets.view")]
-    public async Task<IActionResult> GetAllMaintenances([FromQuery] Guid? assetId, [FromQuery] Guid? systemInfoId = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    public async Task<IActionResult> GetAllMaintenances([FromQuery] Guid? assetId, [FromQuery] Guid? systemInfoId = null,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null)
     {
-        var result = await _mediator.Send(new ListAllMaintenancesQuery(assetId, systemInfoId, page, pageSize));
+        var result = await _mediator.Send(new ListAllMaintenancesQuery(assetId, systemInfoId, page, pageSize, sortBy, sortDir));
 
         return Ok(new { status = "success", data = result.Items, pagination = new { page, pageSize, totalItems = result.Total, totalPages = (int)Math.Ceiling((double)result.Total / pageSize), hasNextPage = page * pageSize < result.Total, hasPreviousPage = page > 1 } });
     }

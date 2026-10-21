@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -14,9 +15,44 @@ public record AllMaintenanceListResult(IReadOnlyList<AllMaintenanceListItemDto> 
 /// Company-scoping verbatim: regular user sees own-company OR floater sentinel
 /// (m.CompanyId == Guid.Empty — maintenance CompanyId is non-nullable, server-set);
 /// superuser (scope → null) sees all. No failure modes (always 200).
+/// SortBy/SortDir mirror the Asset list contract (whitelist in <see cref="MaintenanceListSort"/>);
+/// omitted/unknown values fall back to newest-created first (CreatedAt desc).
 /// </summary>
-public record ListAllMaintenancesQuery(Guid? AssetId, Guid? SystemInfoId, int Page = 1, int PageSize = 20)
-    : IRequest<AllMaintenanceListResult>;
+public record ListAllMaintenancesQuery(
+    Guid? AssetId,
+    Guid? SystemInfoId,
+    int Page = 1,
+    int PageSize = 20,
+    string? SortBy = null,
+    string? SortDir = null) : IRequest<AllMaintenanceListResult>;
+
+/// <summary>
+/// Whitelist server-side sort for the maintenance list (pattern: <c>AssetListSort</c>).
+/// Accepted keys (case-insensitive): <c>title</c>, <c>startdate</c>, <c>completiondate</c>,
+/// <c>cost</c>, <c>createdat</c>. Default (no/unknown key) = newest-created first.
+/// Nullable columns (CompletionDate, Cost) keep NULLs last in BOTH directions so empty values
+/// never float to the top of the list.
+/// </summary>
+public static class MaintenanceListSort
+{
+    public static IOrderedQueryable<AssetMaintenance> Apply(IQueryable<AssetMaintenance> query, string? sortBy, bool desc)
+    {
+        var key = sortBy?.Trim().ToLowerInvariant();
+        return key switch
+        {
+            "title" => desc ? query.OrderByDescending(m => m.Title) : query.OrderBy(m => m.Title),
+            "startdate" => desc ? query.OrderByDescending(m => m.StartDate) : query.OrderBy(m => m.StartDate),
+            "completiondate" => desc
+                ? query.OrderByDescending(m => m.CompletionDate.HasValue).ThenByDescending(m => m.CompletionDate)
+                : query.OrderByDescending(m => m.CompletionDate.HasValue).ThenBy(m => m.CompletionDate),
+            "cost" => desc
+                ? query.OrderByDescending(m => m.Cost.HasValue).ThenByDescending(m => m.Cost)
+                : query.OrderByDescending(m => m.Cost.HasValue).ThenBy(m => m.Cost),
+            "createdat" => desc ? query.OrderByDescending(m => m.CreatedAt) : query.OrderBy(m => m.CreatedAt),
+            _ => query.OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.StartDate),
+        };
+    }
+}
 
 public class ListAllMaintenancesQueryHandler : IRequestHandler<ListAllMaintenancesQuery, AllMaintenanceListResult>
 {
@@ -48,7 +84,12 @@ public class ListAllMaintenancesQueryHandler : IRequestHandler<ListAllMaintenanc
             query = query.Where(m => m.CompanyId == userCompanyId.Value || m.CompanyId == Guid.Empty);
 
         var total = await query.CountAsync(cancellationToken);
-        var items = await query.OrderByDescending(m => m.StartDate).ThenByDescending(m => m.CreatedAt)
+
+        // Whitelist sort (pattern: AssetListSort). No/unknown SortBy → newest-created first.
+        var desc = string.Equals(request.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
+        query = MaintenanceListSort.Apply(query, request.SortBy, desc);
+
+        var items = await query
             .Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
             .Select(m => new AllMaintenanceListItemDto(
                 m.Id,
@@ -60,6 +101,8 @@ public class ListAllMaintenancesQueryHandler : IRequestHandler<ListAllMaintenanc
                 m.Cost,
                 m.IsWarranty,
                 m.IsClosed,
+                m.ClosedAt,
+                m.ClosedById,
                 m.CompanyId,
                 m.Supplier == null ? null : new MaintenanceSupplierRefDto(m.Supplier.Id, m.Supplier.Name),
                 new MaintenanceAssetWithCompanyRefDto(m.Asset.Id, m.Asset.AssetTag, m.Asset.Name, m.Asset.Company != null ? m.Asset.Company.Name : null),

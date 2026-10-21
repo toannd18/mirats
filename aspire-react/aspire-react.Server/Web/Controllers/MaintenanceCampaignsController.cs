@@ -57,9 +57,12 @@ public class MaintenanceCampaignsController : ControllerBase
 
     [HttpGet]
     [Authorize(Policy = "maintenance.view")]
-    public async Task<IActionResult> GetAll([FromQuery] Guid? systemInfoId)
+    public async Task<IActionResult> GetAll(
+        [FromQuery] Guid? systemInfoId,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null)
     {
-        var result = await _mediator.Send(new ListMaintenanceCampaignsQuery(systemInfoId));
+        var result = await _mediator.Send(new ListMaintenanceCampaignsQuery(systemInfoId, sortBy, sortDir));
         return Ok(new { status = "success", data = result.Items });
     }
 

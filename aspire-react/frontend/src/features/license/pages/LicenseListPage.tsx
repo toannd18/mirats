@@ -1,33 +1,80 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  App, Button, Card, Divider, Empty, Input, Popconfirm, Select, Space, Tag, Typography,
+  App, Button, Card, Empty, Space, Tag, Tooltip, Typography,
 } from 'antd';
-import { ProList } from '@ant-design/pro-components';
-import type { ActionType } from '@ant-design/pro-components';
+import type { MenuProps } from 'antd';
 import {
-  PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined, EyeOutlined,
-  SendOutlined, TeamOutlined, InboxOutlined, CalendarOutlined, EnvironmentOutlined,
-  AlertOutlined, SafetyCertificateOutlined, FileTextOutlined,
+  PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined,
+  TeamOutlined, InboxOutlined, CalendarOutlined, EnvironmentOutlined,
+  AlertOutlined, SafetyCertificateOutlined,
 } from '@ant-design/icons';
+import { ProList, ProTable } from '@ant-design/pro-components';
+import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../../../services/api-client';
 import { licensesApi, type LicenseListItem } from '../services/licenses.service';
 import { usePermission } from '../../../hooks/usePermission';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import { isSuperUser } from '../../../features/auth/services/auth';
-import { formatNumber } from '../../../utils/format';
+import { formatDate, formatNumber } from '../../../utils/format';
 import LicenseFormModal from '../components/LicenseFormModal';
 import LicenseDetailModal from '../components/LicenseDetailModal';
 import LicenseCheckoutModal from '../components/LicenseCheckoutModal';
+import ListRowActions from '../../../shared/components/list/ListRowActions';
+import { EllipsisText, NowrapText } from '../../../shared/components/list/ListText';
+import { useListColumnsState } from '../../../shared/hooks/useListColumnsState';
 import { statusColors, uiColors, cardBadgeGradients } from '../../../theme/designTokens';
-import { formatDate } from '../../../utils/format';
-import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text, Title } = Typography;
 
 // CategoryType.License = 5
 const LICENSE_CATEGORY_TYPE = 5;
 // Fallback icon color when a License has no category — or its category has no tagColor.
 const DEFAULT_CATEGORY_COLOR = '#2f54eb';
+
+// Versioned ProTable column state — bump the key whenever the DEFAULT column set changes.
+const COLUMN_STATE_KEY = 'license-list-columns-v2';
+// Columns hidden by default; when any of them is enabled the actions column stops being
+// `fixed: 'right'` (otherwise it overlaps the extra content on narrower screens).
+const OPTIONAL_COLUMN_KEYS = [
+  'category', 'manufacturer', 'supplier', 'company', 'purchaseDate', 'reassignable', 'notes',
+] as const;
+
+const DEFAULT_COLUMN_STATE: Record<string, { show: boolean }> = {
+  name: { show: true },
+  serial: { show: true },
+  seats: { show: true },
+  assignedSeats: { show: true },
+  availableSeats: { show: true },
+  expirationDate: { show: true },
+  category: { show: false },
+  manufacturer: { show: false },
+  supplier: { show: false },
+  company: { show: false },
+  purchaseDate: { show: false },
+  reassignable: { show: false },
+  notes: { show: false },
+  actions: { show: true },
+};
+
+function readOptionalColumnsVisible(): boolean {
+  try {
+    const raw = localStorage.getItem(COLUMN_STATE_KEY);
+    if (!raw) return false;
+    const state = JSON.parse(raw) as Record<string, { show?: boolean }>;
+    return OPTIONAL_COLUMN_KEYS.some((key) => state[key]?.show === true);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `LicenseListItemDto` ships PurchaseDate; the intersection keeps the row type tolerant if an
+ * older API build omits it (the column then renders "-" instead of breaking the build).
+ */
+type LicenseRow = LicenseListItem & { purchaseDate?: string | null };
+
+interface CompanyNodeLite { id: string; name: string; children?: CompanyNodeLite[] }
 
 function ExpiryCell({ row }: { row: LicenseListItem }) {
   if (row.isExpired) {
@@ -100,7 +147,8 @@ function badgeBackground(color?: string): string {
 // ==================== Component ====================
 
 export default function LicenseListPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
   // Deep-linkable create/edit/detail: /licenses/new, /licenses/:id/edit, /licenses/:id render this
@@ -114,17 +162,16 @@ export default function LicenseListPage() {
   const detailModalOpen = !!detailLicenseId && detailLicenseId !== 'new' && !formModalOpen;
 
   const actionRef = useRef<ActionType>(null);
-  const [search, setSearch] = useState('');
-  const [categoryId, setCategoryId] = useState<string | undefined>(undefined);
-  const [companyId, setCompanyId] = useState<string | undefined>(undefined);
-  const [expiringFilter, setExpiringFilter] = useState<string | undefined>(undefined);
-  const [lowSeatsFilter, setLowSeatsFilter] = useState<string | undefined>(undefined);
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   // categoryId → tagColor (hex). Built from /categories (which returns TagColor); the license
   // list API only ships category {id, name}, so the color is resolved client-side via this map.
   const [categoryColorById, setCategoryColorById] = useState<Record<string, string>>({});
   // Cấp phát opens in place via local state (bài học Task A — không navigate).
   const [checkoutLicense, setCheckoutLicense] = useState<LicenseListItem | null>(null);
+
+  // Approved UI-1 pattern: the primary action stays `fixed: 'right'` only while every
+  // optional (wide) column is hidden.
+  const [optionalColumnsVisible, setOptionalColumnsVisible] = useState(readOptionalColumnsVisible);
 
   // ST6b — permission gating (mirrors backend [Authorize(Policy=...)]).
   const canCreate = usePermission('licenses.create');
@@ -144,324 +191,528 @@ export default function LicenseListPage() {
         setCategoryColorById(map);
       })
       .catch(() => { /* non-critical */ });
-  }, [superUser]);
+  }, []);
 
-  // Shared fetch path for the Card list — search/category/company/expiring/lowSeats stay
-  // state-driven (server-side filters); only the UI layer changed to a Card List.
-  const buildParams = (current?: number, pageSize?: number): Record<string, unknown> => {
-    const reqParams: Record<string, unknown> = { search, page: current ?? 1, pageSize: pageSize ?? 12 };
-    if (categoryId) reqParams.categoryId = categoryId;
-    if (companyId) reqParams.companyId = companyId;
-    if (expiringFilter) reqParams.expiringSoon = expiringFilter === 'yes';
-    if (lowSeatsFilter) reqParams.lowSeats = lowSeatsFilter === 'yes';
-    return reqParams;
+  // ──── Data loading: search/category/company/expiring/lowSeats/sort are ALL server-side.
+  // Sorting is never done in the client (no sorter functions) — the whitelist lives in the API
+  // (`licenseListSort`: name, serial, seats, expirationdate, createdat). ────
+
+  const fetchPage = async (params: Record<string, unknown>, sort?: Record<string, unknown>) => {
+    const { current, pageSize, expiringSoon, lowSeats, ...rest } = params;
+    const reqParams: Record<string, unknown> = {
+      ...rest,
+      page: current ?? 1,
+      pageSize: pageSize ?? 12,
+    };
+    // ProTable's sort object → API `sortBy`/`sortDir` (only for whitelisted, DB-backed columns).
+    const sortEntry = Object.entries(sort ?? {}).find(([, order]) => order === 'ascend' || order === 'descend');
+    const sortBy = sortEntry?.[0];
+    if (sortBy) {
+      reqParams.sortBy = sortBy;
+      reqParams.sortDir = sortEntry?.[1] === 'descend' ? 'desc' : 'asc';
+    }
+    // The search form uses 'yes' sentinel values — the API expects booleans.
+    if (expiringSoon === 'yes') reqParams.expiringSoon = true;
+    if (lowSeats === 'yes') reqParams.lowSeats = true;
+    // Drop empty filter values so a cleared field never becomes `search=`/`categoryId=`.
+    Object.keys(reqParams).forEach((key) => {
+      const value = reqParams[key];
+      if (value === undefined || value === null || value === '') delete reqParams[key];
+    });
+
+    const res = await licensesApi.list(reqParams);
+    return {
+      data: (res.data.data ?? []) as LicenseRow[],
+      total: res.data.pagination?.totalItems ?? 0,
+    };
   };
 
-  const fetchPage = async (current?: number, pageSize?: number) => {
-    const res = await licensesApi.list(buildParams(current, pageSize));
-    return { data: res.data.data as LicenseListItem[], total: res.data.pagination?.totalItems ?? 0 };
+  const handleRequest = async (params: Record<string, unknown>, sort?: Record<string, unknown>) => {
+    try {
+      const { data, total } = await fetchPage(params, sort);
+      return { data, total, success: true };
+    } catch {
+      void message.error('Lỗi tải danh sách bản quyền');
+      return { data: [] as LicenseRow[], total: 0, success: false };
+    }
   };
 
   const reload = () => actionRef.current?.reload();
 
-  const handleDelete = async (id: string) => {
-    try {
-      await licensesApi.delete(id);
-      void message.success('Đã xóa bản quyền');
-      actionRef.current?.reload();
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      void message.error(e?.response?.data?.message ?? 'Lỗi xóa');
-    }
+  // ──── Row actions: one outlined/default fixed-width primary + ⋯ menu ────
+
+  const confirmDelete = (record: LicenseRow) => {
+    modal.confirm({
+      title: 'Xóa bản quyền này?',
+      content: 'Hành động này không thể hoàn tác.',
+      okText: 'Xóa',
+      cancelText: 'Hủy',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await licensesApi.delete(record.id);
+          void message.success('Đã xóa bản quyền');
+          reload();
+        } catch (err: unknown) {
+          const e = err as { response?: { data?: { message?: string } } };
+          void message.error(e?.response?.data?.message ?? 'Lỗi xóa');
+          throw new Error('delete failed');
+        }
+      },
+    });
   };
 
-  return (
-    <div>
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input
-          placeholder="Tìm kiếm..."
-          prefix={<SearchOutlined />}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          onPressEnter={() => reload()}
-          style={{ width: 220, maxWidth: '100%' }}
-        />
-        <Select
-          allowClear
-          placeholder="Lọc danh mục"
-          style={{ minWidth: 170, maxWidth: '100%' }}
-          value={categoryId}
-          onChange={v => { setCategoryId(v); actionRef.current?.reload(); }}
-          options={categoryOptions}
-          filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
-        />
-        <Select
-          allowClear
-          placeholder="Cảnh báo hết hạn"
-          style={{ minWidth: 170, maxWidth: '100%' }}
-          value={expiringFilter}
-          onChange={v => { setExpiringFilter(v); actionRef.current?.reload(); }}
-          options={[{ label: 'Sắp hết hạn / đã hết hạn', value: 'yes' }]}
-        />
-        <Select
-          allowClear
-          placeholder="Còn ít ghế"
-          style={{ minWidth: 150, maxWidth: '100%' }}
-          value={lowSeatsFilter}
-          onChange={v => { setLowSeatsFilter(v); actionRef.current?.reload(); }}
-          options={[{ label: 'Còn ≤ ngưỡng', value: 'yes' }]}
-        />
-        {superUser && (
-          <CompanyTreeSelect
-            placeholder="Lọc công ty"
-            value={companyId}
-            onChange={v => { setCompanyId(v); actionRef.current?.reload(); }}
-          />
-        )}
-      </Space>
+  const rowMenuItems = (record: LicenseRow): MenuProps['items'] => {
+    const items: NonNullable<MenuProps['items']> = [];
+    if (canEdit) {
+      items.push({
+        key: 'edit',
+        label: 'Sửa',
+        icon: <EditOutlined />,
+        onClick: () => navigate(`/licenses/${record.id}/edit`),
+      });
+    }
+    if (canDelete) {
+      items.push({
+        key: 'delete',
+        label: 'Xóa',
+        icon: <DeleteOutlined />,
+        danger: true,
+        onClick: () => confirmDelete(record),
+      });
+    }
+    return items;
+  };
 
-      <ProList<LicenseListItem>
-        headerTitle={
-          <Title level={4} style={{ margin: 0 }}>
-            Bản quyền
-          </Title>
-        }
-        actionRef={actionRef}
-        rowKey="id"
-        ghost
-        cardProps={false}
-        search={false}
-        locale={{ emptyText: <Empty description="Không có bản quyền" /> }}
-        grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3, xxl: 3 }}
-        toolBarRender={() => [
-          canCreate && (
-            <Button
-              key="create"
-              type="primary"
-              size="middle"
-              icon={<PlusOutlined />}
-              onClick={() => navigate('/licenses/new')}
-            >
-              Tạo bản quyền
-            </Button>
-          ),
-        ]}
-        request={async (params) => {
-          try {
-            const { current, pageSize } = params;
-            const { data, total } = await fetchPage(current, pageSize);
-            return { data, total, success: true };
-          } catch {
-            void message.error('Lỗi tải danh sách bản quyền');
-            return { data: [], total: 0, success: false };
-          }
-        }}
-        pagination={{
-          defaultPageSize: 12,
-          showSizeChanger: true,
-          showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} mục`,
-        }}
-        itemRender={(record) => {
-          // Icon/badge color comes DIRECTLY from this License's category tagColor (dynamic —
-          // NOT a hardcoded/fixed palette). Fallback when no category / empty color.
-          const categoryColor = record.category?.id ? categoryColorById[record.category.id] : undefined;
-          const hasColor = !!categoryColor;
-          return (
-            <Card
-              hoverable
+  const renderRowActions = (record: LicenseRow, stopPropagation = false) => {
+    const menuItems = rowMenuItems(record);
+    const primary = canCheckout ? {
+      key: 'checkout',
+      label: 'Cấp phát',
+      icon: <SendOutlined />,
+      onClick: () => setCheckoutLicense(record),
+    } : null;
+
+    // No free seat ⇒ keep the primary visible but inert (a license row has no meaningful
+    // "Thu hồi" — recall happens per seat in the detail screen). ListRowActions has no
+    // `disabled` flag yet, so the disabled button is rendered locally with the same
+    // fixed-width outlined style, while the ⋯ menu still comes from the shared component.
+    if (primary && record.availableSeats <= 0) {
+      return (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Button size="small" style={{ width: 104 }} icon={<SendOutlined />} disabled>
+            Cấp phát
+          </Button>
+          {menuItems && menuItems.length > 0 && (
+            <ListRowActions menuItems={menuItems} stopPropagation={stopPropagation} />
+          )}
+        </div>
+      );
+    }
+
+    return <ListRowActions primary={primary} menuItems={menuItems} stopPropagation={stopPropagation} />;
+  };
+
+  // ──── Search form (desktop expanded, mobile collapsed) ────
+
+  const searchColumns: ProColumns<LicenseRow>[] = [
+    {
+      title: 'Tìm kiếm',
+      dataIndex: 'search',
+      valueType: 'text',
+      hideInTable: true,
+      fieldProps: { placeholder: 'Tên, số serial...' },
+    },
+    {
+      title: 'Danh mục',
+      dataIndex: 'categoryId',
+      valueType: 'select',
+      hideInTable: true,
+      fieldProps: {
+        options: categoryOptions,
+        showSearch: true,
+        allowClear: true,
+        filterOption: (input: string, option?: { label?: string }) =>
+          (option?.label ?? '').toLowerCase().includes(input.toLowerCase()),
+      },
+    },
+    {
+      title: 'Cảnh báo hết hạn',
+      dataIndex: 'expiringSoon',
+      valueType: 'select',
+      hideInTable: true,
+      fieldProps: { options: [{ label: 'Sắp hết hạn / đã hết hạn', value: 'yes' }], allowClear: true },
+    },
+    {
+      title: 'Còn ít ghế',
+      dataIndex: 'lowSeats',
+      valueType: 'select',
+      hideInTable: true,
+      fieldProps: { options: [{ label: 'Còn ≤ ngưỡng', value: 'yes' }], allowClear: true },
+    },
+    ...(superUser ? [{
+      title: 'Công ty',
+      dataIndex: 'companyId',
+      valueType: 'select',
+      hideInTable: true,
+      fieldProps: { showSearch: true, allowClear: true },
+      request: async () => {
+        const res = await apiClient.get('/companies');
+        const flat: { label: string; value: string }[] = [];
+        const walk = (nodes: CompanyNodeLite[], depth: number) => {
+          nodes.forEach((node) => {
+            flat.push({ label: `${'— '.repeat(depth)}${node.name}`, value: node.id });
+            if (node.children?.length) walk(node.children, depth + 1);
+          });
+        };
+        walk((res.data?.data ?? []) as CompanyNodeLite[], 0);
+        return flat;
+      },
+    } as ProColumns<LicenseRow>] : []),
+  ];
+
+  // ──── Desktop columns — defaults: Tên, Số serial, Tổng ghế, Đã cấp, Còn lại, Hết hạn ────
+
+  const columns: ProColumns<LicenseRow>[] = ([
+    {
+      title: 'Tên',
+      dataIndex: 'name',
+      key: 'name',
+      width: 200,
+      sorter: true,
+      render: (_, record) => {
+        const text = record.name || '-';
+        return (
+          <Tooltip title={text} placement="topLeft">
+            <Typography.Link
               onClick={() => navigate(`/licenses/${record.id}`)}
-              style={{
-                borderRadius: 12,
-                marginBottom: 16,
-                cursor: 'pointer',
-                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-              }}
-              styles={{ body: { padding: '20px 20px 16px' } }}
+              style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
-              {/* ── Header: icon (category color) + name + serial chip ── */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                <div style={{ ...iconBadgeStyle, background: badgeBackground(categoryColor) }}>
-                  <SafetyCertificateOutlined
-                    style={{ fontSize: 22, color: categoryColor || DEFAULT_CATEGORY_COLOR }}
-                  />
+              {text}
+            </Typography.Link>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: 'Số serial',
+      dataIndex: 'serial',
+      key: 'serial',
+      width: 170,
+      sorter: true,
+      render: (_, record) => <NowrapText code value={record.serial} />,
+    },
+    {
+      title: 'Tổng ghế',
+      dataIndex: 'seats',
+      key: 'seats',
+      width: 90,
+      align: 'right',
+      sorter: true,
+      render: (_, record) => <Text style={{ whiteSpace: 'nowrap' }}>{formatNumber(record.seats)}</Text>,
+    },
+    {
+      title: 'Đã cấp',
+      dataIndex: 'assignedSeats',
+      key: 'assignedSeats',
+      width: 90,
+      align: 'right',
+      render: (_, record) => <Text style={{ whiteSpace: 'nowrap' }}>{formatNumber(record.assignedSeats)}</Text>,
+    },
+    {
+      title: 'Còn lại',
+      dataIndex: 'availableSeats',
+      key: 'availableSeats',
+      width: 100,
+      align: 'right',
+      render: (_, record) => (
+        <Text
+          strong
+          style={{
+            whiteSpace: 'nowrap',
+            color: record.availableSeats > 0 ? statusColors.ready : statusColors.overdue,
+          }}
+        >
+          {formatNumber(record.availableSeats)}
+        </Text>
+      ),
+    },
+    {
+      title: 'Hết hạn',
+      dataIndex: 'expirationDate',
+      key: 'expirationDate',
+      width: 170,
+      sorter: true,
+      render: (_, record) => <ExpiryCell row={record} />,
+    },
+    {
+      title: 'Danh mục',
+      key: 'category',
+      width: 150,
+      render: (_, record) => <EllipsisText value={record.category?.name} />,
+    },
+    {
+      title: 'Nhà SX',
+      key: 'manufacturer',
+      width: 150,
+      render: (_, record) => <EllipsisText value={record.manufacturer?.name} />,
+    },
+    {
+      title: 'Nhà cung cấp',
+      key: 'supplier',
+      width: 150,
+      render: (_, record) => <EllipsisText value={record.supplier?.name} />,
+    },
+    ...(superUser ? [{
+      title: 'Công ty',
+      key: 'company',
+      width: 160,
+      render: (_: unknown, record: LicenseRow) => <EllipsisText value={record.company?.name} />,
+    } as ProColumns<LicenseRow>] : []),
+    {
+      title: 'Ngày mua',
+      key: 'purchaseDate',
+      width: 120,
+      render: (_, record) => formatDate(record.purchaseDate),
+    },
+    {
+      title: 'Có thể cấp lại',
+      dataIndex: 'reassignable',
+      key: 'reassignable',
+      width: 130,
+      render: (_, record) => (
+        <Tag color={record.reassignable ? 'green' : 'default'}>{record.reassignable ? 'Có' : 'Không'}</Tag>
+      ),
+    },
+    {
+      title: 'Ghi chú',
+      dataIndex: 'notes',
+      key: 'notes',
+      width: 220,
+      render: (_, record) => <EllipsisText value={record.notes} />,
+    },
+    {
+      title: 'Thao tác',
+      key: 'actions',
+      width: 150,
+      fixed: optionalColumnsVisible ? undefined : 'right',
+      render: (_, record) => renderRowActions(record),
+    },
+  ] as ProColumns<LicenseRow>[]).map((column) => ({ ...column, search: false, hideInSearch: true }));
+
+  const columnsState = useListColumnsState(COLUMN_STATE_KEY, DEFAULT_COLUMN_STATE);
+
+  return (
+    <>
+      {isMobile ? (
+        <ProList<LicenseRow>
+          headerTitle={<Title level={4} style={{ margin: 0 }}>Bản quyền</Title>}
+          actionRef={actionRef}
+          rowKey="id"
+          ghost
+          cardProps={false}
+          columns={searchColumns}
+          grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3, xxl: 3 }}
+          search={{ labelWidth: 'auto', defaultCollapsed: true }}
+          locale={{ emptyText: <Empty description="Không có bản quyền" /> }}
+          toolBarRender={() => [
+            canCreate && (
+              <Button
+                key="create"
+                type="primary"
+                size="middle"
+                icon={<PlusOutlined />}
+                onClick={() => navigate('/licenses/new')}
+              >
+                Tạo bản quyền
+              </Button>
+            ),
+          ]}
+          request={handleRequest}
+          pagination={{
+            defaultPageSize: 12,
+            showSizeChanger: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} mục`,
+          }}
+          itemRender={(record) => {
+            // Icon/badge color comes DIRECTLY from this License's category tagColor (dynamic —
+            // NOT a hardcoded/fixed palette). Fallback when no category / empty color.
+            const categoryColor = record.category?.id ? categoryColorById[record.category.id] : undefined;
+            const hasColor = !!categoryColor;
+            return (
+              <Card
+                hoverable
+                onClick={() => navigate(`/licenses/${record.id}`)}
+                style={{
+                  borderRadius: 12,
+                  marginBottom: 16,
+                  cursor: 'pointer',
+                  transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                }}
+                styles={{ body: { padding: '20px 20px 16px' } }}
+              >
+                {/* ── Header: icon (category color) + name + serial chip ── */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                  <div style={{ ...iconBadgeStyle, background: badgeBackground(categoryColor) }}>
+                    <SafetyCertificateOutlined
+                      style={{ fontSize: 22, color: categoryColor || DEFAULT_CATEGORY_COLOR }}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                      <Text strong style={{ fontSize: 16, lineHeight: 1.4 }}>
+                        <Link to={`/licenses/${record.id}`}>{record.name}</Link>
+                      </Text>
+                      {record.serial && (
+                        <Text
+                          type="secondary"
+                          style={{
+                            fontSize: 12,
+                            fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
+                            background: '#f5f5f5',
+                            padding: '1px 8px',
+                            borderRadius: 4,
+                            border: '1px solid #e8e8e8',
+                            whiteSpace: 'nowrap',
+                            maxWidth: '100%',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {record.serial}
+                        </Text>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                    <Text strong style={{ fontSize: 16, lineHeight: 1.4 }}>
-                      <Link to={`/licenses/${record.id}`}>{record.name}</Link>
-                    </Text>
-                    {record.serial && (
-                      <Text
-                        type="secondary"
-                        style={{
-                          fontSize: 12,
-                          fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
-                          background: '#f5f5f5',
-                          padding: '1px 8px',
-                          borderRadius: 4,
-                          border: '1px solid #e8e8e8',
-                          whiteSpace: 'nowrap',
-                          maxWidth: '100%',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {record.serial}
+
+                {/* ── Tags (category tag also uses the dynamic category color) ── */}
+                <Space size={[4, 4]} wrap style={{ marginBottom: 12, paddingLeft: 60 }}>
+                  {record.category?.name && (
+                    <Tag color={hasColor ? categoryColor : 'default'} style={{ borderRadius: 4, margin: 0 }}>
+                      {record.category.name}
+                    </Tag>
+                  )}
+                  {record.isExpired ? (
+                    <Tag color="red" style={{ borderRadius: 4, margin: 0 }}>
+                      Hết hạn {formatDate(record.expirationDate)}
+                    </Tag>
+                  ) : record.expiringSoon ? (
+                    <Tag color="orange" style={{ borderRadius: 4, margin: 0 }}>
+                      Sắp hết hạn {formatDate(record.expirationDate)}
+                    </Tag>
+                  ) : null}
+                  {record.isLowSeats && (
+                    <Tag
+                      color="error"
+                      icon={<AlertOutlined />}
+                      style={{ borderRadius: 4, margin: 0, fontWeight: 500 }}
+                    >
+                      Còn ít ghế
+                    </Tag>
+                  )}
+                </Space>
+
+                {/* ── Data Grid ── */}
+                <div style={dataGridStyle}>
+                  <div style={dataRowStyle}>
+                    <TeamOutlined style={labelIconStyle} />
+                    <Text type="secondary" style={{ fontSize: 12 }}>Tổng ghế</Text>
+                  </div>
+                  <div style={dataRowStyle}>
+                    <Text strong style={{ fontSize: 14 }}>{formatNumber(record.seats)}</Text>
+                  </div>
+
+                  <div style={dataRowStyle}>
+                    <InboxOutlined style={labelIconStyle} />
+                    <Text type="secondary" style={{ fontSize: 12 }}>Còn trống</Text>
+                  </div>
+                  <div style={dataRowStyle}>
+                    {record.isLowSeats ? (
+                      <Text strong type="danger" style={{ fontSize: 15, lineHeight: 1 }}>
+                        {record.availableSeats}
+                        <Text type="secondary" style={{ fontSize: 11, marginLeft: 4, fontWeight: 400 }}>
+                          (ít)
+                        </Text>
+                      </Text>
+                    ) : (
+                      <Text strong style={{ fontSize: 14, color: record.availableSeats > 0 ? statusColors.ready : statusColors.overdue }}>
+                        {record.availableSeats}
                       </Text>
                     )}
                   </div>
-                </div>
-              </div>
 
-              {/* ── Tags (category tag also uses the dynamic category color) ── */}
-              <Space size={[4, 4]} wrap style={{ marginBottom: 12, paddingLeft: 60 }}>
-                {record.category?.name && (
-                  <Tag color={hasColor ? categoryColor : 'default'} style={{ borderRadius: 4, margin: 0 }}>
-                    {record.category.name}
-                  </Tag>
-                )}
-                {record.isExpired ? (
-                  <Tag color="red" style={{ borderRadius: 4, margin: 0 }}>
-                    Hết hạn {formatDate(record.expirationDate)}
-                  </Tag>
-                ) : record.expiringSoon ? (
-                  <Tag color="orange" style={{ borderRadius: 4, margin: 0 }}>
-                    Sắp hết hạn {formatDate(record.expirationDate)}
-                  </Tag>
-                ) : null}
-                {record.isLowSeats && (
-                  <Tag
-                    color="error"
-                    icon={<AlertOutlined />}
-                    style={{ borderRadius: 4, margin: 0, fontWeight: 500 }}
-                  >
-                    Còn ít ghế
-                  </Tag>
-                )}
-              </Space>
+                  <div style={dataRowStyle}>
+                    <CalendarOutlined style={labelIconStyle} />
+                    <Text type="secondary" style={{ fontSize: 12 }}>Ngày hết hạn</Text>
+                  </div>
+                  <div style={dataRowStyle}>
+                    <ExpiryCell row={record} />
+                  </div>
 
-              {/* ── Data Grid ── */}
-              <div style={dataGridStyle}>
-                <div style={dataRowStyle}>
-                  <TeamOutlined style={labelIconStyle} />
-                  <Text type="secondary" style={{ fontSize: 12 }}>Tổng ghế</Text>
-                </div>
-                <div style={dataRowStyle}>
-                  <Text strong style={{ fontSize: 14 }}>{formatNumber(record.seats)}</Text>
-                </div>
-
-                <div style={dataRowStyle}>
-                  <InboxOutlined style={labelIconStyle} />
-                  <Text type="secondary" style={{ fontSize: 12 }}>Còn trống</Text>
-                </div>
-                <div style={dataRowStyle}>
-                  {record.isLowSeats ? (
-                    <Text strong type="danger" style={{ fontSize: 15, lineHeight: 1 }}>
-                      {record.availableSeats}
-                      <Text type="secondary" style={{ fontSize: 11, marginLeft: 4, fontWeight: 400 }}>
-                        (ít)
-                      </Text>
-                    </Text>
-                  ) : (
-                    <Text strong style={{ fontSize: 14, color: record.availableSeats > 0 ? statusColors.ready : statusColors.overdue }}>
-                      {record.availableSeats}
-                    </Text>
+                  {superUser && (
+                    <>
+                      <div style={dataRowStyle}>
+                        <EnvironmentOutlined style={labelIconStyle} />
+                        <Text type="secondary" style={{ fontSize: 12 }}>Công ty</Text>
+                      </div>
+                      <div style={dataRowStyle}>
+                        {record.company?.name ? (
+                          <Text style={{ fontSize: 13, fontWeight: 500 }}>{record.company.name}</Text>
+                        ) : (
+                          <Text type="secondary" italic style={{ fontSize: 13 }}>Chưa xác định</Text>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
 
-                <div style={dataRowStyle}>
-                  <CalendarOutlined style={labelIconStyle} />
-                  <Text type="secondary" style={{ fontSize: 12 }}>Ngày hết hạn</Text>
+                {/* ── Actions (approved UI-1 cell: primary + ⋯ menu) ── */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                  {renderRowActions(record, true)}
                 </div>
-                <div style={dataRowStyle}>
-                  <ExpiryCell row={record} />
-                </div>
-
-                {superUser && (
-                  <>
-                    <div style={dataRowStyle}>
-                      <EnvironmentOutlined style={labelIconStyle} />
-                      <Text type="secondary" style={{ fontSize: 12 }}>Công ty</Text>
-                    </div>
-                    <div style={dataRowStyle}>
-                      {record.company?.name ? (
-                        <Text style={{ fontSize: 13, fontWeight: 500 }}>{record.company.name}</Text>
-                      ) : (
-                        <Text type="secondary" italic style={{ fontSize: 13 }}>Chưa xác định</Text>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {record.notes && (
-                  <>
-                    <div style={{ ...dataRowStyle, gridColumn: '1 / -1' }}>
-                      <FileTextOutlined style={labelIconStyle} />
-                      <Text type="secondary" style={{ fontSize: 12 }}>Ghi chú</Text>
-                    </div>
-                    <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
-                      <Paragraph
-                        ellipsis={{ rows: 2, tooltip: record.notes }}
-                        style={{ fontSize: 13, margin: 0 }}
-                      >
-                        {record.notes}
-                      </Paragraph>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* ── Divider + Actions ── */}
-              <Divider style={{ margin: '12px 0' }} />
-
-              <Space size="small" wrap style={{ justifyContent: 'flex-end', width: '100%' }}>
-                {canCheckout && (
-                  <Button
-                    size="middle"
-                    type="primary"
-                    ghost
-                    icon={<SendOutlined />}
-                    onClick={(e) => { e.stopPropagation(); setCheckoutLicense(record); }}
-                    disabled={record.availableSeats <= 0}
-                  >
-                    Cấp phát
-                  </Button>
-                )}
-                <Button
-                  size="middle"
-                  icon={<EyeOutlined />}
-                  onClick={(e) => { e.stopPropagation(); navigate(`/licenses/${record.id}`); }}
-                >
-                  Chi tiết
-                </Button>
-                {canEdit && (
-                  <Button
-                    size="middle"
-                    icon={<EditOutlined />}
-                    onClick={(e) => { e.stopPropagation(); navigate(`/licenses/${record.id}/edit`); }}
-                  >
-                    Sửa
-                  </Button>
-                )}
-                {canDelete && (
-                  <Popconfirm
-                    title="Xóa bản quyền này?"
-                    description="Hành động này không thể hoàn tác."
-                    onConfirm={() => handleDelete(record.id)}
-                    okText="Xóa"
-                    okButtonProps={{ danger: true }}
-                    cancelText="Hủy"
-                  >
-                    <Button size="middle" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()}>
-                      Xóa
-                    </Button>
-                  </Popconfirm>
-                )}
-              </Space>
-            </Card>
-          );
-        }}
-      />
+              </Card>
+            );
+          }}
+        />
+      ) : (
+        <ProTable<LicenseRow>
+          headerTitle={<Title level={4} style={{ margin: 0 }}>Bản quyền</Title>}
+          actionRef={actionRef}
+          rowKey="id"
+          columns={[...searchColumns, ...columns]}
+          search={{ labelWidth: 'auto', defaultCollapsed: false }}
+          options={{ reload: true, density: true, setting: true }}
+          columnsState={{
+            ...columnsState,
+            onChange: (map) => {
+              const wide = OPTIONAL_COLUMN_KEYS.some((key) => map[key]?.show === true);
+              setTimeout(() => setOptionalColumnsVisible(wide), 0);
+            },
+          }}
+          toolBarRender={() => [
+            canCreate && (
+              <Button
+                key="create"
+                type="primary"
+                size="middle"
+                icon={<PlusOutlined />}
+                onClick={() => navigate('/licenses/new')}
+              >
+                Tạo bản quyền
+              </Button>
+            ),
+          ]}
+          request={handleRequest}
+          pagination={{
+            defaultPageSize: 12,
+            showSizeChanger: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} mục`,
+          }}
+          locale={{ emptyText: <Empty description="Không có bản quyền" /> }}
+          scroll={{ x: 'max-content' }}
+        />
+      )}
 
       {/* Cấp phát — mở tại chỗ (state cục bộ, không navigate); Task E: chọn thẳng SystemInfo. */}
       <LicenseCheckoutModal
@@ -474,7 +725,7 @@ export default function LicenseListPage() {
         onClose={() => setCheckoutLicense(null)}
         onSaved={() => {
           setCheckoutLicense(null);
-          actionRef.current?.reload();
+          reload();
         }}
       />
 
@@ -484,15 +735,15 @@ export default function LicenseListPage() {
         onClose={() => navigate('/licenses')}
         onSaved={() => {
           navigate('/licenses');
-          actionRef.current?.reload();
+          reload();
         }}
       />
       <LicenseDetailModal
         open={detailModalOpen}
         licenseId={detailLicenseId}
         onClose={() => navigate('/licenses')}
-        onSaved={() => actionRef.current?.reload()}
+        onSaved={() => reload()}
       />
-    </div>
+    </>
   );
 }

@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Sorting;
 using aspire_react.Server.Application.Licenses;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -21,7 +22,7 @@ public record LicenseSystemDto(Guid Id, string Code, string Name);
 
 public record LicenseListItemDto(
     Guid Id, string Name, string? Serial, string? Notes, int Seats, bool Reassignable,
-    DateTime? ExpirationDate, DateTime? TerminationDate, int? MinSeats,
+    DateTime? ExpirationDate, DateTime? TerminationDate, DateTime? PurchaseDate, int? MinSeats,
     int AssignedSeats, int AvailableSeats, bool ExpiringSoon, bool IsExpired, bool IsLowSeats,
     LicenseRefDto? Category, LicenseRefDto? Company, LicenseRefDto? Supplier, LicenseRefDto? Manufacturer);
 
@@ -35,7 +36,36 @@ public record LicenseListResult(IReadOnlyList<LicenseListItemDto> Items, int Tot
 /// POST-FILTER ON THE PAGE (quirk preserved — total stays unfiltered by those flags).
 /// </summary>
 public record ListLicensesQuery(string? Search, Guid? CategoryId, Guid? CompanyId, bool ExpiringSoon = false,
-    bool LowSeats = false, int Page = 1, int PageSize = 20) : IRequest<LicenseListResult>;
+    bool LowSeats = false, int Page = 1, int PageSize = 20, string? SortBy = null, string? SortDir = null)
+    : IRequest<LicenseListResult>;
+
+/// <summary>
+/// UI-1 — whitelist sort for the License list (mirrors AssetListSort/ConsumableListSort).
+/// Only DB-backed scalars are sortable: Name, Serial (natural ICU numeric collation so
+/// "LIC-2" sorts before "LIC-10"), Seats, ExpirationDate and CreatedAt. Computed columns
+/// (AvailableSeats / AssignedSeats / ExpiringSoon / IsLowSeats) are NEVER sorted here because
+/// they are not DB scalars — an unknown/missing sort falls back to newest-created first.
+/// </summary>
+public static class LicenseListSort
+{
+    public static IOrderedQueryable<License> Apply(IQueryable<License> query, string? sortBy, bool desc)
+    {
+        var key = sortBy?.Trim().ToLowerInvariant();
+        return key switch
+        {
+            "name" => desc ? query.OrderByDescending(l => l.Name) : query.OrderBy(l => l.Name),
+            "serial" => desc
+                ? query.OrderByDescending(l => EF.Functions.Collate(l.Serial, NaturalSort.Collation))
+                : query.OrderBy(l => EF.Functions.Collate(l.Serial, NaturalSort.Collation)),
+            "seats" => desc ? query.OrderByDescending(l => l.Seats) : query.OrderBy(l => l.Seats),
+            "expirationdate" => desc
+                ? query.OrderByDescending(l => l.ExpirationDate)
+                : query.OrderBy(l => l.ExpirationDate),
+            "createdat" => desc ? query.OrderByDescending(l => l.CreatedAt) : query.OrderBy(l => l.CreatedAt),
+            _ => query.OrderByDescending(l => l.CreatedAt).ThenBy(l => l.Id),
+        };
+    }
+}
 
 public class ListLicensesQueryHandler : IRequestHandler<ListLicensesQuery, LicenseListResult>
 {
@@ -67,13 +97,17 @@ public class ListLicensesQueryHandler : IRequestHandler<ListLicensesQuery, Licen
         var soon = now.AddDays(30);
 
         var total = await query.CountAsync(cancellationToken);
+
+        // UI-1 — whitelist sortable License list columns. Unknown values fall back to newest-created.
+        var desc = string.Equals(request.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
+        query = LicenseListSort.Apply(query, request.SortBy, desc);
+
         var items = await query
             .Include(l => l.LicenseSeats)
-            .OrderBy(l => l.Name)
             .Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
             .Select(l => new LicenseListItemDto(
                 l.Id, l.Name, l.Serial, l.Notes, l.Seats, l.Reassignable,
-                l.ExpirationDate, l.TerminationDate, l.MinSeats,
+                l.ExpirationDate, l.TerminationDate, l.PurchaseDate, l.MinSeats,
                 l.LicenseSeats.Count(s => s.UserId != null || s.AssetId != null || s.SystemInfoId != null),
                 l.Seats - l.LicenseSeats.Count(s => s.UserId != null || s.AssetId != null || s.SystemInfoId != null),
                 l.ExpirationDate != null && l.ExpirationDate <= soon && l.ExpirationDate > now,

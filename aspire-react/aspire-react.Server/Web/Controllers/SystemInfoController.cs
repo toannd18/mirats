@@ -31,10 +31,17 @@ public class SystemInfoController : ControllerBase
         return Guid.Empty;
     }
 
+    /// <summary>
+    /// Full list (NO paging) sorted SERVER-SIDE. <paramref name="sortBy"/> is whitelisted to
+    /// <c>code</c> (PostgreSQL natural/ICU order → SYS-2026-2 before SYS-2026-10) and <c>name</c>;
+    /// anything else falls back to the default = code natural ascending. <paramref name="sortDir"/>
+    /// is <c>asc</c> unless it is <c>desc</c> (case-insensitive).
+    /// </summary>
     [HttpGet, Authorize(Policy = "systems.view")]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll(
+        [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null)
     {
-        var list = await _mediator.Send(new ListSystemInfosQuery());
+        var list = await _mediator.Send(new ListSystemInfosQuery(sortBy, sortDir));
         return Ok(new { status = "success", data = list });
     }
 

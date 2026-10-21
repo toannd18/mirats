@@ -54,6 +54,8 @@ public class UsersController : ControllerBase
     /// <summary>
     /// Returns a paginated list of users with navigation names.
     /// [Giai đoạn 3] Thin MediatR mapping over ListUsersQuery (logic verbatim trong handler).
+    /// [SORT-API] Optional sortBy/sortDir → server-side sort (whitelist in UserListSort:
+    /// username/email/firstName/lastName/createdAt; default newest-created first).
     /// </summary>
     [HttpGet]
     [Authorize(Policy = "users.view")]
@@ -61,9 +63,11 @@ public class UsersController : ControllerBase
         [FromQuery] string? search,
         [FromQuery] Guid? companyId,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null)
     {
-        var result = await _mediator.Send(new ListUsersQuery(search, companyId, page, pageSize));
+        var result = await _mediator.Send(new ListUsersQuery(search, companyId, page, pageSize, sortBy, sortDir));
 
         return Ok(new
         {

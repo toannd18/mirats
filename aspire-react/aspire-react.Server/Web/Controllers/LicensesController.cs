@@ -40,9 +40,10 @@ public class LicensesController : ControllerBase
     [Authorize(Policy = "licenses.view")]
     public async Task<IActionResult> GetLicenses([FromQuery] string? search, [FromQuery] Guid? categoryId,
         [FromQuery] Guid? companyId, [FromQuery] bool expiringSoon = false, [FromQuery] bool lowSeats = false,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null)
     {
-        var result = await _mediator.Send(new ListLicensesQuery(search, categoryId, companyId, expiringSoon, lowSeats, page, pageSize));
+        var result = await _mediator.Send(new ListLicensesQuery(search, categoryId, companyId, expiringSoon, lowSeats, page, pageSize, sortBy, sortDir));
         return Ok(new { status = "success", data = result.Items, pagination = new { page, pageSize, totalItems = result.Total, totalPages = (int)Math.Ceiling((double)result.Total / pageSize), hasNextPage = page * pageSize < result.Total, hasPreviousPage = page > 1 } });
     }
 

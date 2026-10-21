@@ -48,6 +48,8 @@ public record AssetMaintenanceListItemDto(
 /// <summary>
 /// List item for GET /maintenances — verbatim projection (HAS IsClosed key, asset ref WITH
 /// CompanyName). Kept as a separate DTO so the asset-scoped list JSON gains no extra keys.
+/// [MAINT-LIST-SORT] ClosedAt/ClosedById added so the list matches <c>AssetMaintenanceDto</c> in
+/// the frontend (which already declares them) and the optional "Ngày đóng" column has a source.
 /// </summary>
 public record AllMaintenanceListItemDto(
     Guid Id,
@@ -59,6 +61,8 @@ public record AllMaintenanceListItemDto(
     decimal? Cost,
     bool IsWarranty,
     bool IsClosed,
+    DateTime? ClosedAt,
+    Guid? ClosedById,
     Guid CompanyId,
     MaintenanceSupplierRefDto? Supplier,
     MaintenanceAssetWithCompanyRefDto Asset,

@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  Alert, App, Button, Card, Col, DatePicker, Descriptions, Divider, Form, Input, Modal, Row, Select, Space, Spin, Tag, Tooltip, Typography,
+  Alert, App, Button, Card, Col, DatePicker, Descriptions, Divider, Form, Input, Modal, Row, Select, Space, Spin, Tag, Typography,
 } from 'antd';
-import { PlusOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
+import {
+  CheckCircleOutlined, EditOutlined, PlusOutlined, SafetyCertificateOutlined, UserOutlined,
+} from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useNavigate } from 'react-router-dom';
@@ -11,6 +14,9 @@ import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { formatDate } from '../../../utils/format';
+import ListRowActions, { type ListPrimaryAction } from '../../../shared/components/list/ListRowActions';
+import { EllipsisText } from '../../../shared/components/list/ListText';
+import { useListColumnsState } from '../../../shared/hooks/useListColumnsState';
 
 const { Text } = Typography;
 
@@ -19,16 +25,22 @@ interface CampaignDto {
   systemInfoId: string;
   systemInfoName: string;
   templateVersionId: string;
+  /** Tên template (entity-backed: TemplateVersion.Template.Name). */
+  templateName?: string | null;
   versionNumber: number;
   startDate?: string | null;
   endDate?: string | null;
   batchNumber?: string | null;
   companyId?: string | null;
   reviewerId?: string | null;
+  /** Tên người kiểm tra (entity-backed: Reviewer.FirstName/LastName → username). */
+  reviewerName?: string | null;
   status: string;
   createdAt: string;
   snapshotCount: number;
   resultsCount: number;
+  /** Tên người thực hiện (entity-backed: Executors → User). */
+  executorNames?: string[] | null;
 }
 
 interface SystemOption { id: string; code: string; name: string; }
@@ -44,8 +56,48 @@ interface CreateFormValues {
 }
 
 const STATUS_TAG: Record<string, { color: string; label: string }> = {
+  Draft: { color: 'default', label: 'Nháp' },
   InProgress: { color: 'processing', label: 'Đang thực hiện' },
   Completed: { color: 'success', label: 'Hoàn thành' },
+  Closed: { color: 'default', label: 'Đã đóng' },
+};
+
+/** Sort do BACKEND quyết định (whitelist sortBy/sortDir) — không còn comparator phía client. */
+
+/**
+ * Whitelist sort của BE (chỉ field DB-backed) — map key cột FE → `sortBy` API.
+ * Key không có trong map = cột không sort được (không gửi sortBy, không sort client).
+ */
+const SORT_FIELD_MAP: Record<string, string> = {
+  batch: 'batchnumber',
+  batchnumber: 'batchnumber',
+  startdate: 'startdate',
+  enddate: 'enddate',
+  status: 'status',
+  versionnumber: 'versionnumber',
+};
+
+const resolveSortParams = (sort?: Record<string, unknown>): { sortBy?: string; sortDir?: string } => {
+  const entry = Object.entries(sort ?? {})
+    .find(([, order]) => order === 'ascend' || order === 'descend');
+  if (!entry) return {};
+  const sortBy = SORT_FIELD_MAP[String(entry[0]).toLowerCase()];
+  if (!sortBy) return {};
+  return { sortBy, sortDir: entry[1] === 'descend' ? 'desc' : 'asc' };
+};
+
+// Versioned column state — bump key khi đổi bộ cột mặc định.
+const CAMPAIGN_COLUMNS_STATE = {
+  batch: { show: true },
+  systemInfoName: { show: true },
+  templateName: { show: true },
+  versionNumber: { show: true },
+  status: { show: true },
+  startDate: { show: true },
+  endDate: { show: true },
+  reviewerName: { show: false },
+  executorNames: { show: false },
+  actions: { show: true, fixed: 'right' },
 };
 
 /**
@@ -54,7 +106,7 @@ const STATUS_TAG: Record<string, { color: string; label: string }> = {
  * chọn nhiều người thực hiện + 1 người kiểm tra (Executor UI hoãn từ MC-3).
  */
 export default function MaintenanceCampaignListPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   // [FE-R2/FE-R4] Branch desktop Table ↔ mobile Card theo hook dùng chung (T-RESP1).
   const isMobile = useIsMobile();
@@ -78,6 +130,8 @@ export default function MaintenanceCampaignListPage() {
 
   const [userOptions, setUserOptions] = useState<UserOption[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
+
+  const columnsState = useListColumnsState('campaign-list-columns-v2', CAMPAIGN_COLUMNS_STATE);
 
   const loadUsers = async () => {
     setUsersLoading(true);
@@ -172,56 +226,188 @@ export default function MaintenanceCampaignListPage() {
   const fmt = (v?: string | null) => formatDate(v);
 
   // ST7b — 1 fetch dùng chung cho ProTable (desktop) và ProList Card (mobile): không trùng code gọi API.
-  const fetchCampaigns = async (): Promise<CampaignDto[]> => {
-    const res = await apiClient.get('/maintenance/campaigns');
+  // systemInfoId + sortBy/sortDir là thứ backend hỗ trợ (sort whitelist chạy trên DB);
+  // mã đợt/trạng thái lọc ngay trên client.
+  const fetchCampaigns = async (params: {
+    systemInfoId?: string; sortBy?: string; sortDir?: string;
+  }): Promise<CampaignDto[]> => {
+    const res = await apiClient.get('/maintenance/campaigns', {
+      params: {
+        ...(params.systemInfoId ? { systemInfoId: params.systemInfoId } : {}),
+        ...(params.sortBy && params.sortDir ? { sortBy: params.sortBy, sortDir: params.sortDir } : {}),
+      },
+    });
     return (res.data.data || []) as CampaignDto[];
   };
 
-  // ST7b + T-UX1 — nút "Chi tiết" dùng chung desktop/mobile; stopPropagation để không
-  // kích hoạt nhầm điều hướng click-to-detail của row/card (pattern ComponentListPage).
-  const renderActions = (record: CampaignDto): ReactNode[] => [
-    <Button
-      key="detail"
-      size="small"
-      onClick={(e) => { e.stopPropagation(); navigate(`/maintenance/campaigns/${record.id}`); }}
-    >
-      Chi tiết
-    </Button>,
+  const filterLocally = (
+    data: CampaignDto[],
+    filters: { status?: string; batchNumber?: string },
+  ): CampaignDto[] => {
+    const keyword = filters.batchNumber?.trim().toLowerCase();
+    return data.filter(c =>
+      (!filters.status || c.status === filters.status)
+      && (!keyword || (c.batchNumber ?? '').toLowerCase().includes(keyword)));
+  };
+
+  const loadList = async (params: {
+    systemInfoId?: string; status?: string; batchNumber?: string; sortBy?: string; sortDir?: string;
+  }) => {
+    if (!canView && !canManage) return { data: [] as CampaignDto[], success: true, total: 0 };
+    try {
+      const data = await fetchCampaigns(params);
+      const filtered = filterLocally(data, params);
+      return { data: filtered, success: true, total: filtered.length };
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      void message.error(e?.response?.data?.message || 'Lỗi tải danh sách đợt bảo dưỡng');
+      return { data: [] as CampaignDto[], success: false, total: 0 };
+    }
+  };
+
+  const openDetail = (record: CampaignDto) => navigate(`/maintenance/campaigns/${record.id}`);
+
+  // HOÀN THÀNH — endpoint duy nhất hiện có cho vòng đời đợt (POST /maintenance/campaigns/{id}/complete).
+  const handleComplete = (record: CampaignDto) => {
+    modal.confirm({
+      title: 'Hoàn thành đợt bảo dưỡng?',
+      content: 'Sau khi hoàn thành, kết quả kiểm tra sẽ bị khóa và không thể sửa.',
+      okText: 'Hoàn thành',
+      cancelText: 'Hủy',
+      onOk: async () => {
+        try {
+          const res = await apiClient.post(`/maintenance/campaigns/${record.id}/complete`);
+          const due = res.data?.data?.nextMaintenanceDueDate;
+          void message.success(`Đã hoàn thành đợt bảo dưỡng${due ? ` — lần bảo dưỡng tới: ${formatDate(due)}` : ''}`);
+          actionRef.current?.reload();
+        } catch (err: unknown) {
+          const e = err as { response?: { data?: { message?: string } } };
+          void message.error(e?.response?.data?.message || 'Không thể hoàn thành đợt bảo dưỡng');
+          throw new Error('complete campaign failed');
+        }
+      },
+    });
+  };
+
+  /**
+   * ONE primary action per lifecycle state — CHỈ InProgress mới có primary "Hoàn thành".
+   * Mọi trạng thái khác (Completed, Closed, ...) KHÔNG có primary: backend chỉ có
+   * POST /complete nên không bịa fallback "Cập nhật" nữa.
+   */
+  const primaryActionFor = (record: CampaignDto): ListPrimaryAction | null => {
+    if (!canManage) return null;
+    if (record.status === 'InProgress') {
+      return {
+        key: 'complete',
+        label: 'Hoàn thành',
+        icon: <CheckCircleOutlined />,
+        onClick: () => handleComplete(record),
+      };
+    }
+    return null;
+  };
+
+  // Menu ⋯: không bao giờ lặp lại primary. "Sửa" chỉ có khi đợt còn mở được (chưa Completed/Closed)
+  // — mở trang chi tiết, nơi duy nhất nhập được kết quả.
+  const menuItemsFor = (record: CampaignDto): NonNullable<MenuProps['items']> => {
+    const items: NonNullable<MenuProps['items']> = [];
+    if (canManage && record.status !== 'Completed' && record.status !== 'Closed') {
+      items.push({ key: 'edit', label: 'Sửa', icon: <EditOutlined />, onClick: () => openDetail(record) });
+    }
+    return items;
+  };
+
+  const renderRowActions = (record: CampaignDto) => (
+    <ListRowActions
+      primary={primaryActionFor(record)}
+      menuItems={menuItemsFor(record)}
+      stopPropagation
+    />
+  );
+
+  const searchColumns: ProColumns<CampaignDto>[] = [
+    {
+      title: 'Mã đợt', key: 'search-batch', dataIndex: 'batchNumber', hideInTable: true,
+      fieldProps: { placeholder: 'Tìm theo mã đợt' },
+    },
+    {
+      title: 'Hệ thống', key: 'search-system', dataIndex: 'systemInfoId', valueType: 'select', hideInTable: true,
+      fieldProps: { showSearch: true, optionFilterProp: 'label', placeholder: 'Chọn hệ thống' },
+      request: async () => {
+        const res = await apiClient.get('/system-infos');
+        return ((res.data?.data ?? []) as SystemOption[])
+          .map(s => ({ label: `${s.name} (${s.code})`, value: s.id }));
+      },
+    },
+    {
+      title: 'Trạng thái', key: 'search-status', dataIndex: 'status', valueType: 'select', hideInTable: true,
+      valueEnum: {
+        Draft: { text: 'Nháp' },
+        InProgress: { text: 'Đang thực hiện' },
+        Completed: { text: 'Hoàn thành' },
+        Closed: { text: 'Đã đóng' },
+      },
+    },
   ];
 
-  const columns: ProColumns<CampaignDto>[] = [
+  const desktopColumns: ProColumns<CampaignDto>[] = ([
     {
-      title: 'Mã đợt', key: 'batch', width: 150,
-      // [FE-R4] Click-cả-row mở detail (onRow ở ProTable) — cột mã là text thường, không còn <a> riêng.
-      render: (_, r) => <Text strong>{r.batchNumber || '(không mã)'}</Text>,
+      // Sort whitelist: batchnumber (collation tự nhiên trên DB).
+      title: 'Mã đợt', key: 'batch', dataIndex: 'batchNumber', width: 130, sorter: true,
+      // Row click mở detail; mã đợt cũng là link để bàn phím/chuột phải dùng được.
+      render: (_, record) => (
+        <Typography.Link style={{ whiteSpace: 'nowrap' }} onClick={() => openDetail(record)}>
+          {record.batchNumber || '(không mã)'}
+        </Typography.Link>
+      ),
     },
-    { title: 'Hệ thống', dataIndex: 'systemInfoName', key: 'systemInfoName', width: 200 },
-    { title: 'Phiên bản', dataIndex: 'versionNumber', key: 'versionNumber', width: 90, render: (_, r) => <Tag color="blue">v{r.versionNumber}</Tag> },
     {
-      title: 'Trạng thái', dataIndex: 'status', key: 'status', width: 130,
-      render: (_, r) => {
-        const s = STATUS_TAG[r.status] ?? { color: 'default', label: r.status };
+      title: 'Hệ thống', key: 'systemInfoName', dataIndex: 'systemInfoName', width: 160,
+      render: (_, record) => <EllipsisText value={record.systemInfoName} />,
+    },
+    {
+      title: 'Mẫu', key: 'templateName', width: 150,
+      render: (_, record) => <EllipsisText value={record.templateName} />,
+    },
+    {
+      // Sort whitelist: versionnumber (TemplateVersion.VersionNumber).
+      title: 'Phiên bản', key: 'versionNumber', dataIndex: 'versionNumber', width: 80, sorter: true,
+      render: (_, record) => <Tag color="blue">v{record.versionNumber}</Tag>,
+    },
+    {
+      // Sort whitelist: status.
+      title: 'Trạng thái', key: 'status', dataIndex: 'status', width: 110, sorter: true,
+      render: (_, record) => {
+        const s = STATUS_TAG[record.status] ?? { color: 'default', label: record.status };
         return <Tag color={s.color}>{s.label}</Tag>;
       },
     },
-    { title: 'Bắt đầu', dataIndex: 'startDate', key: 'startDate', width: 110, render: (_, r) => fmt(r.startDate) },
-    { title: 'Kết thúc', dataIndex: 'endDate', key: 'endDate', width: 110, render: (_, r) => fmt(r.endDate) },
     {
-      // [MC-9] resultsCount = số dòng kết quả theo tiêu chuẩn (thiết bị × tiêu chuẩn), không phải số thiết bị
-      title: 'Kết quả', key: 'progress', width: 130,
-      render: (_, r) => (
-        <Tooltip title={`${r.resultsCount} dòng kết quả (mỗi tiêu chuẩn = 1 dòng)`}>
-          <span>{r.resultsCount} dòng kết quả</span>
-        </Tooltip>
-      ),
+      // Sort whitelist: startdate (mặc định desc — khớp default của BE).
+      title: 'Bắt đầu', key: 'startDate', dataIndex: 'startDate', width: 100,
+      sorter: true, defaultSortOrder: 'descend',
+      render: (_, record) => fmt(record.startDate),
     },
     {
-      title: 'Hành động', key: 'actions', valueType: 'option' as const, width: 120,
-      render: (_, record) => (
-        <Space size="small">{renderActions(record)}</Space>
-      ),
+      // Sort whitelist: enddate.
+      title: 'Kết thúc', key: 'endDate', dataIndex: 'endDate', width: 100, sorter: true,
+      render: (_, record) => fmt(record.endDate),
     },
-  ];
+    {
+      // Cột tùy chọn (mặc định ẩn) — entity-backed qua Reviewer (list DTO trả reviewerName).
+      title: 'Người kiểm tra', key: 'reviewerName', width: 150,
+      render: (_, record) => <EllipsisText value={record.reviewerName} />,
+    },
+    {
+      // Cột tùy chọn (mặc định ẩn) — entity-backed qua Executors (list DTO trả executorNames).
+      title: 'Người thực hiện', key: 'executorNames', width: 180,
+      render: (_, record) => <EllipsisText value={record.executorNames?.filter(Boolean).join(', ')} />,
+    },
+    {
+      title: 'Thao tác', key: 'actions', width: 150, fixed: 'right',
+      render: (_, record) => renderRowActions(record),
+    },
+  ] as ProColumns<CampaignDto>[]).map(column => ({ ...column, hideInSearch: true, search: false }));
 
   // Modal tạo đợt — định nghĩa MỘT lần, render chung cho cả mobile Card và desktop Table (ST7b).
   const createModal = (
@@ -321,7 +507,7 @@ export default function MaintenanceCampaignListPage() {
     </Modal>
   );
 
-  // [FE-R2] Mobile: ProList Card thay Table — cùng fetch + cùng renderActions (ST7b pattern).
+  // [FE-R2] Mobile: ProList Card thay Table — cùng fetch + cùng ListRowActions (ST7b pattern).
   if (isMobile) {
     return (
       <div>
@@ -335,53 +521,55 @@ export default function MaintenanceCampaignListPage() {
           rowKey="id"
           ghost
           cardProps={false}
-          search={false}
+          columns={searchColumns}
+          // Mobile: bộ lọc mặc định THU GỌN để card chiếm màn hình.
+          search={{ labelWidth: 'auto', defaultCollapsed: true }}
           grid={{ gutter: 16, xs: 1, sm: 1 }}
           toolBarRender={() => [
             canManage && (
               <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => void openCreate()}>Tạo đợt bảo dưỡng</Button>
             ),
           ]}
-          request={async () => {
-            if (!canView && !canManage) return { data: [], success: true, total: 0 };
-            try {
-              const data = await fetchCampaigns();
-              return { data, success: true, total: data.length };
-            } catch (err: unknown) {
-              const e = err as { response?: { data?: { message?: string } } };
-              message.error(e?.response?.data?.message || 'Lỗi tải danh sách đợt bảo dưỡng');
-              return { data: [], success: false, total: 0 };
-            }
+          request={async (params, sort) => {
+            const { systemInfoId, status, batchNumber } = params as {
+              systemInfoId?: string; status?: string; batchNumber?: string;
+            };
+            return loadList({ systemInfoId, status, batchNumber, ...resolveSortParams(sort) });
           }}
           pagination={false}
-          itemRender={(r) => {
-            const s = STATUS_TAG[r.status] ?? { color: 'default', label: r.status };
+          itemRender={(record) => {
+            const s = STATUS_TAG[record.status] ?? { color: 'default', label: record.status };
             return (
               <Card
                 hoverable
-                onClick={() => navigate(`/maintenance/campaigns/${r.id}`)}
+                onClick={() => openDetail(record)}
                 style={{ borderRadius: 12, marginBottom: 16, cursor: 'pointer' }}
                 styles={{ body: { padding: 16 } }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-                  <Text strong style={{ fontSize: 15 }}>{r.batchNumber || '(không mã)'}</Text>
+                  <Typography.Link
+                    style={{ fontSize: 15, fontWeight: 600 }}
+                    onClick={(e) => { e.stopPropagation(); openDetail(record); }}
+                  >
+                    {record.batchNumber || '(không mã)'}
+                  </Typography.Link>
                   <Tag color={s.color} style={{ marginInlineEnd: 0 }}>{s.label}</Tag>
                 </div>
                 <div style={{ marginBottom: 8, fontSize: 13 }}>
-                  {r.systemInfoName} — <Tag color="blue" style={{ marginInlineEnd: 0 }}>v{r.versionNumber}</Tag>
+                  {record.systemInfoName} — <Tag color="blue" style={{ marginInlineEnd: 0 }}>v{record.versionNumber}</Tag>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', padding: '10px 12px', background: '#fafafa', borderRadius: 8 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>Bắt đầu</Text>
-                  <Text style={{ fontSize: 13 }}>{fmt(r.startDate)}</Text>
+                  <Text style={{ fontSize: 13 }}>{fmt(record.startDate)}</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>Kết thúc</Text>
-                  <Text style={{ fontSize: 13 }}>{fmt(r.endDate)}</Text>
+                  <Text style={{ fontSize: 13 }}>{fmt(record.endDate)}</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>Kết quả</Text>
-                  <Text style={{ fontSize: 13 }} title={`${r.resultsCount} dòng kết quả (mỗi tiêu chuẩn = 1 dòng)`}>
-                    {r.resultsCount} dòng kết quả
+                  <Text style={{ fontSize: 13 }} title={`${record.resultsCount} dòng kết quả (mỗi tiêu chuẩn = 1 dòng)`}>
+                    {record.resultsCount} dòng kết quả
                   </Text>
                 </div>
                 <Divider style={{ margin: '10px 0' }} />
-                <Space size="small" wrap>{renderActions(r)}</Space>
+                {renderRowActions(record)}
               </Card>
             );
           }}
@@ -401,30 +589,27 @@ export default function MaintenanceCampaignListPage() {
         headerTitle="Danh sách đợt bảo dưỡng"
         rowKey="id"
         size="small"
-        columns={columns}
+        columns={[...searchColumns, ...desktopColumns]}
         actionRef={actionRef}
-        search={false}
+        // Desktop: bộ lọc mở sẵn.
+        search={{ labelWidth: 'auto', defaultCollapsed: false }}
         options={{ reload: true, density: true, setting: true }}
+        columnsState={columnsState}
         toolBarRender={() => [
           canManage && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => void openCreate()}>Tạo đợt bảo dưỡng</Button>
           ),
         ]}
-        // [FE-R4] Click-cả-row mở detail — nút Chi tiết đã stopPropagation.
+        // [FE-R4] Click-cả-row mở detail; ô hành động đã stopPropagation qua ListRowActions.
         onRow={(record) => ({
-          onClick: () => navigate(`/maintenance/campaigns/${record.id}`),
+          onClick: () => openDetail(record),
           style: { cursor: 'pointer' },
         })}
-        request={async () => {
-          if (!canView && !canManage) return { data: [], success: true, total: 0 };
-          try {
-            const data = await fetchCampaigns();
-            return { data, success: true, total: data.length };
-          } catch (err: unknown) {
-            const e = err as { response?: { data?: { message?: string } } };
-            message.error(e?.response?.data?.message || 'Lỗi tải danh sách đợt bảo dưỡng');
-            return { data: [], success: false, total: 0 };
-          }
+        request={async (params, sort) => {
+          const { systemInfoId, status, batchNumber } = params as {
+            systemInfoId?: string; status?: string; batchNumber?: string;
+          };
+          return loadList({ systemInfoId, status, batchNumber, ...resolveSortParams(sort) });
         }}
         scroll={{ x: 'max-content' }}
       />

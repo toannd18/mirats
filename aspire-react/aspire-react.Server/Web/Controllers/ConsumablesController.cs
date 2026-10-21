@@ -37,9 +37,10 @@ public class ConsumablesController : ControllerBase
     [HttpGet]
     [Authorize(Policy = "consumables.view")]
     public async Task<IActionResult> GetConsumables([FromQuery] string? search, [FromQuery] Guid? categoryId,
-        [FromQuery] Guid? locationId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+        [FromQuery] Guid? locationId, [FromQuery] string? sortBy, [FromQuery] string? sortDir,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        var result = await _mediator.Send(new ListConsumablesQuery(search, categoryId, locationId, page, pageSize));
+        var result = await _mediator.Send(new ListConsumablesQuery(search, categoryId, locationId, page, pageSize, sortBy, sortDir));
         return Ok(new { status = "success", data = result.Items, pagination = new { page, pageSize, totalItems = result.Total, totalPages = (int)Math.Ceiling((double)result.Total / pageSize), hasNextPage = page * pageSize < result.Total, hasPreviousPage = page > 1 } });
     }
 

@@ -1,26 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Button, Tag, Space, Popconfirm, App,
-  Typography, Divider, Card,
+  Button, Tag, Space, App, Typography, Card, Divider, Dropdown, Tooltip,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined,
-  CheckCircleOutlined, EyeOutlined, SendOutlined,
+  CheckCircleOutlined, SendOutlined,
   AppstoreOutlined, EnvironmentOutlined, InboxOutlined,
-  AlertOutlined, FileTextOutlined,
+  AlertOutlined, MoreOutlined,
 } from '@ant-design/icons';
-import { ProList } from '@ant-design/pro-components';
+import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import { formatNumber } from '../../../utils/format';
 import { consumablesApi } from '../services/consumables.service';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { usePermission } from '../../../hooks/usePermission';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import ConsumableCheckoutModal from '../components/ConsumableCheckoutModal';
 import ConsumableFormModal from '../components/ConsumableFormModal';
+import ListRowActions from '../../../shared/components/list/ListRowActions';
+import { NowrapText, EllipsisText } from '../../../shared/components/list/ListText';
+import { useListColumnsState } from '../../../shared/hooks/useListColumnsState';
 import { statusColors, uiColors, cardBadgeGradients } from '../../../theme/designTokens';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text, Title } = Typography;
 
 // ==================== Types ====================
 
@@ -38,6 +42,15 @@ interface ConsumableDto {
   companyName: string | null;
   category: { id: string; name: string } | null;
   location: { id: string; name: string } | null;
+}
+
+/** The single primary action of a row/card — everything else lives in the ⋯ menu. */
+interface RowPrimaryAction {
+  key: string;
+  label: string;
+  icon: React.ReactNode;
+  run: () => void;
+  disabled?: boolean;
 }
 
 // ==================== Styles ====================
@@ -74,14 +87,32 @@ const labelIconStyle: React.CSSProperties = {
   fontSize: 13,
 };
 
+// ==================== Helpers ====================
+
+/** Versioned default visibility — bump the storage key when the default set changes. */
+const DEFAULT_COLUMN_STATE: Record<string, { show: boolean }> = {
+  name: { show: true },
+  itemNo: { show: true },
+  status: { show: true },
+  qty: { show: true },
+  remaining: { show: true },
+  location: { show: true },
+  category: { show: false },
+  minAmt: { show: false },
+  company: { show: false },
+  notes: { show: false },
+  actions: { show: true },
+};
+
 // ==================== Component ====================
 
 const ConsumableListPage: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const actionRef = useRef<ActionType>(null);
+  const actionRef = useRef<ActionType | undefined>(undefined);
   // Backend serializes enums as strings (JsonStringEnumConverter) — compare the string value only.
   const isConfirmed = (status: string) => status === 'Confirmed';
 
@@ -92,6 +123,8 @@ const ConsumableListPage: React.FC = () => {
   // to open a modal). Deep-link routes only set this state on the current page.
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [formModalConsumableId, setFormModalConsumableId] = useState<string | null>(null);
+
+  const columnsState = useListColumnsState('consumable-list-columns-v2', DEFAULT_COLUMN_STATE);
 
   // Deep-link support: /consumables/new (create) & /consumables/:id (edit) open the form modal
   // on THIS page by setting local state — no redirect through another page.
@@ -150,26 +183,56 @@ const ConsumableListPage: React.FC = () => {
 
   // ──── Handlers ────
 
-  const handleConfirm = async (id: string) => {
+  const reload = () => actionRef.current?.reload();
+
+  const handleConfirm = async (record: ConsumableDto) => {
     try {
-      await apiClient.put(`/consumables/${id}/confirm`);
+      await apiClient.put(`/consumables/${record.id}/confirm`);
       void message.success('Đã xác nhận vật tư');
-      actionRef.current?.reload();
+      reload();
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       void message.error(e?.response?.data?.message ?? 'Lỗi xác nhận');
+      throw new Error('confirm failed');
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (record: ConsumableDto) => {
     try {
-      await apiClient.delete(`/consumables/${id}`);
+      await apiClient.delete(`/consumables/${record.id}`);
       void message.success('Đã xóa vật tư');
-      actionRef.current?.reload();
+      reload();
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       void message.error(e?.response?.data?.message ?? 'Lỗi xóa');
+      throw new Error('delete failed');
     }
+  };
+
+  const confirmConsumable = (record: ConsumableDto) => {
+    modal.confirm({
+      title: 'Xác nhận vật tư này?',
+      content: 'Vật tư sẽ chuyển sang trạng thái đã xác nhận.',
+      okText: 'Xác nhận',
+      cancelText: 'Hủy',
+      onOk: () => handleConfirm(record),
+    });
+  };
+
+  const deleteConsumable = (record: ConsumableDto) => {
+    modal.confirm({
+      title: 'Xóa vật tư này?',
+      content: 'Hành động này không thể hoàn tác.',
+      okText: 'Xóa',
+      okButtonProps: { danger: true },
+      cancelText: 'Hủy',
+      onOk: () => handleDelete(record),
+    });
+  };
+
+  const handleEdit = (record: ConsumableDto) => {
+    setFormModalConsumableId(record.id);
+    setFormModalOpen(true);
   };
 
   const openCheckout = (record: ConsumableDto) => {
@@ -177,7 +240,94 @@ const ConsumableListPage: React.FC = () => {
     setCheckoutOpen(true);
   };
 
-  // ──── Search Columns (ẩn trong bảng, chỉ dùng cho form tìm kiếm) ────
+  const openView = (record: ConsumableDto) => {
+    navigate(`/consumables/${record.id}/view`);
+  };
+
+  /** One primary action per lifecycle state; everything else goes into the ⋯ menu. */
+  const primaryActionFor = (record: ConsumableDto): RowPrimaryAction | null => {
+    if (!isConfirmed(record.status)) {
+      if (!canEdit) return null;
+      return {
+        key: 'confirm',
+        label: 'Xác nhận',
+        icon: <CheckCircleOutlined />,
+        run: () => confirmConsumable(record),
+      };
+    }
+    if (!canCheckout) return null;
+    return {
+      key: 'checkout',
+      label: 'Cấp phát',
+      icon: <SendOutlined />,
+      run: () => openCheckout(record),
+      disabled: record.remaining <= 0,
+    };
+  };
+
+  const menuItemsFor = (record: ConsumableDto): NonNullable<MenuProps['items']> => {
+    const items: NonNullable<MenuProps['items']> = [];
+    if (canEdit) {
+      items.push({ key: 'edit', label: 'Sửa', icon: <EditOutlined />, onClick: () => handleEdit(record) });
+    }
+    if (canDelete) {
+      items.push({ key: 'delete', label: 'Xóa', icon: <DeleteOutlined />, danger: true, onClick: () => deleteConsumable(record) });
+    }
+    return items;
+  };
+
+  const renderActions = (record: ConsumableDto, stopPropagation = false) => {
+    const primary = primaryActionFor(record);
+    const menuItems = menuItemsFor(record);
+
+    // ListRowActions has no `disabled` prop — the out-of-stock case renders the very same
+    // 104px outlined button (disabled) next to an identical ⋯ menu so rows stay aligned.
+    if (primary?.disabled) {
+      return (
+        <Space size={4} wrap>
+          <Button size="small" style={{ width: 104 }} icon={primary.icon} disabled>
+            {primary.label}
+          </Button>
+          {menuItems.length > 0 && (
+            <Dropdown menu={{ items: menuItems }} trigger={['click']}>
+              <Button
+                size="small"
+                icon={<MoreOutlined />}
+                aria-label="Thao tác khác"
+                onClick={(e) => { if (stopPropagation) e.stopPropagation(); }}
+              />
+            </Dropdown>
+          )}
+        </Space>
+      );
+    }
+
+    return (
+      <ListRowActions
+        primary={primary ? {
+          key: primary.key,
+          label: primary.label,
+          icon: primary.icon,
+          onClick: primary.run,
+        } : null}
+        menuItems={menuItems}
+        stopPropagation={stopPropagation}
+      />
+    );
+  };
+
+  const statusTag = (record: ConsumableDto) => (
+    <Space size={[0, 4]} wrap>
+      <Tag color={isConfirmed(record.status) ? statusColors.active : statusColors.pending} style={{ margin: 0 }}>
+        {isConfirmed(record.status) ? 'Đã xác nhận' : 'Chờ xác nhận'}
+      </Tag>
+      {record.isLowStock && (
+        <Tag color="error" icon={<AlertOutlined />} style={{ margin: 0 }}>Tồn kho thấp</Tag>
+      )}
+    </Space>
+  );
+
+  // ──── Search Columns (chỉ dùng cho form tìm kiếm) ────
   const searchColumns: ProColumns<ConsumableDto>[] = [
     {
       title: 'Tìm kiếm',
@@ -209,252 +359,347 @@ const ConsumableListPage: React.FC = () => {
     },
   ];
 
+  // ──── Desktop table columns ────
+  const desktopColumns = ([
+    {
+      title: 'Tên',
+      dataIndex: 'name',
+      key: 'name',
+      width: 200,
+      // Server-side sort whitelist: name / itemNo / status / createdAt.
+      sorter: true,
+      render: (_: unknown, record: ConsumableDto) => (
+        <Tooltip title={record.name} placement="topLeft">
+          <Typography.Link
+            onClick={() => openView(record)}
+            style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {record.name || '-'}
+          </Typography.Link>
+        </Tooltip>
+      ),
+    },
+    {
+      title: 'Mã vật tư',
+      dataIndex: 'itemNo',
+      key: 'itemNo',
+      width: 140,
+      // Natural (numeric-aware) ordering is done in PostgreSQL — no client-side comparator.
+      sorter: true,
+      render: (_: unknown, record: ConsumableDto) => <NowrapText value={record.itemNo} code />,
+    },
+    {
+      title: 'Trạng thái',
+      dataIndex: 'status',
+      key: 'status',
+      width: 170,
+      // Status is a persisted enum column — server-side sortable.
+      sorter: true,
+      render: (_: unknown, record: ConsumableDto) => statusTag(record),
+    },
+    {
+      title: 'Tổng SL',
+      dataIndex: 'qty',
+      key: 'qty',
+      width: 100,
+      align: 'right',
+      render: (_: unknown, record: ConsumableDto) => (
+        <Text style={{ whiteSpace: 'nowrap' }}>{formatNumber(record.qty)}</Text>
+      ),
+    },
+    {
+      title: 'Còn lại',
+      dataIndex: 'remaining',
+      key: 'remaining',
+      width: 120,
+      align: 'right',
+      render: (_: unknown, record: ConsumableDto) => (
+        record.isLowStock ? (
+          <Tooltip title={`Ngưỡng tối thiểu: ${record.minAmt}`} placement="topLeft">
+            <Text strong type="danger" style={{ whiteSpace: 'nowrap' }}>
+              {formatNumber(record.remaining)}
+            </Text>
+          </Tooltip>
+        ) : (
+          <Text style={{ whiteSpace: 'nowrap' }}>{formatNumber(record.remaining)}</Text>
+        )
+      ),
+    },
+    {
+      title: 'Vị trí',
+      key: 'location',
+      width: 150,
+      render: (_: unknown, record: ConsumableDto) => <EllipsisText value={record.location?.name} />,
+    },
+    {
+      title: 'Danh mục',
+      key: 'category',
+      width: 160,
+      render: (_: unknown, record: ConsumableDto) => <EllipsisText value={record.category?.name} />,
+    },
+    {
+      title: 'Ngưỡng tối thiểu',
+      dataIndex: 'minAmt',
+      key: 'minAmt',
+      width: 130,
+      align: 'right',
+      render: (_: unknown, record: ConsumableDto) => (
+        <Text style={{ whiteSpace: 'nowrap' }}>{formatNumber(record.minAmt)}</Text>
+      ),
+    },
+    {
+      title: 'Công ty',
+      key: 'company',
+      width: 170,
+      render: (_: unknown, record: ConsumableDto) => <EllipsisText value={record.companyName} />,
+    },
+    {
+      title: 'Ghi chú',
+      dataIndex: 'notes',
+      key: 'notes',
+      width: 240,
+      render: (_: unknown, record: ConsumableDto) => <EllipsisText value={record.notes} />,
+    },
+    {
+      title: 'Thao tác',
+      key: 'actions',
+      width: 150,
+      fixed: 'right',
+      render: (_: unknown, record: ConsumableDto) => renderActions(record),
+    },
+  ] as ProColumns<ConsumableDto>[]).map((column) => ({ ...column, hideInSearch: true, search: false }));
+
   // ──── Render ────
 
   return (
     <>
-      <ProList<ConsumableDto>
-        headerTitle={
-          <Title level={4} style={{ margin: 0 }}>
-            Vật tư tiêu hao
-          </Title>
-        }
-        actionRef={actionRef}
-        rowKey="id"
-        ghost
-        cardProps={false}
-        columns={searchColumns}
-        grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3, xxl: 3 }}
-        search={{
-          labelWidth: 'auto',
-          defaultCollapsed: false,
-        }}
-        toolBarRender={() => [
-          canCreate && (
-            <Button
-              key="create"
-              type="primary"
-              size="middle"
-              icon={<PlusOutlined />}
-              onClick={() => { setFormModalConsumableId(null); setFormModalOpen(true); }}
-            >
-              Thêm Vật tư
-            </Button>
-          ),
-        ]}
-        request={async (params) => {
-          try {
-            const { current, pageSize, ...rest } = params;
-            const res = await consumablesApi.list({ ...rest, page: current, pageSize });
-            return {
-              data: res.data.data,
-              success: true,
-              total: res.data.pagination?.totalItems ?? 0,
-            };
-          } catch {
-            void message.error('Không thể tải danh sách vật tư');
-            return { data: [], success: false, total: 0 };
+      {isMobile ? (
+        <ProList<ConsumableDto>
+          headerTitle={
+            <Title level={4} style={{ margin: 0 }}>
+              Vật tư tiêu hao
+            </Title>
           }
-        }}
-        pagination={{
-          defaultPageSize: 12,
-          showSizeChanger: true,
-          showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} mục`,
-        }}
-        itemRender={(record) => (
-          <Card
-            hoverable
-            onClick={() => navigate(`/consumables/${record.id}/view`)}
-            style={{
-              borderRadius: 12,
-              marginBottom: 16,
-              cursor: 'pointer',
-              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-            styles={{ body: { padding: '20px 20px 16px' } }}
-          >
-            {/* ── Header: Icon + Name + ItemNo ── */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-              <div style={iconBadgeStyle}>
-                <AppstoreOutlined style={{ fontSize: 22, color: '#1677ff' }} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                  <Text strong style={{ fontSize: 16, lineHeight: 1.4 }}>
-                    {record.name}
-                  </Text>
-                  {record.itemNo && (
-                    <Text
-                      type="secondary"
-                      style={{
-                        fontSize: 12,
-                        fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
-                        background: '#f5f5f5',
-                        padding: '1px 8px',
-                        borderRadius: 4,
-                        border: '1px solid #e8e8e8',
-                        whiteSpace: 'nowrap',
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
+          actionRef={actionRef}
+          rowKey="id"
+          ghost
+          cardProps={false}
+          columns={searchColumns}
+          grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3, xxl: 3 }}
+          search={{
+            labelWidth: 'auto',
+            defaultCollapsed: true,
+          }}
+          toolBarRender={() => [
+            canCreate && (
+              <Button
+                key="create"
+                type="primary"
+                size="middle"
+                icon={<PlusOutlined />}
+                onClick={() => { setFormModalConsumableId(null); setFormModalOpen(true); }}
+              >
+                Thêm Vật tư
+              </Button>
+            ),
+          ]}
+          request={async (params) => {
+            try {
+              const { current, pageSize, ...rest } = params;
+              const res = await consumablesApi.list({ ...rest, page: current, pageSize });
+              return {
+                data: res.data.data,
+                success: true,
+                total: res.data.pagination?.totalItems ?? 0,
+              };
+            } catch {
+              void message.error('Không thể tải danh sách vật tư');
+              return { data: [], success: false, total: 0 };
+            }
+          }}
+          pagination={{
+            defaultPageSize: 12,
+            showSizeChanger: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} mục`,
+          }}
+          itemRender={(record) => (
+            <Card
+              hoverable
+              onClick={() => openView(record)}
+              style={{
+                borderRadius: 12,
+                marginBottom: 16,
+                cursor: 'pointer',
+                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+              }}
+              styles={{ body: { padding: '20px 20px 16px' } }}
+            >
+              {/* ── Header: Icon + Name + ItemNo ── */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                <div style={iconBadgeStyle}>
+                  <AppstoreOutlined style={{ fontSize: 22, color: '#1677ff' }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <Typography.Link
+                      strong
+                      style={{ fontSize: 16, lineHeight: 1.4 }}
+                      onClick={(e) => { e.stopPropagation(); openView(record); }}
                     >
-                      {record.itemNo}
+                      {record.name}
+                    </Typography.Link>
+                    {record.itemNo && (
+                      <Text
+                        type="secondary"
+                        style={{
+                          fontSize: 12,
+                          fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
+                          background: '#f5f5f5',
+                          padding: '1px 8px',
+                          borderRadius: 4,
+                          border: '1px solid #e8e8e8',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '100%',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {record.itemNo}
+                      </Text>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Tags ── */}
+              <Space size={[4, 4]} wrap style={{ marginBottom: 12, paddingLeft: 60 }}>
+                {record.category?.name && (
+                  <Tag color="geekblue" style={{ borderRadius: 4, margin: 0 }}>
+                    {record.category.name}
+                  </Tag>
+                )}
+                <Tag
+                  color={isConfirmed(record.status) ? statusColors.active : statusColors.pending}
+                  style={{ borderRadius: 4, margin: 0 }}
+                >
+                  {isConfirmed(record.status) ? 'Đã xác nhận' : 'Chờ xác nhận'}
+                </Tag>
+                {record.isLowStock && (
+                  <Tag
+                    color="error"
+                    icon={<AlertOutlined />}
+                    style={{ borderRadius: 4, margin: 0, fontWeight: 500 }}
+                  >
+                    Tồn kho thấp
+                  </Tag>
+                )}
+              </Space>
+
+              {/* ── Data Grid ── */}
+              <div style={dataGridStyle}>
+                <div style={dataRowStyle}>
+                  <EnvironmentOutlined style={labelIconStyle} />
+                  <Text type="secondary" style={{ fontSize: 12 }}>Vị trí</Text>
+                </div>
+                <div style={dataRowStyle}>
+                  {record.location?.name ? (
+                    <Text style={{ fontSize: 13, fontWeight: 500 }}>{record.location.name}</Text>
+                  ) : (
+                    <Text type="secondary" italic style={{ fontSize: 13 }}>Chưa gán</Text>
+                  )}
+                </div>
+
+                <div style={dataRowStyle}>
+                  <InboxOutlined style={labelIconStyle} />
+                  <Text type="secondary" style={{ fontSize: 12 }}>Tổng số lượng</Text>
+                </div>
+                <div style={dataRowStyle}>
+                  <Text strong style={{ fontSize: 14 }}>{formatNumber(record.qty)}</Text>
+                </div>
+
+                <div style={dataRowStyle}>
+                  <InboxOutlined style={labelIconStyle} />
+                  <Text type="secondary" style={{ fontSize: 12 }}>Còn lại</Text>
+                </div>
+                <div style={dataRowStyle}>
+                  {record.isLowStock ? (
+                    <Text strong type="danger" style={{ fontSize: 15, lineHeight: 1 }}>
+                      {formatNumber(record.remaining)}
+                      <Text type="secondary" style={{ fontSize: 11, marginLeft: 4, fontWeight: 400 }}>
+                        (Ngưỡng: {record.minAmt})
+                      </Text>
                     </Text>
+                  ) : (
+                    <Text strong style={{ fontSize: 14 }}>{formatNumber(record.remaining)}</Text>
                   )}
                 </div>
               </div>
-            </div>
 
-            {/* ── Tags ── */}
-            <Space size={[4, 4]} wrap style={{ marginBottom: 12, paddingLeft: 60 }}>
-              {record.category?.name && (
-                <Tag color="geekblue" style={{ borderRadius: 4, margin: 0 }}>
-                  {record.category.name}
-                </Tag>
-              )}
-              <Tag
-                color={isConfirmed(record.status) ? statusColors.active : statusColors.pending}
-                style={{ borderRadius: 4, margin: 0 }}
+              {/* ── Divider + Actions ── */}
+              <Divider style={{ margin: '12px 0' }} />
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                {renderActions(record, true)}
+              </div>
+            </Card>
+          )}
+        />
+      ) : (
+        <ProTable<ConsumableDto>
+          headerTitle={
+            <Title level={4} style={{ margin: 0 }}>
+              Vật tư tiêu hao
+            </Title>
+          }
+          actionRef={actionRef}
+          rowKey="id"
+          columns={[...searchColumns, ...desktopColumns]}
+          search={{ labelWidth: 'auto', defaultCollapsed: false }}
+          options={{ reload: true, density: true, setting: true }}
+          columnsState={columnsState}
+          toolBarRender={() => [
+            canCreate && (
+              <Button
+                key="create"
+                type="primary"
+                size="middle"
+                icon={<PlusOutlined />}
+                onClick={() => { setFormModalConsumableId(null); setFormModalOpen(true); }}
               >
-                {isConfirmed(record.status) ? 'Đã xác nhận' : 'Chờ xác nhận'}
-              </Tag>
-              {record.isLowStock && (
-                <Tag
-                  color="error"
-                  icon={<AlertOutlined />}
-                  style={{ borderRadius: 4, margin: 0, fontWeight: 500 }}
-                >
-                  Tồn kho thấp
-                </Tag>
-              )}
-            </Space>
-
-            {/* ── Data Grid ── */}
-            <div style={dataGridStyle}>
-              <div style={dataRowStyle}>
-                <EnvironmentOutlined style={labelIconStyle} />
-                <Text type="secondary" style={{ fontSize: 12 }}>Vị trí</Text>
-              </div>
-              <div style={dataRowStyle}>
-                {record.location?.name ? (
-                  <Text style={{ fontSize: 13, fontWeight: 500 }}>{record.location.name}</Text>
-                ) : (
-                  <Text type="secondary" italic style={{ fontSize: 13 }}>Chưa gán</Text>
-                )}
-              </div>
-
-              <div style={dataRowStyle}>
-                <InboxOutlined style={labelIconStyle} />
-                <Text type="secondary" style={{ fontSize: 12 }}>Tổng số lượng</Text>
-              </div>
-              <div style={dataRowStyle}>
-                <Text strong style={{ fontSize: 14 }}>{formatNumber(record.qty)}</Text>
-              </div>
-
-              <div style={dataRowStyle}>
-                <InboxOutlined style={labelIconStyle} />
-                <Text type="secondary" style={{ fontSize: 12 }}>Còn lại</Text>
-              </div>
-              <div style={dataRowStyle}>
-                {record.isLowStock ? (
-                  <Text strong type="danger" style={{ fontSize: 15, lineHeight: 1 }}>
-                    {formatNumber(record.remaining)}
-                    <Text type="secondary" style={{ fontSize: 11, marginLeft: 4, fontWeight: 400 }}>
-                      (Ngưỡng: {record.minAmt})
-                    </Text>
-                  </Text>
-                ) : (
-                  <Text strong style={{ fontSize: 14 }}>{formatNumber(record.remaining)}</Text>
-                )}
-              </div>
-
-              {record.notes && (
-                <>
-                  <div style={{ ...dataRowStyle, gridColumn: '1 / -1' }}>
-                    <FileTextOutlined style={labelIconStyle} />
-                    <Text type="secondary" style={{ fontSize: 12 }}>Ghi chú</Text>
-                  </div>
-                  <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
-                    <Paragraph
-                      ellipsis={{ rows: 2, tooltip: record.notes }}
-                      style={{ fontSize: 13, margin: 0 }}
-                    >
-                      {record.notes}
-                    </Paragraph>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* ── Divider + Actions ── */}
-            <Divider style={{ margin: '12px 0' }} />
-
-            <Space size="small" wrap style={{ justifyContent: 'flex-end', width: '100%' }}>
-              {isConfirmed(record.status) ? (
-                <Button
-                  size="middle"
-                  icon={<EyeOutlined />}
-                  onClick={(e) => { e.stopPropagation(); navigate(`/consumables/${record.id}/view`); }}
-                >
-                  Xem
-                </Button>
-              ) : (
-                <>
-                  {canEdit && (
-                    <Button
-                      size="middle"
-                      icon={<EditOutlined />}
-                      onClick={(e) => { e.stopPropagation(); setFormModalConsumableId(record.id); setFormModalOpen(true); }}
-                    >
-                      Sửa
-                    </Button>
-                  )}
-                  {canEdit && (
-                    <Popconfirm
-                      title="Xác nhận vật tư này?"
-                      description="Vật tư sẽ chuyển sang trạng thái đã xác nhận."
-                      onConfirm={() => handleConfirm(record.id)}
-                      okText="Xác nhận"
-                      cancelText="Hủy"
-                    >
-                      <Button size="middle" type="primary" icon={<CheckCircleOutlined />} onClick={(e) => e.stopPropagation()}>
-                        Xác nhận
-                      </Button>
-                    </Popconfirm>
-                  )}
-                  {canDelete && (
-                    <Popconfirm
-                      title="Xóa vật tư này?"
-                      description="Hành động này không thể hoàn tác."
-                      onConfirm={() => handleDelete(record.id)}
-                      okText="Xóa"
-                      okButtonProps={{ danger: true }}
-                      cancelText="Hủy"
-                    >
-                      <Button size="middle" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()}>
-                        Xóa
-                      </Button>
-                    </Popconfirm>
-                  )}
-                </>
-              )}
-              {canCheckout && isConfirmed(record.status) && (
-                <Button
-                  size="middle"
-                  type="primary"
-                  ghost
-                  icon={<SendOutlined />}
-                  onClick={(e) => { e.stopPropagation(); openCheckout(record); }}
-                  disabled={record.remaining <= 0}
-                >
-                  Cấp phát
-                </Button>
-              )}
-            </Space>
-          </Card>
-        )}
-      />
+                Thêm Vật tư
+              </Button>
+            ),
+          ]}
+          request={async (params, sort) => {
+            try {
+              const { current, pageSize, ...rest } = params;
+              // Server-side sort (API whitelist: name/itemNo/status/createdAt). ProTable only ever
+              // has one active sort key, so the first ascend/descend entry wins.
+              const sortEntry = Object.entries(sort ?? {}).find(([, order]) => order === 'ascend' || order === 'descend');
+              const sortBy = sortEntry?.[0];
+              const sortDir = sortEntry?.[1] === 'descend' ? 'desc' : 'asc';
+              const res = await consumablesApi.list({
+                ...rest, page: current, pageSize,
+                ...(sortBy ? { sortBy, sortDir } : {}),
+              });
+              return {
+                data: res.data.data,
+                success: true,
+                total: res.data.pagination?.totalItems ?? 0,
+              };
+            } catch {
+              void message.error('Không thể tải danh sách vật tư');
+              return { data: [], success: false, total: 0 };
+            }
+          }}
+          pagination={{
+            defaultPageSize: 12,
+            showSizeChanger: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} mục`,
+          }}
+          scroll={{ x: 'max-content' }}
+        />
+      )}
 
       <ConsumableCheckoutModal
         open={checkoutOpen}

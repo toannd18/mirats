@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Common.Sorting;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -8,9 +9,9 @@ using Microsoft.EntityFrameworkCore;
 namespace aspire_react.Server.Application.Components.Queries;
 
 public record ComponentListItemDto(
-    Guid Id, string Name, string? Serial, int Qty, int MinAmt, string? ModelNumber,
+    Guid Id, string Name, string? Serial, string? ItemNo, int Qty, int MinAmt, string? ModelNumber,
     string? OrderNumber, decimal? PurchaseCost, DateTime? PurchaseDate, string? Notes,
-    string TrackingType, int Remaining, bool IsLowStock, bool CanDelete,
+    string TrackingType, int Remaining, bool IsLowStock, bool CanDelete, DateTime CreatedAt,
     ComponentRefDto? Category, ComponentRefDto? Company, ComponentRefDto? Location,
     ComponentRefDto? Supplier, ComponentRefDto? Manufacturer);
 
@@ -25,8 +26,35 @@ public record ComponentListResult(IReadOnlyList<ComponentListItemDto> Items, int
 /// </summary>
 public record ListComponentsQuery(
     string? Search, Guid? CategoryId, Guid? CompanyId, Guid? LocationId,
-    bool Uncategorized = false, bool Uncompanied = false, int Page = 1, int PageSize = 20)
+    bool Uncategorized = false, bool Uncompanied = false, int Page = 1, int PageSize = 20,
+    string? SortBy = null, string? SortDir = null)
     : IRequest<ComponentListResult>;
+
+/// <summary>
+/// Whitelist sort for the component list (mirrors <c>AssetListSort</c>).
+/// Only DB-backed columns are accepted — <c>remaining</c>/<c>isLowStock</c> are computed in the
+/// projection (assignments/units), so they can never be ordered in SQL.
+/// <c>serial</c> uses the shared PostgreSQL ICU numeric collation (<c>und-u-kn-true</c>) so
+/// "Serial 2" sorts before "Serial 10". Unknown values fall back to newest-created first.
+/// </summary>
+public static class ComponentListSort
+{
+    public static IOrderedQueryable<Component> Apply(IQueryable<Component> query, string? sortBy, bool desc)
+    {
+        var key = sortBy?.Trim().ToLowerInvariant();
+        return key switch
+        {
+            "name" => desc ? query.OrderByDescending(c => c.Name) : query.OrderBy(c => c.Name),
+            "serial" => desc
+                ? query.OrderByDescending(c => EF.Functions.Collate(c.Serial!, NaturalSort.Collation))
+                : query.OrderBy(c => EF.Functions.Collate(c.Serial!, NaturalSort.Collation)),
+            "qty" => desc ? query.OrderByDescending(c => c.Qty) : query.OrderBy(c => c.Qty),
+            "trackingtype" => desc ? query.OrderByDescending(c => c.TrackingType) : query.OrderBy(c => c.TrackingType),
+            "createdat" => desc ? query.OrderByDescending(c => c.CreatedAt) : query.OrderBy(c => c.CreatedAt),
+            _ => query.OrderByDescending(c => c.CreatedAt).ThenBy(c => c.Name),
+        };
+    }
+}
 
 public class ListComponentsQueryHandler : IRequestHandler<ListComponentsQuery, ComponentListResult>
 {
@@ -65,9 +93,14 @@ public class ListComponentsQueryHandler : IRequestHandler<ListComponentsQuery, C
         query = query.Where(c => userCompanyId == null || c.CompanyId == null || c.CompanyId == userCompanyId.Value);
 
         var total = await query.CountAsync(cancellationToken);
-        var items = await query.OrderBy(c => c.Name).Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
+
+        // Whitelist sort (DB columns only) — default/unknown → newest-created first.
+        var desc = string.Equals(request.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
+        query = ComponentListSort.Apply(query, request.SortBy, desc);
+
+        var items = await query.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize)
             .Select(c => new ComponentListItemDto(
-                c.Id, c.Name, c.Serial, c.Qty, c.MinAmt, c.ModelNumber, c.OrderNumber,
+                c.Id, c.Name, c.Serial, c.ItemNo, c.Qty, c.MinAmt, c.ModelNumber, c.OrderNumber,
                 c.PurchaseCost, c.PurchaseDate, c.Notes,
                 c.TrackingType.ToString(),
                 c.TrackingType == TrackingType.Serial
@@ -77,6 +110,7 @@ public class ListComponentsQueryHandler : IRequestHandler<ListComponentsQuery, C
                     ? c.Units.Count(u => u.Status == ComponentUnitStatus.InStock)
                     : c.Qty - c.Assignments.Sum(a => a.AssignedQty)) <= c.MinAmt,
                 false, // canDelete resolved below via checkout-log scan
+                c.CreatedAt,
                 c.Category == null ? null : new ComponentRefDto(c.Category.Id, c.Category.Name),
                 c.Company == null ? null : new ComponentRefDto(c.Company.Id, c.Company.Name),
                 c.Location == null ? null : new ComponentRefDto(c.Location.Id, c.Location.Name),
