@@ -31,6 +31,8 @@ const DashboardAlertPage = lazy(() => import('./features/system/pages/DashboardA
 const AssetListPage = lazy(() => import('./features/asset/pages/AssetListPage'));
 const AssetDetailPage = lazy(() => import('./features/asset/pages/AssetDetailPage'));
 const AssetTimelinePrintPage = lazy(() => import('./features/asset/pages/AssetTimelinePrintPage'));
+const AssetLabelPrintPage = lazy(() => import('./features/asset/labels/AssetLabelPrintPage'));
+const ShortAssetLinkPage = lazy(() => import('./features/asset/pages/ShortAssetLinkPage'));
 const MaintenanceListPage = lazy(() => import('./features/maintenance/pages/MaintenanceListPage'));
 const UserListPage = lazy(() => import('./features/user/pages/UserListPage'));
 const UserDetailPage = lazy(() => import('./features/user/pages/UserDetailPage'));
@@ -529,6 +531,21 @@ function App() {
             <Route path="/assets/new" element={
               <ProtectedRoute>
                 <AppLayout><AssetListPage /></AppLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/a/:id" element={
+              <ProtectedRoute>
+                <ShortAssetLinkPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/assets/labels/print" element={
+              <ProtectedRoute>
+                <AssetLabelPrintPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/assets/labels/calibration" element={
+              <ProtectedRoute>
+                <AssetLabelPrintPage />
               </ProtectedRoute>
             } />
             <Route path="/assets/:id" element={

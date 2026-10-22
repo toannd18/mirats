@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Divider, Form, Input, Typography } from 'antd';
 import { LockOutlined, UserOutlined, SafetyOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { loginWithPassword } from '../services/auth';
 import { isPasskeyEnabled, loginWithPasskey } from '../services/passkeys';
+import { safeInternalPath } from '../../../utils/safeRedirect';
 
 const { Title } = Typography;
 
@@ -19,6 +20,15 @@ export default function LoginPage() {
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // returnUrl: state.from is set by ProtectedRoute; the query parameter is accepted for external
+  // links/bookmarks. After login (and a forced password change) the user lands back on the QR page.
+  const returnUrl = safeInternalPath(
+    (location.state as { from?: string } | null)?.from
+      ?? new URLSearchParams(location.search).get('returnUrl')
+      ?? '/',
+  );
 
   useEffect(() => {
     // [AUTH Phase 3] Gate the passkey button on the server flag — hidden entirely when off.
@@ -30,7 +40,10 @@ export default function LoginPage() {
     setError(null);
     try {
       const { mustChangePassword } = await loginWithPassword(values.username, values.password);
-      navigate(mustChangePassword ? '/change-password' : '/', { replace: true });
+      navigate(mustChangePassword ? '/change-password' : returnUrl, {
+        replace: true,
+        state: mustChangePassword ? { from: returnUrl } : undefined,
+      });
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       // Server sends a GENERIC message (never reveals whether the username exists).
@@ -56,7 +69,10 @@ export default function LoginPage() {
     try {
       const result = await loginWithPasskey();
       if (result.ok) {
-        navigate(result.mustChangePassword ? '/change-password' : '/', { replace: true });
+        navigate(result.mustChangePassword ? '/change-password' : returnUrl, {
+          replace: true,
+          state: result.mustChangePassword ? { from: returnUrl } : undefined,
+        });
       } else {
         setError(result.message || 'Xác thực passkey không thành công.');
       }

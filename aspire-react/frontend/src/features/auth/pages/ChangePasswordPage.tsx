@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Alert, Button, Card, Form, Input, Typography } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { changeOwnPassword } from '../services/auth.service';
 import { logout } from '../services/auth';
+import { safeInternalPath } from '../../../utils/safeRedirect';
 
 const { Title } = Typography;
 
@@ -17,6 +18,10 @@ export default function ChangePasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnUrl = safeInternalPath(
+    (location.state as { from?: string } | null)?.from ?? '/',
+  );
 
   const onFinish = async (values: { newPassword: string; confirm: string }) => {
     if (values.newPassword !== values.confirm) {
@@ -37,7 +42,7 @@ export default function ChangePasswordPage() {
       }
       // Clean re-login: the old session was revoked server-side.
       await logout();
-      navigate('/login', { replace: true });
+      navigate('/login', { replace: true, state: { from: returnUrl } });
     } finally {
       setLoading(false);
     }

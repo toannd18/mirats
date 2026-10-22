@@ -8,6 +8,7 @@ import {
   PlusOutlined, EditOutlined, SendOutlined,
   LaptopOutlined,
   RollbackOutlined, DeleteOutlined, CheckSquareOutlined, UndoOutlined, InboxOutlined, MoreOutlined,
+  PrinterOutlined,
 } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -58,6 +59,7 @@ const AssetListPage: React.FC = () => {
   const [allocAsset, setAllocAsset] = useState<AssetDto | null>(null);
   const [recallOpen, setRecallOpen] = useState(false);
   const [recallAsset, setRecallAsset] = useState<AssetDto | null>(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
   // Edit modal — opened IN PLACE via local state (Task A lesson: never navigate to open a modal).
   // Deep-link /assets/:id/edit only sets this state on the current page.
@@ -87,6 +89,11 @@ const AssetListPage: React.FC = () => {
   const superUser = isSuperUser();
 
   const reload = () => actionRef.current?.reload();
+
+  const printSelectedLabels = () => {
+    if (selectedRowKeys.length === 0) return;
+    navigate(`/assets/labels/print?ids=${encodeURIComponent(selectedRowKeys.join(','))}`);
+  };
 
   const hasAction = (record: AssetDto, action: string) =>
     (getAssetActions({
@@ -343,10 +350,19 @@ const AssetListPage: React.FC = () => {
         <ProList<AssetDto>
           headerTitle={<Title level={4} style={{ margin: 0 }}>Danh sách tài sản</Title>}
           actionRef={actionRef} rowKey="id" ghost cardProps={false}
+          rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys, preserveSelectedRowKeys: true }}
+          tableAlertRender={({ selectedRowKeys: keys }) => (
+            <Space>
+              <span>Đã chọn {keys.length} tài sản</span>
+              <Button size="small" type="link" onClick={() => setSelectedRowKeys([])}>Bỏ chọn</Button>
+            </Space>
+          )}
           columns={searchColumns}
           grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3, xxl: 3 }}
           search={{ labelWidth: 'auto', defaultCollapsed: true }}
           toolBarRender={() => [
+            selectedRowKeys.length > 0 && <Button key="print-labels" icon={<PrinterOutlined />}
+              onClick={printSelectedLabels}>In tem ({selectedRowKeys.length})</Button>,
             canCreate && <Button key="create" type="primary" size="middle" icon={<PlusOutlined />}
               onClick={() => setCreateModalOpen(true)}>Tạo tài sản</Button>,
           ]}
@@ -408,6 +424,13 @@ const AssetListPage: React.FC = () => {
           headerTitle={<Title level={4} style={{ margin: 0 }}>Danh sách tài sản</Title>}
           actionRef={actionRef}
           rowKey="id"
+          rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys, preserveSelectedRowKeys: true }}
+          tableAlertRender={({ selectedRowKeys: keys }) => (
+            <Space>
+              <span>Đã chọn {keys.length} tài sản</span>
+              <Button size="small" type="link" onClick={() => setSelectedRowKeys([])}>Bỏ chọn</Button>
+            </Space>
+          )}
           columns={[...searchColumns, ...desktopColumns]}
           search={{ labelWidth: 'auto', defaultCollapsed: false }}
           options={{ reload: true, density: true, setting: true }}
@@ -433,6 +456,8 @@ const AssetListPage: React.FC = () => {
             },
           }}
           toolBarRender={() => [
+            selectedRowKeys.length > 0 && <Button key="print-labels" icon={<PrinterOutlined />}
+              onClick={printSelectedLabels}>In tem ({selectedRowKeys.length})</Button>,
             canCreate && <Button key="create" type="primary" size="middle" icon={<PlusOutlined />}
               onClick={() => setCreateModalOpen(true)}>Tạo tài sản</Button>,
           ]}

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Descriptions, Tag, Spin, Button, Space, Card, App, Steps, Alert, Empty, Tabs, Typography } from 'antd';
 import {
   ArrowLeftOutlined, EditOutlined, InboxOutlined, CheckSquareOutlined,
-  RollbackOutlined, SendOutlined, UndoOutlined, UserOutlined, TeamOutlined, ClusterOutlined,
+  RollbackOutlined, SendOutlined, UndoOutlined, UserOutlined, TeamOutlined, ClusterOutlined, PrinterOutlined,
 } from '@ant-design/icons';
 import type { ActionType } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
@@ -125,6 +125,9 @@ const AssetDetailPage: React.FC = () => {
           </Space>
         </div>
         <div style={{ flex: 1 }} />
+        <Button icon={<PrinterOutlined />} onClick={() => navigate(`/assets/labels/print?ids=${encodeURIComponent(asset.id)}`)}>
+          In tem
+        </Button>
         <ListRowActions
           primary={
             !asset.isConfirmed && has('confirm') && canEdit

@@ -17,6 +17,9 @@ WORKDIR /app
 # so Vite's `import.meta.env.*` picks them up at build time.
 ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+# Public origin baked into QR codes (e.g. https://assets.company.vn). Set at build time.
+ARG VITE_PUBLIC_APP_URL
+ENV VITE_PUBLIC_APP_URL=${VITE_PUBLIC_APP_URL}
 
 COPY package.json package-lock.json ./
 RUN npm ci

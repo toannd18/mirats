@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   App, Button, Card, Descriptions, Empty, Form, Input, InputNumber, Modal, Segmented, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
 import {
-  ArrowLeftOutlined, CarOutlined, ClusterOutlined, EllipsisOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined, RollbackOutlined, ToolOutlined,
+  ArrowLeftOutlined, CarOutlined, ClusterOutlined, EllipsisOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined, PrinterOutlined, RollbackOutlined, ToolOutlined,
 } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -66,7 +66,10 @@ export default function SystemDetailPage() {
 
   const [system, setSystem] = useState<SystemInfoDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
-  const [positionFilter, setPositionFilter] = useState<string | undefined>(undefined);
+  const [searchParams] = useSearchParams();
+  const [positionFilter, setPositionFilter] = useState<string | undefined>(
+    () => searchParams.get('position') ?? undefined,
+  );
 
   const [assetCount, setAssetCount] = useState(0);
   const [accessoryCount, setAccessoryCount] = useState(0);
@@ -447,6 +450,21 @@ export default function SystemDetailPage() {
             { title: 'Mã vị trí', dataIndex: 'code', width: 160, render: (v: string) => <Text code>{v}</Text> },
             { title: 'Tên vị trí', dataIndex: 'name', width: 220 },
             { title: 'Mô tả', dataIndex: 'description', render: (v: string | null | undefined) => v || '-' },
+            {
+              title: 'Thao tác', key: 'position-actions', width: 120,
+              render: (_: unknown, record: { id: string }) => (
+                <Button
+                  size="small"
+                  icon={<PrinterOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/assets/labels/print?systemId=${id}&positionId=${record.id}`);
+                  }}
+                >
+                  In tem
+                </Button>
+              ),
+            },
           ]}
         />
       </Card>

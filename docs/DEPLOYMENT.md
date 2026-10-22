@@ -72,7 +72,7 @@ cp .env.example .env
 | `CORS_ALLOWED_ORIGINS` | Origin được phép gọi API (CSV). Prod là domain người dùng vào | `https://app.example.com` |
 | `BACKUP_AGE_RECIPIENT` | age **public key** để mã hoá backup (private key KHÔNG nằm trên server) | `age1...` (sinh bằng `age-keygen -o backup-key.txt`) |
 
-Các biến TÙY CHỌN đã có default hợp lý: `AUTH_ISSUER` (`aspire-react`), `AUTH_AUDIENCE` (`aspire-react-api`), `INITIAL_ADMIN_USERNAME` (`admin`), `INITIAL_ADMIN_EMAIL` (`admin@localhost`), `VITE_API_BASE_URL` (`/api/v1`), `BACKEND_PORT` (`5000`), `FRONTEND_PORT` (`80`), `ASPNETCORE_URLS`, `ASPNETCORE_ENVIRONMENT`, `POSTGRES_DB/USER/PORT`, `REDIS_PORT`.
+Các biến TÙY CHỌN đã có default hợp lý: `AUTH_ISSUER` (`aspire-react`), `AUTH_AUDIENCE` (`aspire-react-api`), `INITIAL_ADMIN_USERNAME` (`admin`), `INITIAL_ADMIN_EMAIL` (`admin@localhost`), `VITE_API_BASE_URL` (`/api/v1`), `VITE_PUBLIC_APP_URL` (origin công khai dùng trong QR tem tài sản), `BACKEND_PORT` (`5000`), `FRONTEND_PORT` (`80`), `ASPNETCORE_URLS`, `ASPNETCORE_ENVIRONMENT`, `POSTGRES_DB/USER/PORT`, `REDIS_PORT`.
 
 > ⚠️ **pgAdmin đã tách khỏi stack production**: `PGADMIN_PASSWORD` **không** còn nằm trong danh sách bắt buộc của
 > `docker-compose.yml`. Chỉ cần set khi dùng overlay debug (`docker-compose.debug.yml`, §5.1) — file đó vẫn bắt buộc
@@ -196,7 +196,15 @@ master). **Keycloak đã bị xóa** → chỉ còn **một** loại: admin ứn
 
 ```
 VITE_API_BASE_URL  = ${VITE_API_BASE_URL:-/api/v1}   (base SERVER — frontend tự nối /api/v1, không double)
+VITE_PUBLIC_APP_URL = ${VITE_PUBLIC_APP_URL:-}       (origin public cho QR: https://assets.company.vn)
 ```
+
+**QR tem tài sản:** `VITE_PUBLIC_APP_URL` phải là **tên miền nội bộ CỐ ĐỊNH** (ví dụ
+`https://assets.company.vn`), chốt **trước khi in tem hàng loạt**. Đây là origin được bake vào QR;
+nếu đổi tên miền sau khi đã in tem, QR cũ sẽ trỏ sai — phải **in lại tem** hoặc cấu hình NPM
+**redirect tên miền cũ** sang tên miền mới. Không dùng IP/tên miền tạm, không hard-code trong code.
+Nếu bỏ trống, dev fallback về `window.location.origin`; production nên set domain thật và rebuild frontend.
+QR dùng route ngắn `/a/{assetId}` (asset tag có thể sửa sau xác nhận nên không dùng tag làm khóa).
 
 **Ngữ nghĩa `VITE_API_BASE_URL`:** đây là base của **SERVER** (không kèm `/api/v1`).
 `api-client.ts` nối thêm `/api/v1` (và đã xử lý trường hợp base đã kết thúc bằng `/api/v1`

@@ -1,0 +1,187 @@
+.label-print-shell {
+  min-height: 100vh;
+  background: #f0f2f5;
+  padding: 16px;
+}
+
+.label-print-toolbar {
+  max-width: 1100px;
+  margin: 0 auto 16px;
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.label-print-paper-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.a4-page {
+  width: 210mm;
+  min-height: 297mm;
+  background: #fff;
+  box-sizing: border-box;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+
+.label-grid {
+  display: grid;
+  box-sizing: border-box;
+  width: 210mm;
+}
+
+.asset-label {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 1.5mm;
+  padding: 1.2mm;
+  overflow: hidden;
+  background: #fff;
+  color: #000;
+  font-family: Arial, Helvetica, sans-serif;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.asset-label--small {
+  padding: 1.4mm;
+  gap: 1.3mm;
+}
+
+.asset-label--rack {
+  padding: 1.8mm;
+  gap: 2mm;
+}
+
+.asset-label__qr {
+  flex: 0 0 var(--qr-mm);
+  width: var(--qr-mm);
+  height: var(--qr-mm);
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.asset-label__qr svg,
+.asset-label__qr canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.asset-label__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.7mm;
+}
+
+.asset-label__code {
+  font-size: var(--code-pt);
+  font-weight: 700;
+  line-height: 1.05;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.asset-label__name {
+  font-size: var(--name-pt);
+  line-height: 1.1;
+  max-height: 2.3em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.asset-label__org,
+.asset-label__context {
+  font-size: var(--org-pt);
+  line-height: 1.1;
+  color: #111;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.asset-label__context {
+  color: #000;
+}
+
+.cut-lines .asset-label {
+  outline: 0.2mm dashed #9a9a9a;
+  outline-offset: -0.1mm;
+}
+
+.asset-label--calibration {
+  outline: 0.25mm dashed #6b6b6b;
+  outline-offset: -0.125mm;
+}
+
+@media screen and (max-width: 900px) {
+  .label-print-shell {
+    padding: 8px;
+  }
+
+  .a4-page {
+    zoom: 0.42;
+  }
+}
+
+@media print {
+  @page {
+    size: 210mm 297mm;
+    margin: 0;
+  }
+
+  html,
+  body,
+  #root {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    width: 210mm;
+  }
+
+  .no-print,
+  .label-print-toolbar {
+    display: none !important;
+  }
+
+  .label-print-shell {
+    padding: 0 !important;
+    background: #fff !important;
+    min-height: 0 !important;
+  }
+
+  .label-print-paper-wrap {
+    display: block !important;
+  }
+
+  .a4-page {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    zoom: 1 !important;
+  }
+
+  .label-grid {
+    width: 210mm !important;
+  }
+
+  .asset-label {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
