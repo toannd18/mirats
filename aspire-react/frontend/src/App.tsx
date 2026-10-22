@@ -45,6 +45,7 @@ const AccessoryDetailPage = lazy(() => import('./features/accessory/pages/Access
 const LicenseListPage = lazy(() => import('./features/license/pages/LicenseListPage'));
 const LicenseDetailPage = lazy(() => import('./features/license/pages/LicenseDetailPage'));
 const ReportsPage = lazy(() => import('./features/system/pages/ReportsPage'));
+const RepairReportPage = lazy(() => import('./features/system/pages/RepairReportPage'));
 const GroupListPage = lazy(() => import('./features/permission/pages/GroupListPage'));
 const PermissionMatrixPage = lazy(() => import('./features/permission/pages/PermissionMatrixPage'));
 const CategoryListPage = lazy(() => import('./features/admin/pages/CategoryListPage'));
@@ -652,6 +653,9 @@ function App() {
             } />
             <Route path="/reports" element={
               <ProtectedRoute><AppLayout><ReportsPage /></AppLayout></ProtectedRoute>
+            } />
+            <Route path="/reports/repairs" element={
+              <ProtectedRoute><AppLayout><RepairReportPage /></AppLayout></ProtectedRoute>
             } />
             <Route path="/users" element={
               <ProtectedRoute>

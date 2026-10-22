@@ -151,7 +151,7 @@ public class ImportExportController : ControllerBase
     // ================================================================
 
     [HttpGet("export/assets")]
-    [Authorize(Policy = "assets.view")]
+    [Authorize(Policy = "export")]
     public async Task<IActionResult> ExportAssets()
     {
         var assets = await _mediator.Send(new ExportAssetsQuery());
@@ -175,7 +175,7 @@ public class ImportExportController : ControllerBase
     }
 
     [HttpGet("export/consumables")]
-    [Authorize(Policy = "consumables.view")]
+    [Authorize(Policy = "export")]
     public async Task<IActionResult> ExportConsumables()
     {
         var items = await _mediator.Send(new ExportConsumablesQuery());

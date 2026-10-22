@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button, App, Table, Tabs } from 'antd';
+import { Link } from 'react-router-dom';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 
@@ -54,7 +55,7 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(r.data);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'assets.csv';
+    a.download = 'assets.xlsx';
     a.click();
   });
 
@@ -69,6 +70,9 @@ export default function ReportsPage() {
 
   return (
     <div>
+      <div style={{ marginBottom: 8 }}>
+        <Link to="/reports/repairs">Mở báo cáo sửa chữa →</Link>
+      </div>
       <Tabs items={[
         {
           key: 'dep', label: 'Khấu hao', children: (
@@ -92,8 +96,8 @@ export default function ReportsPage() {
           ),
         },
         {
-          key: 'export', label: 'Xuất CSV', children: (
-            canExport ? <Button type="primary" onClick={() => void exportAssets()}>Xuất CSV</Button> : null
+          key: 'export', label: 'Xuất Excel', children: (
+            canExport ? <Button type="primary" onClick={() => void exportAssets()}>Xuất Excel</Button> : null
           ),
         },
       ]} />

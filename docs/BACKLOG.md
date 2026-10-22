@@ -71,9 +71,18 @@
    - **Điều kiện kích hoạt:** khi xuất hiện **báo cáo / bộ lọc theo NGÀY** trên 3 cột này — lúc đó
      `::date` / `date_trunc` theo UTC sẽ lệch **±1 ngày** so với ngày nghiệp vụ VN; phải backfill
      `AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Ho_Chi_Minh'`, đổi cột sang `date`, DTO/handler sang `DateOnly`.
+   - **Đợt REPAIR-REPORT:** đã dùng phương án **(b)** — helper `VnReportDate` + `AT TIME ZONE 'Asia/Ho_Chi_Minh'`
+     và sweep chặn `::date`/`.Date`/`date_trunc`/`MONTH`/`YEAR`/`QUARTER` trên 2 cột này ngoài helper.
+     MT-TZ-B vẫn mở cho migration lâu dài, nhưng báo cáo hiện tại không bị lệch ngày.
    - **Tiêu chí nghiệm thu:** 0 chỗ so sánh/lọc theo ngày lệch 1 ngày khi chạy bộ lọc "theo ngày" trên dữ
      liệu thật; `dotnet ef migrations has-pending-model-changes` rỗng sau migration.
-3. **Dọn `ToApiKind`/`ToColumnKind` (LL-3) trong `AssetTimelineQuery.cs`** — 2 helper chuyển `DateTimeKind`
+3. **REPAIR-REPORT — MTBF chỉ làm khi có ≥ 3 tháng lý lịch lắp đặt thật.**
+   - Đợt 1 báo cáo sửa chữa **không** trả MTBF; chỉ trả số lần hỏng, đang mở, MTTR, chi phí, bảo hành.
+   - **Điều kiện kích hoạt:** `asset_installations` có tối thiểu **3 tháng** lịch sử thật (không chỉ backfill/đang mở),
+     có ít nhất một khoảng đã đóng và dữ liệu chuyển hệ thống.
+   - **Tiêu chí nghiệm thu:** công thức exposure days được test trên fixture có install đóng/mở/chuyển hệ thống;
+     asset không lý lịch → `—`; exposure 0 hoặc 0 lần hỏng → `—`, không chia cho 0.
+4. **Dọn `ToApiKind`/`ToColumnKind` (LL-3) trong `AssetTimelineQuery.cs`** — 2 helper chuyển `DateTimeKind`
    cho mốc cursor `occurredAt` được tạo ở giai đoạn cột còn naive. Sau MT-TZ (ValueConverter đọc ra
    `Kind=Utc` cho mọi cột naive đã đăng ký) chúng **không còn cần thiết**, nhưng để lại cũng không sai.
    - **Tiêu chí nghiệm thu:** bỏ 2 helper mà `AssetTimelineQueryTests` + phân trang cursor trên **DB thật**

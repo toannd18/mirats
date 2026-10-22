@@ -329,6 +329,30 @@ foreach ($f in $frontFiles) {
 $script:stats['Sweep 7 (Date helper)'] = "$s7Count violation(s) / $($frontFiles.Count) frontend files"
 
 # ------------------------------------------------------------
+# Sweep 8 - VN date helper for maintenance StartDate/CompletionDate
+# ------------------------------------------------------------
+# [REPAIR-REPORT] All month/quarter/year filters, grouping and MTTR must use VnReportDate.
+# Direct ::date, .Date, date_trunc, MONTH(), YEAR(), QUARTER() on these two columns is banned
+# outside the single helper (MT-TZ-B drift: 31/10 17:30 UTC == 01/11 VN).
+$s8Count = 0
+$allRepoCsFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'aspire-react') -Recurse -File -Filter *.cs |
+    Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' })
+$rawDatePattern = '(?i)(::date\b|\.Date\b|date_trunc\s*\(|\bMONTH\s*\(|\bYEAR\s*\(|\bQUARTER\s*\()'
+foreach ($f in $allRepoCsFiles) {
+    $normPath = Normalize $f.FullName
+    if ($normPath -match '/Reports/RepairReports/VnReportDate\.cs$') { continue }
+    $lines = Get-Content -LiteralPath $f.FullName
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+        if ($line -match '(?i)(StartDate|CompletionDate)' -and $line -match $rawDatePattern) {
+            Add-Violation 'S8' ("{0}:{1}: raw date extraction on StartDate/CompletionDate outside VnReportDate - {2}" -f $normPath, ($i + 1), $line.Trim())
+            $s8Count++
+        }
+    }
+}
+$script:stats['Sweep 8 (VN report date)'] = "$s8Count violation(s) / $($allRepoCsFiles.Count) .cs files"
+
+# ------------------------------------------------------------
 # Report + exit code
 # ------------------------------------------------------------
 Write-Host ''
@@ -339,6 +363,7 @@ Write-Host (' {0,-34} {1}' -f 'Sweep 4 (Table scroll):', $script:stats['Sweep 4 
 Write-Host (' {0,-34} {1}' -f 'Sweep 5 (Transactions):', $script:stats['Sweep 5 (Transactions)'])
 Write-Host (' {0,-34} {1}' -f 'Sweep 6 (Mojibake):', $script:stats['Sweep 6 (Mojibake)'])
 Write-Host (' {0,-34} {1}' -f 'Sweep 7 (Date helper):', $script:stats['Sweep 7 (Date helper)'])
+Write-Host (' {0,-34} {1}' -f 'Sweep 8 (VN report date):', $script:stats['Sweep 8 (VN report date)'])
 Write-Host '------------------------------------------------------------'
 Write-Host (' {0,-34} {1}' -f 'TOTAL:', "$($script:violations.Count) violation(s)")
 Write-Host ''
