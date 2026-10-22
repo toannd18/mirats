@@ -4,7 +4,7 @@ import dayjs from 'dayjs';
 import {
   Alert, App, Button, Card, Col, Empty, Row, Select, Space, Spin, Statistic, Table, Tag, Typography,
 } from 'antd';
-import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ReloadOutlined, PrinterOutlined, FileExcelOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { formatDate, formatNumber } from '../../../utils/format';
 import { usePermission } from '../../../hooks/usePermission';
@@ -98,6 +98,7 @@ export default function RepairReportPage() {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const canView = usePermission('reports.view');
+  const canExport = usePermission('export');
 
   const now = dayjs();
   const [period, setPeriod] = useState<Period>('quarter');
@@ -155,6 +156,35 @@ export default function RepairReportPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const filterParams = useMemo(() => {
+    const p = new URLSearchParams();
+    p.set('period', period);
+    p.set('year', String(year));
+    p.set('typeGroup', typeGroup);
+    p.set('unassignedOnly', systemMode === 'unassigned' ? 'true' : 'false');
+    if (period === 'month') p.set('month', String(month));
+    if (period === 'quarter') p.set('quarter', String(quarter));
+    if (systemMode !== 'all' && systemMode !== 'unassigned') p.set('systemId', systemMode);
+    if (categoryId) p.set('categoryId', categoryId);
+    if (modelId) p.set('modelId', modelId);
+    return p.toString();
+  }, [period, year, month, quarter, systemMode, typeGroup, categoryId, modelId]);
+
+  const exportReport = async () => {
+    try {
+      const res = await apiClient.get(`/reports/repairs/export?${filterParams}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'repair-report.xlsx';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      void message.error(e?.response?.data?.message || 'Không xuất được Excel');
+    }
+  };
+
   const groups = useMemo(() => data.groups.map((g) => ({
     ...g,
     key: `${g.periodKey}|${g.systemId ?? 'none'}|${g.installationStatus}`,
@@ -180,7 +210,7 @@ export default function RepairReportPage() {
     { title: 'Số lần hỏng', dataIndex: 'failures', width: 110, align: 'right' as const },
     { title: 'Đang mở', dataIndex: 'openCount', width: 90, align: 'right' as const },
     { title: 'MTTR (ngày)', key: 'mttr', width: 110, align: 'right' as const,
-      render: (_: unknown, g: RepairGroup) => g.mttrDays == null ? '—' : formatNumber(g.mttrDays) },
+      render: (_: unknown, g: RepairGroup) => g.mttrDays == null ? '—' : Number(g.mttrDays).toFixed(1) },
     { title: 'Chi phí', key: 'cost', width: 130, align: 'right' as const,
       render: (_: unknown, g: RepairGroup) => formatNumber(g.totalCost) },
     { title: 'Thiếu chi phí', dataIndex: 'missingCostCount', width: 110, align: 'right' as const },
@@ -223,7 +253,19 @@ export default function RepairReportPage() {
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/reports')}>Quay lại</Button>
           <Title level={4} style={{ margin: 0 }}>Báo cáo sửa chữa</Title>
         </Space>
-        <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>Tải lại</Button>
+        <Space>
+          <Button icon={<PrinterOutlined />} onClick={() => navigate(`/reports/repairs/print?${filterParams}`)}>
+            In
+          </Button>
+          <Button
+            icon={<FileExcelOutlined />}
+            disabled={!canExport}
+            onClick={() => void exportReport()}
+          >
+            Xuất Excel
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>Tải lại</Button>
+        </Space>
       </Space>
 
       <Card size="small" style={{ marginBottom: 16 }}>

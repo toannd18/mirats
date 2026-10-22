@@ -1,6 +1,7 @@
 using aspire_react.Server.Application.Reports.Queries;
 using aspire_react.Server.Application.Reports.RepairReports;
 using aspire_react.Server.Domain.Enums;
+using aspire_react.Server.Web.Reports;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -49,6 +50,33 @@ public class ReportsController : ControllerBase
         var result = await _mediator.Send(BuildRepairQuery(
             period, year, month, quarter, systemId, unassignedOnly, typeGroup, categoryId, modelId));
         return Ok(new { status = "success", data = result });
+    }
+
+    /// <summary>
+    /// [REPAIR-REPORT] Same filters + same RepairReportQueryHandler as GET /reports/repairs.
+    /// Both reports.view and export are required.
+    /// </summary>
+    [HttpGet("repairs/export")]
+    [Authorize(Policy = "reports.view")]
+    [Authorize(Policy = "export")]
+    public async Task<IActionResult> ExportRepairs(
+        [FromQuery] string? period = "month",
+        [FromQuery] int? year = null,
+        [FromQuery] int? month = null,
+        [FromQuery] int? quarter = null,
+        [FromQuery] Guid? systemId = null,
+        [FromQuery] bool unassignedOnly = false,
+        [FromQuery] string? typeGroup = "repair_incident",
+        [FromQuery] Guid? categoryId = null,
+        [FromQuery] Guid? modelId = null)
+    {
+        var result = await _mediator.Send(BuildRepairQuery(
+            period, year, month, quarter, systemId, unassignedOnly, typeGroup, categoryId, modelId));
+        var now = VnReportDate.NowVn();
+        var bytes = RepairReportExcelBuilder.Build(result, now);
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"repair-report-{now:yyyyMMdd-HHmm}.xlsx");
     }
 
     private static RepairReportQuery BuildRepairQuery(

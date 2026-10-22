@@ -1,0 +1,237 @@
+@page {
+  size: A4 landscape;
+  margin: 10mm 10mm 17mm 10mm;
+
+  @bottom-center {
+    content: "Trang " counter(page) " / " counter(pages);
+    font-size: 8pt;
+    color: #444;
+  }
+}
+
+.repair-print-page {
+  max-width: 1120px;
+  margin: 16px auto 24px;
+  padding: 0 16px 40px;
+  color: #111;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.repair-print-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.repair-print-header {
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.repair-print-company {
+  text-align: left;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.repair-print-header h1 {
+  font-size: 20px;
+  margin: 6px 0;
+  letter-spacing: 0.4px;
+}
+
+.repair-print-filter {
+  font-size: 11px;
+  color: #333;
+  max-width: 980px;
+  margin: 0 auto;
+  word-break: break-word;
+}
+
+.repair-print-kpis {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  margin: 10px 0 12px;
+}
+
+.repair-print-kpis > div {
+  border: 1px solid #aaa;
+  padding: 6px 7px;
+  text-align: center;
+}
+
+.repair-print-kpis span {
+  display: block;
+  color: #555;
+  font-size: 9.5px;
+  margin-bottom: 3px;
+}
+
+.repair-print-kpis strong {
+  display: block;
+  font-size: 14px;
+}
+
+.repair-print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5px;
+  table-layout: auto;
+}
+
+.repair-print-table th,
+.repair-print-table td {
+  border: 1px solid #777;
+  padding: 4px 5px;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.repair-print-table thead {
+  display: table-header-group;
+}
+
+.repair-print-table tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.repair-print-table th {
+  background: #e9eef7;
+  text-align: left;
+  font-weight: 600;
+}
+
+.repair-print-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.repair-print-table .total-row td {
+  font-weight: 700;
+  background: #f4f4f4;
+}
+
+.repair-print-subtitle {
+  font-size: 13px;
+  margin: 14px 0 6px;
+}
+
+.repair-print-detail-table {
+  font-size: 8.8px;
+}
+
+.repair-print-notes {
+  margin-top: 10px;
+  padding: 7px 8px;
+  border: 1px dashed #888;
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.repair-signature-block {
+  margin-top: 14px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.repair-signature-date {
+  text-align: right;
+  font-style: italic;
+  font-size: 10px;
+  margin-bottom: 8px;
+}
+
+.repair-signature-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  text-align: center;
+  font-size: 10px;
+}
+
+.repair-signature-title {
+  font-weight: 700;
+}
+
+.repair-signature-hint {
+  font-size: 9px;
+  color: #555;
+  margin-top: 2px;
+}
+
+.repair-signature-space {
+  height: 48px;
+}
+
+.repair-print-footer {
+  margin-top: 12px;
+  padding-top: 5px;
+  border-top: 1px solid #999;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 9px;
+  color: #333;
+}
+
+.repair-print-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 9px;
+  color: #555;
+}
+
+@media screen and (max-width: 900px) {
+  .repair-print-page {
+    padding: 0 8px 24px;
+  }
+
+  .repair-print-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .repair-print-table,
+  .repair-print-detail-table {
+    font-size: 8px;
+  }
+
+  .repair-signature-grid {
+    gap: 16px;
+  }
+}
+
+@media print {
+  .repair-print-toolbar,
+  .repair-print-hint {
+    display: none !important;
+  }
+
+  .repair-print-page {
+    max-width: none;
+    margin: 0;
+    padding: 0 0 16mm;
+    font-size: 9pt;
+  }
+
+  .repair-print-header h1 {
+    font-size: 17pt;
+  }
+
+  .repair-print-footer {
+    position: fixed;
+    left: 10mm;
+    right: 10mm;
+    bottom: 2mm;
+    margin: 0;
+    padding-top: 3px;
+    background: #fff;
+  }
+
+  .repair-print-table {
+    font-size: 8.5pt;
+  }
+}

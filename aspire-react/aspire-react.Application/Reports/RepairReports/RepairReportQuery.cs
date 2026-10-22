@@ -237,7 +237,7 @@ public sealed class RepairReportQueryHandler : IRequestHandler<RepairReportQuery
             Failures: failures,
             OpenCount: Convert.ToInt32(reader.GetValue(1)),
             CompletedCount: completed,
-            MttrDays: ReadNullableDecimal(reader, 3),
+            MttrDays: RoundMttrDays(ReadNullableDecimal(reader, 3)),
             TotalCost: ReadDecimal(reader, 4),
             MissingCostCount: Convert.ToInt32(reader.GetValue(5)),
             WarrantyCount: warranty,
@@ -269,7 +269,7 @@ public sealed class RepairReportQueryHandler : IRequestHandler<RepairReportQuery
                 Failures: failures,
                 OpenCount: Convert.ToInt32(reader.GetValue(5)),
                 CompletedCount: Convert.ToInt32(reader.GetValue(6)),
-                MttrDays: ReadNullableDecimal(reader, 7),
+                MttrDays: RoundMttrDays(ReadNullableDecimal(reader, 7)),
                 TotalCost: ReadDecimal(reader, 8),
                 MissingCostCount: Convert.ToInt32(reader.GetValue(10)),
                 WarrantyCount: warranty,
@@ -314,6 +314,14 @@ public sealed class RepairReportQueryHandler : IRequestHandler<RepairReportQuery
 
     private static decimal? ReadNullableDecimal(DbDataReader reader, int index) =>
         reader.IsDBNull(index) ? null : Convert.ToDecimal(reader.GetValue(index));
+
+    /// <summary>
+    /// [REPAIR-REPORT] MTTR is presented with exactly one decimal everywhere (screen, Excel,
+    /// print). Round once at the source so every consumer receives the same value; do not
+    /// rely on per-consumer display formatting (different providers round differently).
+    /// </summary>
+    private static decimal? RoundMttrDays(decimal? value) =>
+        value is null ? null : Math.Round(value.Value, 1, MidpointRounding.AwayFromZero);
 
     private static DateTime ReadDate(DbDataReader reader, int index) =>
         ToDateTime(reader.GetValue(index));
