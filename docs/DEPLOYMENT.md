@@ -80,6 +80,16 @@ Các biến TÙY CHỌN đã có default hợp lý: `AUTH_ISSUER` (`aspire-react
 
 > ⚠️ **Không commit `.env`.** File này chứa secret thật và đã có trong `.gitignore`.
 
+### Bước 2b — Database triển khai phải MỚI hoàn toàn
+
+> ⛔ **KHÔNG sao chép/restore/clone database dev (`aspire-react-db`) hoặc bất kỳ DB test nào sang môi trường triển khai.**
+> Triển khai thật phải dùng **database mới hoàn toàn** (volume Postgres mới, `POSTGRES_DB` mới) và để
+> `StartupDataSeeder` + EF migration tạo schema/admin từ đầu.
+>
+> Lý do: DB dev chứa fixture/test data, ID và lịch sử không phù hợp production; copy DB dev sang prod sẽ
+> mang theo dữ liệu rác và có thể làm sai audit trail. Nếu cần dữ liệu mẫu, tạo bằng API/seed script riêng
+> sau khi stack production đã healthy — không copy file DB.
+
 ### Bước 3 — Build & khởi động stack
 
 ```bash

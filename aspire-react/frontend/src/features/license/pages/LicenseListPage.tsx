@@ -18,7 +18,6 @@ import { useIsMobile } from '../../../hooks/useIsMobile';
 import { isSuperUser } from '../../../features/auth/services/auth';
 import { formatDate, formatNumber } from '../../../utils/format';
 import LicenseFormModal from '../components/LicenseFormModal';
-import LicenseDetailModal from '../components/LicenseDetailModal';
 import LicenseCheckoutModal from '../components/LicenseCheckoutModal';
 import ListRowActions from '../../../shared/components/list/ListRowActions';
 import { EllipsisText, NowrapText } from '../../../shared/components/list/ListText';
@@ -157,9 +156,6 @@ export default function LicenseListPage() {
   const editMatch = location.pathname.match(/^\/licenses\/([^/]+)\/edit$/);
   const formModalOpen = isCreateRoute || !!editMatch;
   const formModalLicenseId = editMatch ? editMatch[1] : null;
-  const detailMatch = location.pathname.match(/^\/licenses\/([^/]+)$/);
-  const detailLicenseId = detailMatch && detailMatch[1] !== 'new' ? detailMatch[1] : null;
-  const detailModalOpen = !!detailLicenseId && detailLicenseId !== 'new' && !formModalOpen;
 
   const actionRef = useRef<ActionType>(null);
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
@@ -737,12 +733,6 @@ export default function LicenseListPage() {
           navigate('/licenses');
           reload();
         }}
-      />
-      <LicenseDetailModal
-        open={detailModalOpen}
-        licenseId={detailLicenseId}
-        onClose={() => navigate('/licenses')}
-        onSaved={() => reload()}
       />
     </>
   );

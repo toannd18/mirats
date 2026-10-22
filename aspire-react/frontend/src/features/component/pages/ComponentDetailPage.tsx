@@ -4,7 +4,7 @@ import {
   Alert, App, Button, Card, Descriptions, Drawer, Empty, Input, InputNumber, Modal,
   Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
-import { ArrowLeftOutlined, EditOutlined, HistoryOutlined, InboxOutlined, RollbackOutlined, SendOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, InboxOutlined, RollbackOutlined, SendOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import {
   componentsApi, type ComponentDto, type ComponentUnitDto, type ComponentUnitStatus,
@@ -14,6 +14,7 @@ import ActionLogTable from '../../../shared/components/ActionLogTable';
 import type { ActionLogRow } from '../../../shared/components/ActionLogTable';
 import { formatDate, formatDateTime, formatNumber } from '../../../utils/format';
 import ComponentFormModal from '../components/ComponentFormModal';
+import ListRowActions from '../../../shared/components/list/ListRowActions';
 import { statusColors } from '../../../theme/designTokens';
 
 const { Title, Text } = Typography;
@@ -41,7 +42,7 @@ interface AssetOption {
 export default function ComponentDetailPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   const [component, setComponent] = useState<ComponentDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,6 +118,27 @@ export default function ComponentDetailPage() {
   useEffect(() => { void loadAssets(); }, [loadAssets]);
 
   const refreshAll = () => { void load(); void loadUnits(unitsPagination.current, unitsPagination.pageSize, statusFilter); };
+
+  const handleDelete = () => {
+    if (!component) return;
+    modal.confirm({
+      title: 'Xóa linh kiện này?',
+      content: 'Hành động này không thể hoàn tác.',
+      okText: 'Xóa',
+      cancelText: 'Hủy',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await componentsApi.delete(component.id);
+          message.success('Đã xóa linh kiện');
+          navigate('/components');
+        } catch (err: unknown) {
+          const e = err as { response?: { data?: { message?: string } } };
+          message.error(e?.response?.data?.message || 'Không thể xóa linh kiện');
+        }
+      },
+    });
+  };
 
   // ===== Action handlers =====
   const handleStockIn = async (serials: string[], note?: string) => {
@@ -228,38 +250,38 @@ export default function ComponentDetailPage() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/components')}>Danh sách</Button>
-        {canEdit && <Button icon={<EditOutlined />} onClick={() => setEditOpen(true)}>Sửa</Button>}
-        {canDelete && (
-          <Tooltip title={component.canDelete === false ? 'Đã từng được cấp phát — không thể xóa' : 'Xóa linh kiện'}>
-            <Popconfirm
-              title="Xóa linh kiện này?"
-              disabled={component.canDelete === false}
-              onConfirm={async () => {
-                try {
-                  await componentsApi.delete(component.id);
-                  message.success('Đã xóa linh kiện');
-                  navigate('/components');
-                } catch (err: unknown) {
-                  const e = err as { response?: { data?: { message?: string } } };
-                  message.error(e?.response?.data?.message || 'Không thể xóa linh kiện');
-                }
-              }}
-            >
-              <Button danger disabled={component.canDelete === false}>Xóa</Button>
-            </Popconfirm>
-          </Tooltip>
-        )}
+        <div style={{ minWidth: 0 }}>
+          <Title level={4} style={{ margin: 0 }}>{component.name}</Title>
+          <Space size={8} wrap>
+            <Text code>{component.itemNo || '—'}</Text>
+            {component.trackingType === 'Serial' ? <Tag color="blue">Theo serial</Tag> : <Tag>Theo số lượng</Tag>}
+            {component.isLowStock && <Tag color="red">Sắp hết</Tag>}
+          </Space>
+        </div>
+        <div style={{ flex: 1 }} />
+        <ListRowActions
+          primary={canCheckout ? {
+            key: 'checkout', label: 'Cấp phát', icon: <SendOutlined />,
+            disabled: component.remaining <= 0,
+            onClick: () => setCheckoutOpen(true),
+          } : null}
+          menuItems={[
+            ...(canEdit ? [{ key: 'edit', label: 'Sửa', icon: <EditOutlined />, onClick: () => setEditOpen(true) }] : []),
+            ...(canEdit && component.trackingType === 'Serial' ? [{ key: 'stockin', label: 'Nhập kho serial', icon: <InboxOutlined />, onClick: () => setStockInOpen(true) }] : []),
+            ...(canCheckout ? [{ key: 'checkin', label: 'Thu hồi', icon: <RollbackOutlined />, onClick: () => setCheckinOpen(true) }] : []),
+            ...(canDelete ? [{
+              key: 'delete', label: 'Xóa', icon: <DeleteOutlined />, danger: true,
+              disabled: component.canDelete === false,
+              onClick: handleDelete,
+            }] : []),
+          ]}
+        />
       </Space>
 
-      <Card style={{ marginBottom: 16 }}>
-        <Space style={{ marginBottom: 12 }} align="center">
-          <Title level={4} style={{ margin: 0 }}>{component.name}</Title>
-          {component.trackingType === 'Serial' ? <Tag color="blue">Theo serial</Tag> : <Tag>Theo số lượng</Tag>}
-          {component.isLowStock && <Tag color="red">Sắp hết</Tag>}
-        </Space>
-        <Descriptions size="small" column={{ xs: 1, sm: 2, md: 4 }} bordered>
+      <Card title="Thông tin linh kiện" style={{ marginBottom: 16 }}>
+        <Descriptions size="small" column={{ xs: 1, sm: 2 }} bordered>
           <Descriptions.Item label="Tổng số lượng">{component.qty}</Descriptions.Item>
           <Descriptions.Item label="Còn lại">{component.remaining}</Descriptions.Item>
           {component.trackingType === 'Serial' && (
@@ -284,14 +306,6 @@ export default function ComponentDetailPage() {
           <Descriptions.Item label="Giá mua">{component.purchaseCost != null ? formatNumber(component.purchaseCost) : '-'}</Descriptions.Item>
           <Descriptions.Item label="Ghi chú" span={{ xs: 1, sm: 2 }}>{component.notes || '-'}</Descriptions.Item>
         </Descriptions>
-
-        <Space style={{ marginTop: 16 }}>
-          {component.trackingType === 'Serial' && canEdit && (
-            <Button type="primary" icon={<InboxOutlined />} onClick={() => setStockInOpen(true)}>Nhập kho serial</Button>
-          )}
-          {canCheckout && <Button icon={<SendOutlined />} onClick={() => setCheckoutOpen(true)}>Cấp phát</Button>}
-          {canCheckout && <Button icon={<RollbackOutlined />} onClick={() => setCheckinOpen(true)}>Thu hồi</Button>}
-        </Space>
       </Card>
 
       <Tabs

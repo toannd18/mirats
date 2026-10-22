@@ -350,6 +350,47 @@ public class MaintenanceCampaignTests
     }
 
     [Fact]
+    public async Task Complete_CampaignWithoutChecklist_ReturnsCampaignHasNoChecklist()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Complete_CampaignWithoutChecklist_ReturnsCampaignHasNoChecklist));
+        var fx = await SeedAsync(db);
+        var items = await db.MaintenanceChecklistItems
+            .Where(i => i.TemplateVersionId == fx.Version.Id).ToListAsync();
+        db.MaintenanceChecklistItems.RemoveRange(items);
+        await db.SaveChangesAsync();
+        var campaignId = await CreateCampaignAsync(db, fx);
+
+        var result = await Ctx(db, true, null).Complete(campaignId);
+        Assert.Equal("CAMPAIGN_HAS_NO_CHECKLIST", ErrorCode(result));
+    }
+
+    [Fact]
+    public async Task Complete_IncompleteWithForce_Succeeds()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Complete_IncompleteWithForce_Succeeds));
+        var fx = await SeedAsync(db);
+        var campaignId = await CreateCampaignAsync(db, fx);
+        var campaign = await db.MaintenanceCampaigns
+            .Include(c => c.DeviceSnapshots).Include(c => c.Results)
+            .SingleAsync(c => c.Id == campaignId);
+        var item = await db.MaintenanceChecklistItems.FirstAsync(i => i.TemplateVersionId == fx.Version.Id);
+        var snap = campaign.DeviceSnapshots.First();
+        db.MaintenanceChecklistResults.Add(new MaintenanceChecklistResult
+        {
+            CampaignId = campaignId,
+            DeviceSnapshotId = snap.Id,
+            ChecklistItemId = item.Id,
+            IsPass = true,
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Ctx(db, true, null).Complete(campaignId, new CompleteCampaignRequest(true));
+        Assert.IsType<OkObjectResult>(result);
+        await db.Entry(campaign).ReloadAsync();
+        Assert.Equal(MaintenanceCampaignStatus.Completed, campaign.Status);
+    }
+
+    [Fact]
     public async Task Complete_AlreadyCompleted_400()
     {
         await using var db = TestHelpers.CreateContext(nameof(Complete_AlreadyCompleted_400));

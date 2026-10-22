@@ -1,4 +1,5 @@
 import { Empty, Table, Tag, Card, Typography } from 'antd';
+import { Link } from 'react-router-dom';
 import { licensesApi, type LicenseUsageRow } from '../../features/license/services/licenses.service';
 import { useEffect, useState } from 'react';
 import { formatDate, formatDateTime } from '../../utils/format';
@@ -35,7 +36,7 @@ export default function LicenseUsageTable({ scope }: LicenseUsageTableProps) {
     {
       title: 'Bản quyền', key: 'license',
       render: (_: unknown, r: LicenseUsageRow) => (
-        <span style={{ fontWeight: 600 }}>{r.licenseName} <Tag color="blue">ghế #{r.seatNumber}</Tag></span>
+        <span style={{ fontWeight: 600 }}><Link to={`/licenses/${r.licenseId}`}>{r.licenseName}</Link> <Tag color="blue">ghế #{r.seatNumber}</Tag></span>
       ),
     },
     {
@@ -64,7 +65,7 @@ export default function LicenseUsageTable({ scope }: LicenseUsageTableProps) {
         {data.map(r => (
           <Card key={`${r.licenseId}-${r.seatNumber}`} size="small" style={{ borderRadius: 10, marginBottom: 12 }}>
             <div style={{ marginBottom: 8 }}>
-              <Text strong style={{ fontSize: 14, marginRight: 8 }}>{r.licenseName}</Text>
+              <Text strong style={{ fontSize: 14, marginRight: 8 }}><Link to={`/licenses/${r.licenseId}`}>{r.licenseName}</Link></Text>
               <Tag color="blue" style={{ marginInlineEnd: 0 }}>ghế #{r.seatNumber}</Tag>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 10px' }}>

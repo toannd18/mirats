@@ -523,10 +523,12 @@ public class MaintenanceTransactionAtomicityTests
         var actor = await SeedActorAsync(db);
         var (system, _) = await SeedSystemAsync(db);
         var template = await SeedTemplateAsync(db, system.Id, actor.Id, published: true);
-        var (campaign, _) = await SeedCampaignAsync(db, system.Id, template.Versions.First().Id);
+        var versionId = template.Versions.First().Id;
+        await SeedItemAsync(db, versionId);
+        var (campaign, _) = await SeedCampaignAsync(db, system.Id, versionId);
 
         var result = await new CompleteCampaignCommandHandler(db, new TestHelpers.SuperUserScope(), Logs(db, actor.Id))
-            .Handle(new CompleteCampaignCommand(campaign.Id, actor.Id), default);
+            .Handle(new CompleteCampaignCommand(campaign.Id, actor.Id, true), default);
 
         Assert.True(result.Success, result.ErrorCode);
         var saved = await db.MaintenanceCampaigns.AsNoTracking().FirstAsync(c => c.Id == campaign.Id);
@@ -542,11 +544,13 @@ public class MaintenanceTransactionAtomicityTests
         var actor = await SeedActorAsync(db);
         var (system, _) = await SeedSystemAsync(db);
         var template = await SeedTemplateAsync(db, system.Id, actor.Id, published: true);
-        var (campaign, _) = await SeedCampaignAsync(db, system.Id, template.Versions.First().Id);
+        var versionId = template.Versions.First().Id;
+        await SeedItemAsync(db, versionId);
+        var (campaign, _) = await SeedCampaignAsync(db, system.Id, versionId);
 
         await Assert.ThrowsAsync<InjectedActionLogFailure>(() =>
             new CompleteCampaignCommandHandler(db, new TestHelpers.SuperUserScope(), Logs(db, actor.Id))
-                .Handle(new CompleteCampaignCommand(campaign.Id, actor.Id), default));
+                .Handle(new CompleteCampaignCommand(campaign.Id, actor.Id, true), default));
 
         await using var check = await OpenAsync(withActionLogBomb: false);
         var reloaded = await check.MaintenanceCampaigns.AsNoTracking().FirstAsync(c => c.Id == campaign.Id);

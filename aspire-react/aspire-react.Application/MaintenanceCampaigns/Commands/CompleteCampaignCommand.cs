@@ -34,7 +34,7 @@ public record CompleteCampaignOutcome(
 /// pin (người dùng chốt: cảnh báo SỚM theo hạng mục lặp lại thường xuyên nhất — lý do an toàn hạ
 /// tầng). Manual logging — verbatim 2-step save (data, then log).
 /// </summary>
-public record CompleteCampaignCommand(Guid Id, Guid CurrentUserId) : IRequest<CompleteCampaignOutcome>;
+public record CompleteCampaignCommand(Guid Id, Guid CurrentUserId, bool ForceIncomplete = false) : IRequest<CompleteCampaignOutcome>;
 
 public class CompleteCampaignCommandHandler : IRequestHandler<CompleteCampaignCommand, CompleteCampaignOutcome>
 {
@@ -65,10 +65,13 @@ public class CompleteCampaignCommandHandler : IRequestHandler<CompleteCampaignCo
             .Where(i => i.TemplateVersionId == c.TemplateVersionId)
             .ToListAsync(cancellationToken);
         var resultCount = c.Results.Count;
+        if (items.Count == 0)
+            return new CompleteCampaignOutcome(false, "CAMPAIGN_HAS_NO_CHECKLIST",
+                "Đợt bảo dưỡng chưa có hạng mục checklist nào — không thể hoàn thành.");
         var expected = MaintenanceChecklistRules.CountExpectedResults(items, snapshots);
-        if (expected > 0 && resultCount < expected)
+        if (!request.ForceIncomplete && expected > 0 && resultCount < expected)
             return new CompleteCampaignOutcome(false, "CAMPAIGN_RESULTS_INCOMPLETE",
-                $"Cần ghi đủ kết quả checklist trước khi hoàn thành ({resultCount}/{expected} bản ghi).");
+                $"Còn thiếu kết quả checklist trước khi hoàn thành ({resultCount}/{expected} bản ghi).");
 
         var endDate = c.EndDate ?? DateTime.UtcNow;
         var prevDue = c.SystemInfo?.NextMaintenanceDueDate;

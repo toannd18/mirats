@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, App, Button, Card, Collapse, Descriptions, Input, Popconfirm, Space, Spin, Switch,
+  Alert, App, Button, Card, Collapse, Descriptions, Input, Space, Spin, Switch,
   Table, Tag, Tooltip, Typography,
 } from 'antd';
 import {
@@ -106,7 +106,7 @@ interface ResultRow {
 }
 
 export default function MaintenanceCampaignDetailPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isMobile = useIsMobile();
@@ -264,6 +264,8 @@ export default function MaintenanceCampaignDetailPage() {
     return n;
   }, [campaign, items]);
   const allRecorded = applicableTotal === 0 || recordedTotal >= applicableTotal;
+  const hasChecklist = items.length > 0;
+  const missingResults = Math.max(0, applicableTotal - recordedTotal);
 
   const fmtDate = (v?: string | null) => formatDateTime(v);
 
@@ -285,10 +287,12 @@ export default function MaintenanceCampaignDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaign, items, drafts, isDirty]);
 
-  const doComplete = async () => {
+  const doComplete = async (forceIncomplete = false) => {
     setCompleting(true);
     try {
-      const res = await apiClient.post(`/maintenance/campaigns/${campaignId}/complete`);
+      const res = await apiClient.post(`/maintenance/campaigns/${campaignId}/complete`, {
+        forceIncomplete,
+      });
       const due = res.data?.data?.nextMaintenanceDueDate;
       message.success(`Đã hoàn thành đợt bảo dưỡng${due ? ` — lần bảo dưỡng tới: ${formatDate(due)}` : ''}`);
       await loadCampaign();
@@ -508,31 +512,45 @@ export default function MaintenanceCampaignDetailPage() {
 
         {canManage && !completed && (
           <Space style={{ marginTop: 12 }} wrap>
-            <Tooltip title={allRecorded ? undefined : `Cần ghi đủ ${applicableTotal} kết quả (mỗi hạng mục × thiết bị × tiêu chuẩn) (${recordedTotal}/${applicableTotal}) trước khi hoàn thành.`}>
-              <Popconfirm
-                title="Hoàn thành đợt bảo dưỡng?"
-                description="Sau khi hoàn thành, KHÔNG THỂ sửa kết quả nữa. Hệ thống cũng tính ngày bảo dưỡng tiếp theo (ngày kết thúc + chu kỳ ngắn nhất)."
-                okText="Hoàn thành"
-                okButtonProps={{ danger: true }}
-                disabled={!allRecorded || completing}
-                onConfirm={doComplete}
-              >
+            <Tooltip title={!hasChecklist ? 'Đợt chưa có hạng mục checklist — không thể hoàn thành.' : undefined}>
+              <span>
                 <Button
                   type="primary"
                   icon={<CheckCircleOutlined />}
                   loading={completing}
-                  disabled={!allRecorded}
+                  disabled={!hasChecklist || completing}
+                  onClick={() => {
+                    if (!hasChecklist) return;
+                    modal.confirm({
+                      title: 'Hoàn thành đợt bảo dưỡng?',
+                      content: !allRecorded
+                        ? `Còn ${missingResults} hạng mục chưa có kết quả, vẫn hoàn thành?`
+                        : 'Sau khi hoàn thành, KHÔNG THỂ sửa kết quả nữa. Hệ thống cũng tính ngày bảo dưỡng tiếp theo (ngày kết thúc + chu kỳ ngắn nhất).',
+                      okText: 'Hoàn thành',
+                      cancelText: 'Hủy',
+                      okButtonProps: { danger: true },
+                      onOk: () => doComplete(!allRecorded),
+                    });
+                  }}
                 >
                   Hoàn thành đợt
                 </Button>
-              </Popconfirm>
+              </span>
             </Tooltip>
-            {!allRecorded && (
+            {!hasChecklist && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ flex: 1, minWidth: 280 }}
+                title="Đợt chưa có hạng mục checklist nào — không thể hoàn thành."
+              />
+            )}
+            {hasChecklist && !allRecorded && (
               <Alert
                 type="info"
                 showIcon
                 style={{ flex: 1, minWidth: 280 }}
-                title={`Chưa đủ kết quả: ${recordedTotal}/${applicableTotal} (mỗi hạng mục cần 1 kết quả cho từng thiết bị × từng tiêu chuẩn).`}
+                title={`Còn ${missingResults} hạng mục chưa có kết quả (${recordedTotal}/${applicableTotal}).`}
               />
             )}
           </Space>

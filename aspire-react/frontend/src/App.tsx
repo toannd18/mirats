@@ -41,6 +41,7 @@ const ComponentDetailPage = lazy(() => import('./features/component/pages/Compon
 const AccessoryListPage = lazy(() => import('./features/accessory/pages/AccessoryListPage'));
 const AccessoryDetailPage = lazy(() => import('./features/accessory/pages/AccessoryDetailPage'));
 const LicenseListPage = lazy(() => import('./features/license/pages/LicenseListPage'));
+const LicenseDetailPage = lazy(() => import('./features/license/pages/LicenseDetailPage'));
 const ReportsPage = lazy(() => import('./features/system/pages/ReportsPage'));
 const GroupListPage = lazy(() => import('./features/permission/pages/GroupListPage'));
 const PermissionMatrixPage = lazy(() => import('./features/permission/pages/PermissionMatrixPage'));
@@ -630,7 +631,7 @@ function App() {
               <ProtectedRoute><AppLayout><LicenseListPage /></AppLayout></ProtectedRoute>
             } />
             <Route path="/licenses/:id" element={
-              <ProtectedRoute><AppLayout><LicenseListPage /></AppLayout></ProtectedRoute>
+              <ProtectedRoute><AppLayout><LicenseDetailPage /></AppLayout></ProtectedRoute>
             } />
             <Route path="/reports" element={
               <ProtectedRoute><AppLayout><ReportsPage /></AppLayout></ProtectedRoute>

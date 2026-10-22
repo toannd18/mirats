@@ -4,7 +4,7 @@ import {
   Typography, Tabs, Empty,
 } from 'antd';
 import {
-  ArrowLeftOutlined, EditOutlined, AppstoreOutlined,
+  ArrowLeftOutlined, CheckCircleOutlined, EditOutlined, AppstoreOutlined,
   InboxOutlined, AlertOutlined,
   CalendarOutlined, DollarOutlined, UserOutlined,
   UserSwitchOutlined, SendOutlined, HistoryOutlined,
@@ -15,6 +15,7 @@ import { usePermission } from '../../../hooks/usePermission';
 import ConsumableCheckoutModal from '../components/ConsumableCheckoutModal';
 import ConsumableFormModal from '../components/ConsumableFormModal';
 import ActionLogTable, { type ActionLogRow } from '../../../shared/components/ActionLogTable';
+import ListRowActions from '../../../shared/components/list/ListRowActions';
 import { formatDate, formatMoney } from '../../../utils/format';
 import { formatNumber } from '../../../utils/format';
 import { uiColors } from '../../../theme/designTokens';
@@ -69,6 +70,7 @@ interface CheckoutRecord {
 
 const ConsumableDetailPage: React.FC = () => {
   const { message } = App.useApp();
+  const { modal } = App.useApp();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
 
@@ -115,6 +117,25 @@ const ConsumableDetailPage: React.FC = () => {
     } : null),
     [detail],
   );
+
+  const confirmConsumable = () => {
+    modal.confirm({
+      title: 'Xác nhận vật tư này?',
+      content: 'Vật tư sẽ chuyển sang trạng thái đã xác nhận.',
+      okText: 'Xác nhận',
+      cancelText: 'Hủy',
+      onOk: async () => {
+        try {
+          await apiClient.put(`/consumables/${id}/confirm`);
+          void message.success('Đã xác nhận vật tư');
+          await loadData();
+        } catch (err: unknown) {
+          const e = err as { response?: { data?: { message?: string } } };
+          void message.error(e?.response?.data?.message || 'Xác nhận thất bại');
+        }
+      },
+    });
+  };
 
   if (loading) {
     return (
@@ -251,25 +272,35 @@ const ConsumableDetailPage: React.FC = () => {
         >
           Quay lại
         </Button>
-        <Title level={4} style={{ margin: 0 }}>
-          Chi tiết vật tư
-        </Title>
+        <div style={{ minWidth: 0 }}>
+          <Title level={4} style={{ margin: 0 }}>{detail.name}</Title>
+          <Space size={8} wrap>
+            <Text code>{detail.itemNo || '—'}</Text>
+            <Tag color={detail.status === 'Confirmed' ? 'green' : 'orange'}>
+              {detail.status === 'Confirmed' ? 'Đã xác nhận' : 'Chưa xác nhận'}
+            </Tag>
+          </Space>
+        </div>
         {detail.isLowStock && (
           <Tag color="error" icon={<AlertOutlined />} style={{ borderRadius: 4 }}>
             Tồn kho thấp
           </Tag>
         )}
         <div style={{ flex: 1 }} />
-        <Space>
-          {canCheckout && detail.status === 'Confirmed' && (
-            <Button type="primary" ghost icon={<SendOutlined />}
-              onClick={() => setCheckoutModalOpen(true)}
-              disabled={detail.remaining <= 0}>
-              Cấp phát
-            </Button>
-          )}
-          {canEdit && <Button icon={<EditOutlined />} onClick={() => setEditModalOpen(true)}>Sửa</Button>}
-        </Space>
+        <ListRowActions
+          primary={detail.status !== 'Confirmed' ? (canEdit ? {
+            key: 'confirm', label: 'Xác nhận', icon: <CheckCircleOutlined />,
+            onClick: confirmConsumable,
+          } : null) : (canCheckout ? {
+            key: 'checkout', label: 'Cấp phát', icon: <SendOutlined />,
+            disabled: detail.remaining <= 0,
+            onClick: () => setCheckoutModalOpen(true),
+          } : null)}
+          menuItems={canEdit ? [{
+            key: 'edit', label: 'Sửa', icon: <EditOutlined />,
+            onClick: () => setEditModalOpen(true),
+          }] : []}
+        />
       </div>
 
       {/* Stock Summary Cards */}

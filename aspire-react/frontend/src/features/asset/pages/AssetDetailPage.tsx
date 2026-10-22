@@ -2,12 +2,13 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Descriptions, Tag, Spin, Button, Space, Card, App, Steps, Alert, Empty, Tabs, Typography } from 'antd';
 import {
-  ArrowLeftOutlined, EditOutlined, AuditOutlined, InboxOutlined,
-  RollbackOutlined, SendOutlined, UserOutlined, TeamOutlined, ClusterOutlined,
+  ArrowLeftOutlined, EditOutlined, InboxOutlined, CheckSquareOutlined,
+  RollbackOutlined, SendOutlined, UndoOutlined, UserOutlined, TeamOutlined, ClusterOutlined,
 } from '@ant-design/icons';
 import type { ActionType } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import ActionLogTable, { type ActionLogRow } from '../../../shared/components/ActionLogTable';
+import ListRowActions from '../../../shared/components/list/ListRowActions';
 import AssetMaintenanceSection from '../components/AssetMaintenanceSection';
 import AssetTimelineTab from '../components/AssetTimelineTab';
 import AssetAllocationModal from '../components/AssetAllocationModal';
@@ -23,7 +24,7 @@ import {
 import { formatDate } from '../../../utils/format';
 import { formatNumber } from '../../../utils/format';
 
-const { Text } = Typography;
+const { Title, Text } = Typography;
 
 const TARGET_TYPE_LABELS: Record<string, string> = {
   user: 'Người dùng',
@@ -57,7 +58,6 @@ const AssetDetailPage: React.FC = () => {
   const canEdit = usePermission('assets.edit');
   const canCheckout = usePermission('assets.checkout');
   const canCheckin = usePermission('assets.checkin');
-  const canAudit = usePermission('assets.audit');
   // Stable identity → ProTable only reloads when refreshKey actually changes.
   const actionLogParams = useMemo(() => ({ refreshKey }), [refreshKey]);
 
@@ -79,9 +79,24 @@ const AssetDetailPage: React.FC = () => {
   const handleRecallSuccess = () => { setRecallOpen(false); handleLifecycleSuccess(); };
   const handleArchiveSuccess = () => { setArchiveOpen(false); handleLifecycleSuccess(); };
 
-  const handleAudit = async () => {
-    try { await apiClient.post(`/api/v1/assets/${id}/audit`, {}); message.success('Đã kiểm kê tài sản'); handleLifecycleSuccess(); }
-    catch { message.error('Kiểm kê thất bại'); }
+  const handleConfirm = async () => {
+    try { await apiClient.post(`/api/v1/assets/${id}/confirm`); message.success('Đã xác nhận tài sản'); handleLifecycleSuccess(); }
+    catch { message.error('Xác nhận thất bại'); }
+  };
+
+  const handleUnarchive = async () => {
+    const locationId = asset?.location?.id;
+    if (!locationId) {
+      message.error('Cần có vị trí lưu kho trước khi mở lại tài sản');
+      return;
+    }
+    try {
+      await apiClient.post(`/api/v1/assets/${id}/unarchive`, { locationId });
+      message.success('Đã mở lại tài sản');
+      handleLifecycleSuccess();
+    } catch {
+      message.error('Mở lại thất bại');
+    }
   };
 
   if (loading) return <Spin size="large" />;
@@ -99,16 +114,35 @@ const AssetDetailPage: React.FC = () => {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }} wrap>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/assets')}>Quay lại</Button>
-        {has('allocate') && canCheckout && <Button type="primary" icon={<SendOutlined />} onClick={() => setAllocOpen(true)}>Cấp phát</Button>}
-        {has('edit') && canEdit && <Button icon={<EditOutlined />} onClick={() => navigate(`/assets/${id}/edit`)}>Sửa</Button>}
-        {has('archive') && canEdit && (
-          <Button danger icon={<InboxOutlined />} onClick={() => setArchiveOpen(true)}>Lưu trữ</Button>
-        )}
-        {has('recall') && canCheckin && <Button type="primary" danger icon={<RollbackOutlined />} onClick={() => setRecallOpen(true)}>Thu hồi</Button>}
-        {status !== 'Archived' && canAudit && <Button icon={<AuditOutlined />} onClick={handleAudit}>Kiểm kê</Button>}
-      </Space>
+        <div style={{ minWidth: 0 }}>
+          <Title level={4} style={{ margin: 0 }}>{asset.name}</Title>
+          <Space size={8} wrap>
+            <Text code>{asset.assetTag}</Text>
+            <Tag color={ASSET_STATUS_COLORS[status] ?? 'default'}>{ASSET_STATUS_LABELS[status]}</Tag>
+            {!asset.isConfirmed && <Tag color="warning">Chưa xác nhận</Tag>}
+          </Space>
+        </div>
+        <div style={{ flex: 1 }} />
+        <ListRowActions
+          primary={
+            !asset.isConfirmed && has('confirm') && canEdit
+              ? { key: 'confirm', label: 'Xác nhận', icon: <CheckSquareOutlined />, onClick: handleConfirm }
+              : status === 'Deployed' && has('recall') && canCheckin
+                ? { key: 'recall', label: 'Thu hồi', icon: <RollbackOutlined />, onClick: () => setRecallOpen(true) }
+                : status === 'Pending' && has('allocate') && canCheckout
+                  ? { key: 'allocate', label: 'Cấp phát', icon: <SendOutlined />, onClick: () => setAllocOpen(true) }
+                  : status === 'Archived' && has('unarchive') && canEdit
+                    ? { key: 'unarchive', label: 'Mở lại', icon: <UndoOutlined />, onClick: handleUnarchive }
+                    : null
+          }
+          menuItems={[
+            ...(has('edit') && canEdit ? [{ key: 'edit', label: 'Sửa', icon: <EditOutlined />, onClick: () => navigate(`/assets/${id}/edit`) }] : []),
+            ...(has('archive') && canEdit ? [{ key: 'archive', label: 'Lưu trữ', icon: <InboxOutlined />, danger: true, onClick: () => setArchiveOpen(true) }] : []),
+          ]}
+        />
+      </div>
 
       {/* Lifecycle Steps */}
       <Card title="Vòng đời" style={{ marginBottom: 16 }}>

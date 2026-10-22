@@ -17,6 +17,7 @@ import AccessoryCheckinModal from '../components/AccessoryCheckinModal';
 import { formatNumber } from '../../../utils/format';
 import { usePermission } from '../../../hooks/usePermission';
 import ActionLogTable, { type ActionLogRow } from '../../../shared/components/ActionLogTable';
+import ListRowActions from '../../../shared/components/list/ListRowActions';
 import { formatDate, formatMoney } from '../../../utils/format';
 import { uiColors } from '../../../theme/designTokens';
 
@@ -182,20 +183,36 @@ const AccessoryDetailPage: React.FC = () => {
       {/* Header — flexWrap: 'wrap' bắt buộc (bug title dọc trên mobile — cùng pattern ConsumableDetailPage) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/accessories')} size="middle">Quay lại</Button>
-        <Title level={4} style={{ margin: 0 }}>Chi tiết phụ kiện</Title>
+        <div style={{ minWidth: 0 }}>
+          <Title level={4} style={{ margin: 0 }}>{detail.name}</Title>
+          <Space size={8} wrap>
+            <Text code>{detail.itemNo || '—'}</Text>
+            <Tag color="purple">Phụ kiện</Tag>
+          </Space>
+        </div>
         {detail.isLowStock && (
           <Tag color="error" icon={<AlertOutlined />} style={{ borderRadius: 4 }}>Tồn kho thấp</Tag>
         )}
         <div style={{ flex: 1 }} />
-        <Space>
-          {canCheckout && (
-            <Button type="primary" ghost icon={<SendOutlined />}
-              onClick={() => setCheckoutModalOpen(true)} disabled={detail.remaining <= 0}>
-              Cấp phát
-            </Button>
-          )}
-          {canEdit && <Button icon={<EditOutlined />} onClick={() => navigate(`/accessories/${detail.id}`)}>Sửa</Button>}
-        </Space>
+        <ListRowActions
+          primary={canCheckout ? (detail.checkedOutQty > 0 ? {
+            key: 'checkin', label: 'Thu hồi', icon: <RollbackOutlined />,
+            onClick: () => {
+              if (activeCheckouts.length > 0) {
+                setCheckinTarget(activeCheckouts[0]);
+                setCheckinModalOpen(true);
+              }
+            },
+          } : {
+            key: 'checkout', label: 'Cấp phát', icon: <SendOutlined />,
+            disabled: detail.remaining <= 0,
+            onClick: () => setCheckoutModalOpen(true),
+          }) : null}
+          menuItems={[
+            ...(canEdit ? [{ key: 'edit', label: 'Sửa', icon: <EditOutlined />, onClick: () => navigate(`/accessories/${detail.id}`) }] : []),
+            ...(detail.checkedOutQty > 0 && detail.remaining > 0 && canCheckout ? [{ key: 'checkout', label: 'Cấp phát', icon: <SendOutlined />, onClick: () => setCheckoutModalOpen(true) }] : []),
+          ]}
+        />
       </div>
 
       {/* Stock Summary Cards */}

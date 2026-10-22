@@ -212,9 +212,9 @@ public class MaintenanceCampaignsController : ControllerBase
 
     [HttpPost("{id:guid}/complete")]
     [Authorize(Policy = "maintenance.campaigns")]
-    public async Task<IActionResult> Complete(Guid id)
+    public async Task<IActionResult> Complete(Guid id, [FromBody] CompleteCampaignRequest? body = null)
     {
-        var result = await _mediator.Send(new CompleteCampaignCommand(id, GetCurrentUserId()));
+        var result = await _mediator.Send(new CompleteCampaignCommand(id, GetCurrentUserId(), body?.ForceIncomplete ?? false));
 
         if (!result.Success)
         {
@@ -223,7 +223,7 @@ public class MaintenanceCampaignsController : ControllerBase
             return BadRequest(new
             {
                 status = "error",
-                message = result.ErrorCode == "CAMPAIGN_RESULTS_INCOMPLETE"
+                message = result.ErrorCode is "CAMPAIGN_RESULTS_INCOMPLETE" or "CAMPAIGN_HAS_NO_CHECKLIST"
                     ? result.ErrorMessage!
                     : "Đợt bảo dưỡng đã hoàn thành.",
                 error_code = result.ErrorCode
@@ -246,6 +246,8 @@ public class MaintenanceCampaignsController : ControllerBase
         });
     }
 }
+
+public record CompleteCampaignRequest(bool ForceIncomplete = false);
 
 public record CreateCampaignRequest(
     Guid SystemInfoId,
