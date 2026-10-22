@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Descriptions, Tag, Spin, Button, Space, Card, App, Steps, Alert, Empty, Tabs, Typography } from 'antd';
+import { Descriptions, Tag, Spin, Button, Space, Card, App, Steps, Alert, Empty, Result, Tabs, Typography } from 'antd';
 import {
   ArrowLeftOutlined, EditOutlined, InboxOutlined, CheckSquareOutlined,
   RollbackOutlined, SendOutlined, UndoOutlined, UserOutlined, TeamOutlined, ClusterOutlined, PrinterOutlined,
@@ -49,6 +49,7 @@ const AssetDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const [asset, setAsset] = useState<AssetDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [allocOpen, setAllocOpen] = useState(false);
   const [recallOpen, setRecallOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -64,11 +65,18 @@ const AssetDetailPage: React.FC = () => {
   const loadAsset = useCallback(() => {
     if (!id) return;
     setLoading(true);
+    setLoadError(null);
     apiClient.get(`/assets/${id}`)
       .then(r => setAsset(r.data.data))
-      .catch(() => message.error('Không thể tải thông tin tài sản'))
+      .catch((err: unknown) => {
+        const e = err as { response?: { status?: number; data?: { message?: string } } };
+        setAsset(null);
+        setLoadError(e?.response?.status === 404
+          ? 'Không tìm thấy tài sản hoặc tài sản nằm ngoài phạm vi công ty của bạn.'
+          : (e?.response?.data?.message || 'Không thể tải thông tin tài sản.'));
+      })
       .finally(() => setLoading(false));
-  }, [id, message]);
+  }, [id]);
 
   useEffect(() => { loadAsset(); }, [loadAsset]);
 
@@ -100,7 +108,19 @@ const AssetDetailPage: React.FC = () => {
   };
 
   if (loading) return <Spin size="large" />;
-  if (!asset) return <div style={{ textAlign: 'center', padding: 80 }}>Không tìm thấy tài sản.</div>;
+  if (loadError || !asset) {
+    return (
+      <Result
+        status="404"
+        title="Không tìm thấy tài sản"
+        subTitle={loadError ?? 'Tài sản không tồn tại hoặc đã bị xóa.'}
+        extra={[
+          <Button key="back" onClick={() => navigate('/assets')}>Danh sách tài sản</Button>,
+          <Button key="home" type="primary" onClick={() => navigate('/dashboard')}>Về tổng quan</Button>,
+        ]}
+      />
+    );
+  }
 
   const status = normalizeAssetStatus(asset.status);
   const actions = getAssetActions(asset);

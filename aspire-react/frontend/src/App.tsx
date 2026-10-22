@@ -21,6 +21,7 @@ import { usePermissionMap, clearPermissionCache } from './hooks/usePermission';
 import { useCurrentUser, clearCurrentUserCache } from './hooks/useCurrentUser';
 import apiClient from './services/api-client';
 import ProtectedRoute from './components/ProtectedRoute';
+import NotFoundPage from './components/NotFoundPage';
 // [FE-R1] Code-splitting: every page component is lazy-loaded per route (React.lazy +
 // dynamic import → Vite emits one chunk per page, see vite build output). The layout
 // shell (AppLayout/ProtectedRoute) stays in the entry chunk so the sidebar/header do
@@ -101,7 +102,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/admin/categories': 'Danh mục', '/admin/manufacturers': 'Nhà SX', '/admin/suppliers': 'Nhà cung cấp',
     '/admin/asset-models': 'Model tài sản', '/admin/locations': 'Địa điểm',
     '/admin/depreciations': 'Khấu hao', '/admin/companies': 'Công ty', '/admin/departments': 'Phòng ban',
-    '/admin/system-infos': 'Hệ thống', '/admin/import': 'Nhập Excel',
+    '/systems': 'Hệ thống', '/admin/import': 'Nhập Excel',
     '/admin/system-config': 'Cấu hình hệ thống',
   };
   const parentCrumbMap: Record<string, string> = {
@@ -110,8 +111,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/admin/categories': 'Quản trị', '/admin/manufacturers': 'Quản trị', '/admin/suppliers': 'Quản trị',
     '/admin/asset-models': 'Quản trị', '/admin/locations': 'Quản trị',
     '/admin/depreciations': 'Quản trị', '/admin/companies': 'Quản trị', '/admin/departments': 'Quản trị',
-    '/admin/system-infos': 'Quản trị', '/admin/import': 'Quản trị',
-    '/admin/system-config': 'Quản trị',
+    '/admin/import': 'Quản trị', '/admin/system-config': 'Quản trị',
   };
   const crumbSegs: { title: string }[] = [];
   const exactLabel = crumbMap[location.pathname];
@@ -164,6 +164,8 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/accessories': 'accessories.view',
     '/licenses': 'licenses.view',
     '/assets': 'assets.view',
+    '/systems': 'systems.view',
+    '/system-history': 'assets.view',
     '/maintenances': 'assets.view',
     '/maintenance/templates': 'maintenance.templates',
     '/maintenance/campaigns': 'maintenance.view',
@@ -180,16 +182,21 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/admin/depreciations': 'depreciations.view',
     '/admin/companies': 'companies.view',
     '/admin/departments': 'departments.view',
-    '/admin/system-infos': 'systems.view',
     '/admin/system-config': 'system.config',
   };
 
   // Permission gating: superuser/admin sees everything. Otherwise a leaf is shown only
-  // when its `.view` permission is granted. /system-history has no dedicated `.view`
-  // permission (backend just [Authorize]) so it always shows.
+  // when its `.view` permission is granted. While permissions are loading we deliberately
+  // return false so the menu never renders un-gated items and then hides them (flicker).
+  // /system-history is visible to assets.view OR systems.view, matching the API policy.
   const canSee = (key: string): boolean => {
-    if (!perm) return true; // permission still loading → show to avoid flicker
+    if (!perm) return false;
     if (perm.isSuperUser) return true;
+    // System history is reachable from two entry points and the API accepts either permission.
+    if (key === '/system-history') {
+      return (perm.permissions['assets.view'] ?? 0) === 1
+        || (perm.permissions['systems.view'] ?? 0) === 1;
+    }
     // Import page aggregates several per-entity CREATE permissions (backend gated per type).
     if (key === '/admin/import') {
       return ['categories.create', 'assets.create', 'components.create', 'accessories.create', 'consumables.create']
@@ -222,6 +229,8 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { key: '/accessories', icon: <GiftOutlined />, label: 'Phụ kiện' },
   ]);
 
+  // Hệ thống is operational master data and now lives beside Assets, not inside Quản trị.
+  // Its old URL /admin/system-infos redirects here (route below).
   const adminChildren = filterChildren([
     { key: '/admin/categories', icon: <TagOutlined />, label: 'Danh mục' },
     { key: '/admin/manufacturers', icon: <BankOutlined />, label: 'Nhà SX' },
@@ -232,13 +241,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { key: '/admin/depreciations', icon: <ScheduleOutlined />, label: 'Khấu hao' },
     { key: '/admin/companies', icon: <BankOutlined />, label: 'Công ty' },
     { key: '/admin/departments', icon: <ApartmentOutlined />, label: 'Phòng ban' },
-    // [MC-4] Badge "bảo dưỡng quá hạn" trên mục Hệ thống — mirror pattern Badge "Vật tư" (low stock):
-    // span con color inherit + CSS override .ant-menu-dark .ant-menu-submenu-title .ant-badge trong index.css.
-    { key: '/admin/system-infos', icon: <ClusterOutlined />, label: (
-      <Badge count={systemsOverdue} size="small" overflowCount={999} offset={[8, 0]}>
-        <span style={{ color: 'inherit' }}>Hệ thống</span>
-      </Badge>
-    ) },
     { key: '/admin/import', icon: <ImportOutlined />, label: 'Nhập Excel' },
     { key: '/admin/system-config', icon: <SettingOutlined />, label: 'Cấu hình hệ thống' },
   ]);
@@ -250,9 +252,26 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     items: [{ key: '/dashboard', icon: <DashboardOutlined />, label: 'Tổng quan' }],
   });
 
-  const business: NonNullable<MenuProps['items']> = [];
+  const assetItems: NonNullable<MenuProps['items']> = [];
+  if (canSee('/assets')) assetItems.push({ key: '/assets', icon: <LaptopOutlined />, label: 'Tài sản' });
+  if (canSee('/systems')) {
+    assetItems.push({
+      key: '/systems', icon: <ClusterOutlined />, label: (
+        // [MC-4] Badge "bảo dưỡng quá hạn" — same inherit/override pattern as Vật tư.
+        <Badge count={systemsOverdue} size="small" overflowCount={999} offset={[8, 0]}>
+          <span style={{ color: 'inherit' }}>Hệ thống</span>
+        </Badge>
+      ),
+    });
+  }
+  if (canSee('/system-history')) {
+    assetItems.push({ key: '/system-history', icon: <HistoryOutlined />, label: 'Lịch sử hệ thống' });
+  }
+  if (assetItems.length > 0) menuGroups.push({ label: 'TÀI SẢN', items: assetItems });
+
+  const warehouseItems: NonNullable<MenuProps['items']> = [];
   if (inventoryChildren.length > 0) {
-    business.push({
+    warehouseItems.push({
       key: 'inventory', icon: <AppstoreOutlined />, label: (
         // Badge mặc định set color: var(--ant-color-text) (#020617 — đen tối) lên chữ,
         // làm label "Vật tư" chìm trên nền Sider tối. Badge v6 KHÔNG áp prop style
@@ -280,32 +299,44 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       children: inventoryChildren,
     });
   }
-  if (canSee('/licenses')) business.push({ key: '/licenses', icon: <KeyOutlined />, label: 'Bản quyền' });
-  if (canSee('/assets')) business.push({ key: '/assets', icon: <LaptopOutlined />, label: 'Tài sản' });
-  if (canSee('/maintenances')) business.push({ key: '/maintenances', icon: <ExperimentOutlined />, label: 'Bảo trì' });
-  if (canSee('/maintenance/templates')) business.push({ key: '/maintenance/templates', icon: <FileTextOutlined />, label: 'Mẫu bảo dưỡng' });
-  if (canSee('/maintenance/campaigns')) business.push({ key: '/maintenance/campaigns', icon: <CarOutlined />, label: 'Đợt bảo dưỡng' });
-  business.push({ key: '/system-history', icon: <HistoryOutlined />, label: 'Lịch sử hệ thống' });
-  if (canSee('/reports')) business.push({ key: '/reports', icon: <BarChartOutlined />, label: 'Báo cáo' });
-  if (business.length > 0) menuGroups.push({ label: 'NGHIỆP VỤ', items: business });
+  if (canSee('/licenses')) warehouseItems.push({ key: '/licenses', icon: <KeyOutlined />, label: 'Bản quyền' });
+  if (warehouseItems.length > 0) menuGroups.push({ label: 'KHO & BẢN QUYỀN', items: warehouseItems });
 
-  const systemItems: NonNullable<MenuProps['items']> = [];
-  if (canSee('/users')) systemItems.push({ key: '/users', icon: <UserOutlined />, label: 'Người dùng' });
-  if (canSee('/groups')) systemItems.push({ key: '/groups', icon: <TeamOutlined />, label: 'Nhóm' });
-  if (canSee('/permissions')) systemItems.push({ key: '/permissions', icon: <SafetyOutlined />, label: 'Phân quyền' });
-  if (systemItems.length > 0) menuGroups.push({ label: 'HỆ THỐNG', items: systemItems });
+  const maintenanceItems: NonNullable<MenuProps['items']> = [];
+  if (canSee('/maintenances')) maintenanceItems.push({ key: '/maintenances', icon: <ExperimentOutlined />, label: 'Phiếu bảo trì' });
+  if (canSee('/maintenance/campaigns')) maintenanceItems.push({ key: '/maintenance/campaigns', icon: <CarOutlined />, label: 'Đợt bảo dưỡng' });
+  if (canSee('/maintenance/templates')) maintenanceItems.push({ key: '/maintenance/templates', icon: <FileTextOutlined />, label: 'Mẫu bảo dưỡng' });
+  if (maintenanceItems.length > 0) menuGroups.push({ label: 'BẢO DƯỠNG', items: maintenanceItems });
 
-  if (adminChildren.length > 0) {
-    menuGroups.push({ label: 'QUẢN TRỊ', items: [{ key: 'admin', icon: <SettingOutlined />, label: 'Quản trị', children: adminChildren }] });
+  if (canSee('/reports')) {
+    menuGroups.push({
+      label: 'BÁO CÁO',
+      items: [{ key: '/reports', icon: <BarChartOutlined />, label: 'Báo cáo' }],
+    });
   }
 
-  const menuItems = menuGroups.map(g => ({
-    type: 'group' as const,
-    label: g.label,
-    children: g.items,
-  }));
+  const adminItems: NonNullable<MenuProps['items']> = [];
+  if (canSee('/users')) adminItems.push({ key: '/users', icon: <UserOutlined />, label: 'Người dùng' });
+  if (canSee('/groups')) adminItems.push({ key: '/groups', icon: <TeamOutlined />, label: 'Nhóm' });
+  if (canSee('/permissions')) adminItems.push({ key: '/permissions', icon: <SafetyOutlined />, label: 'Phân quyền' });
+  if (adminChildren.length > 0) {
+    adminItems.push({
+      key: 'admin', icon: <SettingOutlined />, label: 'Danh mục & cấu hình', children: adminChildren,
+    });
+  }
+  if (adminItems.length > 0) menuGroups.push({ label: 'QUẢN TRỊ', items: adminItems });
 
-  const allLeafKeys = Object.keys(permMap).concat('/dashboard', '/system-history', '/inventory/low-stock');
+  // Do not render any menu leaf until permissions have resolved. This is stricter than the old
+  // "show everything while loading" behaviour and removes the visible show-then-hide flicker.
+  const menuItems = perm
+    ? menuGroups.map(g => ({
+      type: 'group' as const,
+      label: g.label,
+      children: g.items,
+    }))
+    : [];
+
+  const allLeafKeys = Object.keys(permMap).concat('/dashboard', '/inventory/low-stock');
   const currentPath = location.pathname;
   const selectedKey = allLeafKeys
     .filter(k => currentPath === k || currentPath.startsWith(k + '/') || currentPath.startsWith(k))
@@ -318,8 +349,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     '/admin/categories': 'admin', '/admin/manufacturers': 'admin', '/admin/suppliers': 'admin',
     '/admin/asset-models': 'admin', '/admin/locations': 'admin',
     '/admin/depreciations': 'admin', '/admin/companies': 'admin', '/admin/departments': 'admin',
-    '/admin/system-infos': 'admin', '/admin/import': 'admin',
-    '/admin/system-config': 'admin',
+    '/admin/import': 'admin', '/admin/system-config': 'admin',
   };
   const activeSubmenu = submenuByKey[selectedKey];
   const [openKeys, setOpenKeys] = useState<string[]>(activeSubmenu ? [activeSubmenu] : []);
@@ -596,6 +626,11 @@ function App() {
                 <AppLayout><SystemHistoryPage /></AppLayout>
               </ProtectedRoute>
             } />
+            <Route path="/systems" element={
+              <ProtectedRoute>
+                <AppLayout><SystemInfoListPage /></AppLayout>
+              </ProtectedRoute>
+            } />
             <Route path="/systems/:id" element={
               <ProtectedRoute>
                 <AppLayout><SystemDetailPage /></AppLayout>
@@ -702,16 +737,19 @@ function App() {
               <Route path="/admin/departments" element={
               <ProtectedRoute><AppLayout><DepartmentListPage /></AppLayout></ProtectedRoute>
             } />
-            <Route path="/admin/system-infos" element={
-              <ProtectedRoute><AppLayout><SystemInfoListPage /></AppLayout></ProtectedRoute>
-            } />
+            {/* Legacy URL from the old Quản trị menu; canonical list is /systems. */}
+            <Route path="/admin/system-infos" element={<Navigate to="/systems" replace />} />
             <Route path="/admin/import" element={
               <ProtectedRoute><AppLayout><ImportPage /></AppLayout></ProtectedRoute>
             } />
             <Route path="/admin/system-config" element={
               <ProtectedRoute><AppLayout><SystemConfigPage /></AppLayout></ProtectedRoute>
             } />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={
+              <ProtectedRoute>
+                <AppLayout><NotFoundPage /></AppLayout>
+              </ProtectedRoute>
+            } />
           </Routes>
         </BrowserRouter>
       </AntApp>

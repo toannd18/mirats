@@ -79,7 +79,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
       setDepartmentOptions(deptRes.data.data ?? []);
       setLocationOptions(locRes.data.data ?? []);
     } catch {
-      void message.error('Failed to load dependent data');
+      void message.error('Không tải được phòng ban/địa điểm');
     } finally {
       setFetchingDeps(false);
     }
@@ -164,10 +164,10 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
 
       if (isEditing) {
         await apiClient.put(`/users/${user!.id}`, { id: user!.id, ...payload });
-        void message.success('User updated successfully');
+        void message.success('Đã cập nhật người dùng');
       } else {
         await apiClient.post('/users', payload);
-        void message.success('User created successfully');
+        void message.success('Đã tạo người dùng');
       }
       onSuccess();
     } catch (error: unknown) {
@@ -175,14 +175,14 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         response?: { status?: number; data?: { message?: string; errors?: Record<string, string[]> } };
       };
       if (err.response?.status === 409) {
-        void message.error(err.response?.data?.message || 'Conflict: username or email already exists');
+        void message.error(err.response?.data?.message || 'Tên đăng nhập hoặc email đã tồn tại');
       } else if (err.response?.data?.errors) {
         const first = Object.values(err.response.data.errors).flat()[0];
-        void message.error(first || 'Validation failed');
+        void message.error(first || 'Dữ liệu không hợp lệ');
       } else if (err.response?.data?.message) {
         void message.error(err.response.data.message);
       } else {
-        void message.error('An unexpected error occurred');
+        void message.error('Đã xảy ra lỗi không mong muốn');
       }
     } finally {
       setSubmitting(false);
@@ -198,7 +198,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
 
   return (
     <Modal
-      title={isEditing ? 'Edit User' : 'Create New User'}
+      title={isEditing ? 'Sửa người dùng' : 'Thêm người dùng'}
       open={open}
       onOk={handleSubmit}
       onCancel={onCancel}
@@ -207,64 +207,64 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
       destroyOnHidden
       centered
       mask={{ closable: false }}
-      okText={isEditing ? 'Save Changes' : 'Create User'}
+      okText={isEditing ? 'Lưu thay đổi' : 'Tạo người dùng'}
     >
       <Form form={form} layout="vertical" size="middle" autoComplete="off" style={{ marginTop: 8 }}>
         {/* Row 1: First Name + Last Name */}
         <div style={fieldFlex}>
           <Form.Item
-            label="First Name" name="firstName"
-            rules={[{ required: true, message: 'Required' }, { max: 100 }]}
+            label="Họ" name="firstName"
+            rules={[{ required: true, message: 'Bắt buộc' }, { max: 100 }]}
             style={{ flex: 1 }}
           >
-            <Input placeholder="First name" />
+            <Input placeholder="Nhập họ" />
           </Form.Item>
           <Form.Item
-            label="Last Name" name="lastName"
-            rules={[{ required: true, message: 'Required' }, { max: 100 }]}
+            label="Tên" name="lastName"
+            rules={[{ required: true, message: 'Bắt buộc' }, { max: 100 }]}
             style={{ flex: 1 }}
           >
-            <Input placeholder="Last name" />
+            <Input placeholder="Nhập tên" />
           </Form.Item>
         </div>
 
         {/* Row 2: Username + Email */}
         <div style={fieldFlex}>
           <Form.Item
-            label="Username" name="username"
+            label="Tên đăng nhập" name="username"
             rules={[
-              { required: true, message: 'Required' },
+              { required: true, message: 'Bắt buộc' },
               { max: 100 },
-              { pattern: /^\S+$/, message: 'No spaces allowed' },
+              { pattern: /^\S+$/, message: 'Không được có khoảng trắng' },
             ]}
             style={{ flex: 1 }}
           >
-            <Input placeholder="Username" disabled={isEditing} />
+            <Input placeholder="Tên đăng nhập" disabled={isEditing} />
           </Form.Item>
           <Form.Item
             label="Email" name="email"
-            rules={[{ required: true, message: 'Required' }, { type: 'email' }, { max: 255 }]}
+            rules={[{ required: true, message: 'Bắt buộc' }, { type: 'email' }, { max: 255 }]}
             style={{ flex: 1 }}
           >
-            <Input placeholder="Email address" />
+            <Input placeholder="Địa chỉ email" />
           </Form.Item>
         </div>
 
         {/* Row 3: Employee Number + Job Title */}
         <div style={fieldFlex}>
           <Form.Item
-            label="Employee Number" name="employeeNumber"
+            label="Mã nhân viên" name="employeeNumber"
             rules={[{ max: 50 }]}
             style={{ flex: 1 }}
           >
-            <Input placeholder="Optional" />
+            <Input placeholder="Không bắt buộc" />
           </Form.Item>
           <Form.Item
-            label="Job Title" name="jobTitle"
+            label="Chức danh" name="jobTitle"
             rules={[{ max: 200 }]}
             style={{ flex: 1 }}
           >
-            <Input placeholder="Optional" />
+            <Input placeholder="Không bắt buộc" />
           </Form.Item>
         </div>
 
@@ -273,7 +273,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
           <Form.Item
             label="Mật khẩu ban đầu" name="password"
             rules={[
-              { required: true, message: 'Required' },
+              { required: true, message: 'Bắt buộc' },
               { min: 8, message: 'Tối thiểu 8 ký tự' },
             ]}
             extra="Người dùng sẽ bị yêu cầu đổi mật khẩu này ở lần đăng nhập đầu tiên."
@@ -284,59 +284,59 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
 
         {/* Company — CompanyTreeSelect (self-loads tree, keeps cascade via handleCompanyChange) */}
         <Form.Item
-          label="Company"
+          label="Công ty"
           name="companyId"
-          tooltip="Select a company to enable Department and Location"
+          tooltip="Chọn công ty để bật Phòng ban và Địa điểm"
         >
-          <CompanyTreeSelect placeholder="Select company (optional)" onChange={handleCompanyChange} />
+          <CompanyTreeSelect placeholder="Chọn công ty (không bắt buộc)" onChange={handleCompanyChange} />
         </Form.Item>
 
         {/* Row 4: Department + Location (disabled until company selected) */}
         <div style={fieldFlex}>
           <Form.Item
-            label="Department"
+            label="Phòng ban"
             name="departmentId"
             style={{ flex: 1 }}
-            tooltip={!hasCompany ? 'Select a company first' : undefined}
+            tooltip={!hasCompany ? 'Chọn công ty trước' : undefined}
           >
             <Select
               {...selectProps}
               disabled={!hasCompany}
               loading={fetchingDeps}
-              placeholder={hasCompany ? 'Select department' : 'Select company first'}
+              placeholder={hasCompany ? 'Chọn phòng ban' : 'Chọn công ty trước'}
               options={departmentOptions.map((d) => ({ value: d.id, label: d.name }))}
-              notFoundContent={hasCompany ? 'No departments found' : 'Select a company first'}
+              notFoundContent={hasCompany ? 'Chưa có phòng ban' : 'Chọn công ty trước'}
             />
           </Form.Item>
           <Form.Item
-            label="Location"
+            label="Địa điểm"
             name="locationId"
             style={{ flex: 1 }}
-            tooltip={!hasCompany ? 'Select a company first' : undefined}
+            tooltip={!hasCompany ? 'Chọn công ty trước' : undefined}
           >
             <Select
               {...selectProps}
               disabled={!hasCompany}
               loading={fetchingDeps}
-              placeholder={hasCompany ? 'Select location' : 'Select company first'}
+              placeholder={hasCompany ? 'Chọn địa điểm' : 'Chọn công ty trước'}
               options={locationOptions.map((l) => ({ value: l.id, label: l.name }))}
-              notFoundContent={hasCompany ? 'No locations found' : 'Select a company first'}
+              notFoundContent={hasCompany ? 'Chưa có địa điểm' : 'Chọn công ty trước'}
             />
           </Form.Item>
         </div>
 
         {/* Switches */}
         <Space size="large" style={{ marginBottom: 16 }}>
-          <Form.Item label="Active" name="isActive" valuePropName="checked">
-            <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
+          <Form.Item label="Kích hoạt" name="isActive" valuePropName="checked">
+            <Switch checkedChildren="Hoạt động" unCheckedChildren="Ngừng hoạt động" />
           </Form.Item>
           <Form.Item
-            label="Super User"
+            label="Quản trị viên cấp cao"
             name="isSuperUser"
             valuePropName="checked"
-            tooltip="[AUTH Phase 4] Cờ superuser nội bộ — không còn đồng bộ nhóm Keycloak"
+            tooltip="Quyền quản trị cao nhất trong hệ thống"
           >
-            <Switch checkedChildren="Yes" unCheckedChildren="No" />
+            <Switch checkedChildren="Có" unCheckedChildren="Không" />
           </Form.Item>
         </Space>
       </Form>

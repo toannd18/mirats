@@ -19,8 +19,16 @@
 | Model của tài sản | **Model tài sản** | Asset Models |
 | Số lượng | **Số lượng** | Qty |
 | Số model | **Số model** | Model No. |
-| Số đơn hàng | **Số đơn hàng** | Order No. |
-| Số serial | **Số serial** | Serial (khi là nhãn) |
+| Số đơn hàng | **Số đơn hàng** | Order Number / Order No. |
+| Mã hàng | **Mã hàng** | Item No. |
+| Ngày mua | **Ngày mua** | Purchase Date |
+| Đơn giá | **Đơn giá** | Unit Cost |
+| Khóa bản quyền / Serial | **Khóa bản quyền / Serial** | Product Key / Serial, Product Key |
+| Hết vòng đời | **Hết vòng đời (EOL)** | EOL (khi đứng một mình) |
+| Trang web | **Trang web** | Website |
+| Email hỗ trợ | **Email hỗ trợ** | Support Email |
+| Serial | **Serial** | Số serial (trong UI mới) |
+| Model | **Model** | Mẫu (khi là tên model) |
 | Mã tài sản | **Mã tài sản** | Asset Tag |
 | Vị trí trong hệ thống | **Vị trí hệ thống** | SystemPosition |
 | Loại quản lý theo số lượng | **Theo số lượng** | Bulk |
@@ -43,3 +51,4 @@
   **`Xem`** hoặc **`Chi tiết`** — thống nhất theo từng ngữ cảnh, không trộn trong cùng một danh sách.
 - **Empty state**: dùng câu hướng dẫn cụ thể (“Chưa có…”, “Chưa có bản quyền nào đang gán”), không chỉ “Trống”.
 - Không hiển thị raw key JSON/camelCase (`templateVersionId`, `versionNumber`…) — dùng nhãn ở bảng trên.
+- **Serial** và **Model** được giữ nguyên như thuật ngữ kỹ thuật/ngành; không đổi thành “Số serial” hoặc “Mẫu” trong UI mới.

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  App, Button, Card, Descriptions, Empty, Form, Input, InputNumber, Modal, Segmented, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography,
+  App, Button, Card, Descriptions, Empty, Form, Input, InputNumber, Modal, Result, Segmented, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
 import {
   ArrowLeftOutlined, CarOutlined, ClusterOutlined, EllipsisOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined, PrinterOutlined, RollbackOutlined, ToolOutlined,
@@ -66,6 +66,7 @@ export default function SystemDetailPage() {
 
   const [system, setSystem] = useState<SystemInfoDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const [positionFilter, setPositionFilter] = useState<string | undefined>(
     () => searchParams.get('position') ?? undefined,
@@ -86,15 +87,20 @@ export default function SystemDetailPage() {
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await systemsService.get(id);
       setSystem(res.data.data as SystemInfoDetailDto);
-    } catch {
-      message.error('Không thể tải thông tin hệ thống');
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { message?: string } } };
+      setSystem(null);
+      setLoadError(e?.response?.status === 404
+        ? 'Không tìm thấy hệ thống hoặc hệ thống nằm ngoài phạm vi công ty của bạn.'
+        : (e?.response?.data?.message || 'Không thể tải thông tin hệ thống.'));
     } finally {
       setLoading(false);
     }
-  }, [id, message]);
+  }, [id]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -280,8 +286,16 @@ export default function SystemDetailPage() {
   };
 
   if (loading) return <Spin style={{ display: 'block', margin: '80px auto' }} />;
-  if (!system) return (
-    <Empty description="Không tìm thấy hệ thống" style={{ marginTop: 80 }} />
+  if (loadError || !system) return (
+    <Result
+      status="404"
+      title="Không tìm thấy hệ thống"
+      subTitle={loadError ?? 'Hệ thống không tồn tại hoặc đã bị xóa.'}
+      extra={[
+        <Button key="back" onClick={() => navigate('/systems')}>Danh sách hệ thống</Button>,
+        <Button key="home" type="primary" onClick={() => navigate('/dashboard')}>Về tổng quan</Button>,
+      ]}
+    />
   );
 
   const togglePositionFilter = (positionId: string) => {
