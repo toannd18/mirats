@@ -79,6 +79,23 @@ public class MaintenanceCampaignsController : ControllerBase
         return Ok(new { status = "success", data = result.Detail });
     }
 
+    // ==================== Checklist for executor (maintenance.campaigns) ====================
+
+    /// <summary>
+    /// [DF-1] Executor-facing checklist of the PINNED template version of a campaign.
+    /// Guarded by maintenance.campaigns (not maintenance.templates) so technicians can read the
+    /// checklist without being able to read/manage templates. Company scope is enforced in the handler.
+    /// </summary>
+    [HttpGet("{id:guid}/checklist")]
+    [Authorize(Policy = "maintenance.campaigns")]
+    public async Task<IActionResult> GetChecklist(Guid id)
+    {
+        var result = await _mediator.Send(new GetCampaignChecklistQuery(id));
+        if (!result.Success)
+            return NotFound(new { status = "error", message = "Not found." });
+        return Ok(new { status = "success", data = result.Items });
+    }
+
     // ==================== Create (maintenance.campaigns) ====================
 
     [HttpPost]

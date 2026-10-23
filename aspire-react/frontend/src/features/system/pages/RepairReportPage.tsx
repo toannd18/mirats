@@ -104,6 +104,10 @@ export default function RepairReportPage({ embedded = false }: RepairReportPageP
   const navigate = useNavigate();
   const canView = usePermission('reports.view');
   const canExport = usePermission('export');
+  // [DF-3] Reference filters must not emit 403s for roles that only have reports.view.
+  const canViewSystems = usePermission('systems.view');
+  const canViewCategories = usePermission('categories.view');
+  const canViewModel = usePermission('models.view');
 
   const now = dayjs();
   const [period, setPeriod] = useState<Period>('quarter');
@@ -119,23 +123,33 @@ export default function RepairReportPage({ embedded = false }: RepairReportPageP
   const [systems, setSystems] = useState<RefOption[]>([]);
   const [categories, setCategories] = useState<RefOption[]>([]);
   const [models, setModels] = useState<RefOption[]>([]);
+  // [DF-2] Distinguish a failed report request from a genuinely empty report.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    void Promise.all([
-      apiClient.get('/system-infos'),
-      apiClient.get('/categories'),
-      apiClient.get('/models', { params: { pageSize: 500 } }),
-    ]).then(([sys, cat, mod]) => {
-      setSystems((sys.data?.data ?? []) as RefOption[]);
-      setCategories((cat.data?.data ?? []) as RefOption[]);
-      setModels((mod.data?.data ?? []) as RefOption[]);
-    }).catch(() => {
-      // Filters remain usable even if a reference list cannot be loaded.
-    });
-  }, []);
+    const requests: Promise<void>[] = [];
+    if (canViewSystems) {
+      requests.push(apiClient.get('/system-infos').then(res => {
+        setSystems((res.data?.data ?? []) as RefOption[]);
+      }));
+    }
+    if (canViewCategories) {
+      requests.push(apiClient.get('/categories').then(res => {
+        setCategories((res.data?.data ?? []) as RefOption[]);
+      }));
+    }
+    if (canViewModel) {
+      requests.push(apiClient.get('/models', { params: { pageSize: 500 } }).then(res => {
+        setModels((res.data?.data ?? []) as RefOption[]);
+      }));
+    }
+    // Optional filters: failure here must not hide the report itself.
+    void Promise.all(requests).catch(() => { /* filters stay usable */ });
+  }, [canViewSystems, canViewCategories, canViewModel]);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const params: Record<string, unknown> = {
         period,
@@ -151,9 +165,13 @@ export default function RepairReportPage({ embedded = false }: RepairReportPageP
       const res = await apiClient.get('/reports/repairs', { params });
       setData((res.data?.data ?? emptyResponse) as RepairResponse);
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      void message.error(e?.response?.data?.message || 'Không tải được báo cáo sửa chữa');
+      const e = err as { response?: { status?: number; data?: { message?: string } } };
       setData(emptyResponse);
+      setLoadError(
+        e?.response?.status === 403
+          ? 'Bạn không có quyền xem báo cáo sửa chữa.'
+          : e?.response?.data?.message || 'Không tải được báo cáo sửa chữa. Đây là lỗi tải dữ liệu, không phải “không có dữ liệu”.',
+      );
     } finally {
       setLoading(false);
     }
@@ -247,6 +265,23 @@ export default function RepairReportPage({ embedded = false }: RepairReportPageP
     return (
       <div style={{ padding: 24 }}>
         <Alert type="error" showIcon title="Bạn không có quyền xem báo cáo." />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div style={{ padding: embedded ? 0 : 24 }}>
+        <Alert
+          type={loadError.startsWith('Bạn không có quyền') ? 'error' : 'error'}
+          showIcon
+          title="Không tải được báo cáo sửa chữa"
+          description={loadError}
+          action={<Button size="small" icon={<ReloadOutlined />} onClick={() => void load()}>Thử lại</Button>}
+        />
+        <Button style={{ marginTop: 16 }} icon={<ArrowLeftOutlined />} onClick={() => navigate('/reports')}>
+          Quay lại Báo cáo
+        </Button>
       </div>
     );
   }

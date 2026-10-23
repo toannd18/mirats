@@ -112,7 +112,6 @@ export default function MaintenanceCampaignListPage() {
   // [FE-R2/FE-R4] Branch desktop Table ↔ mobile Card theo hook dùng chung (T-RESP1).
   const isMobile = useIsMobile();
   const actionRef = useRef<ActionType | null>(null);
-  const canView = usePermission('maintenance.view');
   const canManage = usePermission('maintenance.campaigns');
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -254,7 +253,10 @@ export default function MaintenanceCampaignListPage() {
   const loadList = async (params: {
     systemInfoId?: string; status?: string; batchNumber?: string; sortBy?: string; sortDir?: string;
   }) => {
-    if (!canView && !canManage) return { data: [] as CampaignDto[], success: true, total: 0 };
+    // [DF-1/DF-2] Do not short-circuit on the client-side permission value: on first mount it is
+    // still false while /permissions/check is in flight, which made ProList render an empty state
+    // for authorized users (the technician). The server policy is authoritative; a 403 surfaces
+    // through the catch below as an error instead of "no data".
     try {
       const data = await fetchCampaigns(params);
       const filtered = filterLocally(data, params);
@@ -520,7 +522,6 @@ export default function MaintenanceCampaignListPage() {
           actionRef={actionRef}
           rowKey="id"
           ghost
-          cardProps={false}
           columns={searchColumns}
           // Mobile: bộ lọc mặc định THU GỌN để card chiếm màn hình.
           search={{ labelWidth: 'auto', defaultCollapsed: true }}

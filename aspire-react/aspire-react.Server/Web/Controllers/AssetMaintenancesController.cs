@@ -234,12 +234,12 @@ public class AssetMaintenancesController : ControllerBase
     // ==================== CLOSE / REOPEN (audit-trail lock) ====================
     // [Subtask D] Thin MediatR mapping over Close/Inspect/ReopenMaintenanceCommand. Guard order +
     // freeze semantics verbatim trong handler. Scope 403 Forbid verbatim (trap (a): reads AND
-    // Close/Inspect dùng 403, chỉ Update dùng 404 — KHÔNG thống nhất); Reopen superuser-gate TRƯỚC
-    // lookup. Closing is the natural completion step of the workflow: anyone who may edit the record
-    // (same company or Superuser) may close it, but only once CompletionDate is set. After close
-    // the record is frozen (PUT rejects ALL fields with MAINTENANCE_CLOSED). Reopening is a
-    // Superuser-only action that "breaks" the audit protection — it keeps ClosedAt/ClosedById as
-    // the history of the most recent close; every close/reopen is itself recorded in ActionLog.
+    // Close/Inspect dùng 403, chỉ Update dùng 404 — KHÔNG thống nhất). Closing is the natural
+    // completion step of the workflow: anyone who may edit the record (same company) may close it,
+    // but only once CompletionDate is set. After close the record is frozen (PUT rejects ALL fields
+    // with MAINTENANCE_CLOSED). [DF-1S] Reopening requires the SAME assets.edit policy as Close and
+    // is company-scoped in the handler — NOT superuser-only. It keeps ClosedAt/ClosedById as the
+    // history of the most recent close; every close/reopen is itself recorded in ActionLog.
 
     [HttpPost("maintenances/{id:guid}/close")]
     [Authorize(Policy = "assets.edit")]
@@ -288,7 +288,7 @@ public class AssetMaintenancesController : ControllerBase
     }
 
     [HttpPost("maintenances/{id:guid}/reopen")]
-    [Authorize]
+    [Authorize(Policy = "assets.edit")]
     public async Task<IActionResult> Reopen(Guid id)
     {
         var result = await _mediator.Send(new ReopenMaintenanceCommand(id, GetCurrentUserId()));

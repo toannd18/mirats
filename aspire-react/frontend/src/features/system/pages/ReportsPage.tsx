@@ -59,6 +59,10 @@ export default function ReportsPage() {
   const isMobile = useIsMobile();
   const canView = usePermission('reports.view');
   const canExport = usePermission('export');
+  // [DF-3] Only request reference lists the user may read; otherwise the leader role would emit
+  // 403s for /companies and /categories on every visit.
+  const canViewCompanies = usePermission('companies.view');
+  const canViewCategories = usePermission('categories.view');
 
   const [activeKey, setActiveKey] = useState('repairs');
   const [companies, setCompanies] = useState<RefOption[]>([]);
@@ -69,6 +73,9 @@ export default function ReportsPage() {
   const [depPage, setDepPage] = useState(1);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditData, setAuditData] = useState<AuditReportData | null>(null);
+  // [DF-2] Distinguish "no data" from "request failed".
+  const [depError, setDepError] = useState<string | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
 
   const yearOptions = useMemo(() => {
     const current = dayjs().year();
@@ -77,19 +84,24 @@ export default function ReportsPage() {
   }, []);
 
   useEffect(() => {
-    void Promise.all([
-      apiClient.get('/companies'),
-      apiClient.get('/categories'),
-    ]).then(([companyRes, categoryRes]) => {
-      setCompanies((companyRes.data?.data ?? []) as RefOption[]);
-      setCategories((categoryRes.data?.data ?? []) as RefOption[]);
-    }).catch(() => {
-      // Filters remain usable when the optional reference endpoints are not accessible.
-    });
-  }, []);
+    const requests: Promise<void>[] = [];
+    if (canViewCompanies) {
+      requests.push(apiClient.get('/companies').then(res => {
+        setCompanies((res.data?.data ?? []) as RefOption[]);
+      }));
+    }
+    if (canViewCategories) {
+      requests.push(apiClient.get('/categories').then(res => {
+        setCategories((res.data?.data ?? []) as RefOption[]);
+      }));
+    }
+    // Optional filters: a failed reference load must not turn the report into an error page.
+    void Promise.all(requests).catch(() => { /* filters stay usable */ });
+  }, [canViewCompanies, canViewCategories]);
 
   const loadDepreciation = useCallback(async (page = 1) => {
     setDepLoading(true);
+    setDepError(null);
     try {
       const res = await apiClient.get('/reports/depreciation', {
         params: {
@@ -104,7 +116,7 @@ export default function ReportsPage() {
       setDepPage(page);
     } catch {
       setDepData(EMPTY_DEP);
-      message.error('Không tải được báo cáo khấu hao');
+      setDepError('Không tải được báo cáo khấu hao. Đây là lỗi tải dữ liệu, không phải “không có dữ liệu”.');
     } finally {
       setDepLoading(false);
     }
@@ -112,6 +124,7 @@ export default function ReportsPage() {
 
   const loadAudit = useCallback(async () => {
     setAuditLoading(true);
+    setAuditError(null);
     try {
       const res = await apiClient.get('/reports/audit', {
         params: {
@@ -123,7 +136,7 @@ export default function ReportsPage() {
       setAuditData((res.data?.data ?? null) as AuditReportData | null);
     } catch {
       setAuditData(null);
-      message.error('Không tải được báo cáo kiểm kê');
+      setAuditError('Không tải được báo cáo kiểm kê. Đây là lỗi tải dữ liệu, không phải “không có dữ liệu”.');
     } finally {
       setAuditLoading(false);
     }
@@ -216,7 +229,15 @@ export default function ReportsPage() {
         </Space>
         {filterFields}
       </Card>
-      {isMobile ? (
+      {depError ? (
+        <Alert
+          type="error"
+          showIcon
+          title="Không tải được báo cáo khấu hao"
+          description={depError}
+          action={<Button size="small" onClick={() => void loadDepreciation(depPage)}>Thử lại</Button>}
+        />
+      ) : isMobile ? (
         <>
           {depData.items.length === 0 ? <Card>{depEmpty}</Card> : depData.items.map(row => (
             <Card key={row.id} size="small" style={{ marginBottom: 12 }}>
@@ -281,7 +302,15 @@ export default function ReportsPage() {
         </Space>
         {filterFields}
       </Card>
-      {!auditData || auditData.totalAssets === 0 ? (
+      {auditError ? (
+        <Alert
+          type="error"
+          showIcon
+          title="Không tải được báo cáo kiểm kê"
+          description={auditError}
+          action={<Button size="small" onClick={() => void loadAudit()}>Thử lại</Button>}
+        />
+      ) : !auditData || auditData.totalAssets === 0 ? (
         <Card>
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}

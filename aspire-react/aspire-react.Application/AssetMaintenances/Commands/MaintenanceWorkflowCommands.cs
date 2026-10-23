@@ -216,11 +216,11 @@ public class InspectMaintenanceCommandHandler : IRequestHandler<InspectMaintenan
 
 /// <summary>
 /// [Subtask D] POST api/v1/maintenances/{id}/reopen (extracted verbatim from
-/// AssetMaintenancesController.Reopen). Reopen breaks the audit lock — Superuser only (consistent
-/// with delete rights). Guard order verbatim: superuser-gate FIRST (FORBIDDEN, BEFORE the lookup —
-/// no company-scope branch, the superuser requirement subsumes it) → NOT_FOUND →
-/// MAINTENANCE_NOT_CLOSED → unfreeze (IsClosed = false; ClosedAt/ClosedById KEPT — they record the
-/// most recent close, each close/reopen cycle is itself audited in ActionLog). ILoggableCommand only.
+/// AssetMaintenancesController.Reopen). [DF-1S] Reopen requires assets.edit (controller policy) and
+/// is company-scoped in the handler — same rights as Close/Update, not superuser-only. Guard order:
+/// NOT_FOUND → FORBIDDEN (other company; floater records allowed) → MAINTENANCE_NOT_CLOSED →
+/// unfreeze (IsClosed = false; ClosedAt/ClosedById KEPT - they record the most recent close, each
+/// close/reopen cycle is itself audited in ActionLog). ILoggableCommand only.
 /// </summary>
 public record ReopenMaintenanceCommand(Guid Id, Guid CurrentUserId)
     : IRequest<ReopenMaintenanceResult>, ILoggableCommand<ReopenMaintenanceResult>
@@ -256,14 +256,15 @@ public class ReopenMaintenanceCommandHandler : IRequestHandler<ReopenMaintenance
 
     public async Task<ReopenMaintenanceResult> Handle(ReopenMaintenanceCommand request, CancellationToken cancellationToken)
     {
-        // Reopen breaks the audit lock — Superuser only (consistent with delete rights).
-        if (!_companyScope.IsSuperUser())
-            return new ReopenMaintenanceResult(false, "Forbidden.", "FORBIDDEN");
-
         var m = await _context.AssetMaintenances
             .FirstOrDefaultAsync(x => x.Id == request.Id && x.DeletedAt == null, cancellationToken);
         if (m == null)
             return new ReopenMaintenanceResult(false, "Maintenance not found.", "NOT_FOUND");
+
+        // Same edit rights as Close/Update: own-company + floater records only.
+        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
+        if (userCompanyId.HasValue && m.CompanyId != userCompanyId.Value && m.CompanyId != Guid.Empty)
+            return new ReopenMaintenanceResult(false, "Forbidden.", "FORBIDDEN");
         if (!m.IsClosed)
             return new ReopenMaintenanceResult(false, "Bản ghi chưa đóng.", "MAINTENANCE_NOT_CLOSED");
 
@@ -280,7 +281,7 @@ public class ReopenMaintenanceCommandHandler : IRequestHandler<ReopenMaintenance
         return new ReopenMaintenanceResult(true, "Đã mở lại bảo trì.",
             MaintenanceId: m.Id, CompanyId: m.CompanyId,
             IsClosed: m.IsClosed, ClosedAt: m.ClosedAt, ClosedById: m.ClosedById,
-            Note: $"Mở lại bảo trì \"{m.Title}\" (superuser)",
+            Note: $"Mở lại bảo trì \"{m.Title}\"",
             LogMeta: changes.Set("status", m.IsClosed ? "Closed" : "Open").ToLogMeta());
     }
 }

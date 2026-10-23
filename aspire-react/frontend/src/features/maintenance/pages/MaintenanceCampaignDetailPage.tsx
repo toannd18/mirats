@@ -115,6 +115,10 @@ export default function MaintenanceCampaignDetailPage() {
   const [campaign, setCampaign] = useState<CampaignDetailDto | null>(null);
   const [items, setItems] = useState<ChecklistItemDto[]>([]);
   const [loading, setLoading] = useState(true);
+  // [DF-2] A failed checklist request is an ERROR, never an empty checklist. 403 (no permission)
+  // and 5xx/network failures get distinct messages and a retry action.
+  const [checklistError, setChecklistError] = useState<{ kind: 'forbidden' | 'error'; message: string } | null>(null);
+  const [campaignError, setCampaignError] = useState<{ kind: 'forbidden' | 'notfound' | 'error'; message: string } | null>(null);
   const [drafts, setDrafts] = useState<Record<string, ResultDraft>>({});
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
@@ -126,14 +130,41 @@ export default function MaintenanceCampaignDetailPage() {
     try {
       const res = await apiClient.get(`/maintenance/campaigns/${campaignId}`);
       setCampaign(res.data.data);
+      setCampaignError(null);
       return res.data.data as CampaignDetailDto;
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      message.error(e?.response?.data?.message || 'Lỗi tải đợt bảo dưỡng');
+      const e = err as { response?: { status?: number; data?: { message?: string } } };
+      const status = e?.response?.status;
       setCampaign(null);
+      if (status === 403) {
+        setCampaignError({ kind: 'forbidden', message: 'Bạn không có quyền xem đợt bảo dưỡng này.' });
+      } else if (status === 404) {
+        setCampaignError({ kind: 'notfound', message: 'Đợt bảo dưỡng không tồn tại hoặc ngoài phạm vi công ty của bạn.' });
+      } else {
+        setCampaignError({ kind: 'error', message: e?.response?.data?.message || 'Lỗi tải đợt bảo dưỡng. Vui lòng thử lại.' });
+      }
       return null;
     }
-  }, [campaignId, message]);
+  }, [campaignId]);
+
+  const loadChecklist = useCallback(async () => {
+    setChecklistError(null);
+    try {
+      // [DF-1] Executor checklist endpoint: guarded by maintenance.campaigns, scoped server-side to
+      // the campaign company. Do NOT call the template-version endpoint here — it requires
+      // maintenance.templates and would 403 for technicians.
+      const res = await apiClient.get(`/maintenance/campaigns/${campaignId}/checklist`);
+      setItems((res.data.data ?? []) as ChecklistItemDto[]);
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { message?: string } } };
+      setItems([]);
+      setChecklistError(
+        e?.response?.status === 403
+          ? { kind: 'forbidden', message: 'Bạn không có quyền xem danh mục kiểm tra của đợt bảo dưỡng này.' }
+          : { kind: 'error', message: e?.response?.data?.message || 'Không tải được danh mục kiểm tra. Vui lòng thử lại.' },
+      );
+    }
+  }, [campaignId]);
 
   useEffect(() => {
     if (!campaignId) return;
@@ -142,10 +173,7 @@ export default function MaintenanceCampaignDetailPage() {
       setLoading(true);
       const c = await loadCampaign();
       if (!alive || !c) { setLoading(false); return; }
-      try {
-        const vres = await apiClient.get(`/maintenance/templates/${c.templateId}/versions/${c.templateVersionId}`);
-        if (alive) setItems((vres.data.data.items ?? []) as ChecklistItemDto[]);
-      } catch { /* Version load failure → render page with empty checklist items (campaign header still visible). */ }
+      await loadChecklist();
       if (alive) setLoading(false);
     })();
     return () => { alive = false; };
@@ -307,9 +335,24 @@ export default function MaintenanceCampaignDetailPage() {
   if (loading && !campaign) return <div style={{ textAlign: 'center', padding: 64 }}><Spin size="large" /></div>;
 
   if (!campaign) {
+    const kind = campaignError?.kind ?? 'error';
     return (
       <div>
-        <Alert type="warning" showIcon title="Đợt bảo dưỡng không tồn tại hoặc ngoài phạm vi công ty của bạn." />
+        <Alert
+          type={kind === 'forbidden' ? 'error' : kind === 'notfound' ? 'warning' : 'error'}
+          showIcon
+          title={campaignError?.message ?? 'Lỗi tải đợt bảo dưỡng.'}
+          action={kind === 'error'
+            ? <Button size="small" onClick={() => {
+              setLoading(true);
+              void (async () => {
+                const c = await loadCampaign();
+                if (c) await loadChecklist();
+                setLoading(false);
+              })();
+            }}>Thử lại</Button>
+            : undefined}
+        />
         <Button icon={<ArrowLeftOutlined />} style={{ marginTop: 16 }} onClick={() => navigate('/maintenance/campaigns')}>
           Quay lại danh sách
         </Button>
@@ -585,7 +628,7 @@ export default function MaintenanceCampaignDetailPage() {
 
         {canManage && !completed && (
           <Space style={{ marginTop: 12 }} wrap>
-            <Tooltip title={!hasChecklist ? 'Đợt chưa có hạng mục checklist — không thể hoàn thành.' : undefined}>
+            <Tooltip title={checklistError ? 'Không tải được danh mục kiểm tra — không thể hoàn thành.' : !hasChecklist ? 'Đợt chưa có hạng mục checklist — không thể hoàn thành.' : undefined}>
               <span>
                 <Button
                   type="primary"
@@ -639,10 +682,20 @@ export default function MaintenanceCampaignDetailPage() {
       </Card>
 
       <Card size="small" title="Kết quả kiểm tra (theo hạng mục)">
-        {campaign.snapshots.length === 0 && (
+        {checklistError && (
+          <Alert
+            type={checklistError.kind === 'forbidden' ? 'error' : 'error'}
+            showIcon
+            style={{ marginBottom: 12 }}
+            title={checklistError.kind === 'forbidden' ? 'Không có quyền xem danh mục kiểm tra' : 'Không tải được danh mục kiểm tra'}
+            description={checklistError.message}
+            action={<Button size="small" onClick={() => { setLoading(true); void loadChecklist().finally(() => setLoading(false)); }}>Thử lại</Button>}
+          />
+        )}
+        {!checklistError && campaign.snapshots.length === 0 && (
           <Alert type="info" showIcon title="Hệ thống không có tài sản nào tại thời điểm tạo đợt — không có kết quả cần ghi." />
         )}
-        {items.length === 0 && campaign.snapshots.length > 0 && (
+        {!checklistError && items.length === 0 && campaign.snapshots.length > 0 && (
           <Alert type="info" showIcon title="Danh mục kiểm tra của phiên bản không có hạng mục nào." />
         )}
         {collapseItems.length > 0 && (

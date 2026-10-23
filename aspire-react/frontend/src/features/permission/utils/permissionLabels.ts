@@ -41,3 +41,16 @@ const ACTION_LABELS: Record<string, string> = {
 
 export const resourceLabel = (resource: string) => RESOURCE_LABELS[resource] ?? resource;
 export const actionLabel = (action: string) => ACTION_LABELS[action] ?? action;
+
+/**
+ * [DF-4] Human label for a full permission key (e.g. `assets.checkout` → `Tài sản · Cấp phát`).
+ * Unknown resource/action falls back to the raw key so admins can still see what is granted.
+ */
+export const permissionLabel = (key: string): string => {
+  const dot = key.lastIndexOf('.');
+  if (dot <= 0 || dot === key.length - 1) return key;
+  const resource = RESOURCE_LABELS[key.slice(0, dot)];
+  const action = ACTION_LABELS[key.slice(dot + 1)];
+  if (!resource || !action) return key;
+  return `${resource} · ${action}`;
+};

@@ -8,6 +8,7 @@ import type { GroupDto } from '../types/groups';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import GroupFormModal from '../components/GroupFormModal';
+import { permissionLabel } from '../utils/permissionLabels';
 
 const { Text } = Typography;
 
@@ -84,7 +85,9 @@ export default function GroupListPage() {
       <Space size={[4, 4]} wrap>
         {granted.length === 0 && <Text type="secondary">Không có quyền</Text>}
         {granted.map(p => (
-          <Tag key={p.permissionKey} color="blue" style={{ marginInlineEnd: 0 }}>{p.permissionKey}</Tag>
+          <Tooltip key={p.permissionKey} title={p.permissionKey}>
+            <Tag color="blue" style={{ marginInlineEnd: 0 }}>{permissionLabel(p.permissionKey)}</Tag>
+          </Tooltip>
         ))}
       </Space>
     );

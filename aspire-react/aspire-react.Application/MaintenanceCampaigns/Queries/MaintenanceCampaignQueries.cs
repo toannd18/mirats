@@ -1,5 +1,6 @@
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Sorting;
+using aspire_react.Server.Application.MaintenanceTemplates.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
@@ -199,6 +200,56 @@ public class ListMaintenanceCampaignsQueryHandler : IRequestHandler<ListMaintena
     {
         var full = ((firstName ?? "") + " " + (lastName ?? "")).Trim();
         return full.Length > 0 ? full : (string.IsNullOrWhiteSpace(username) ? null : username);
+    }
+}
+
+/// <summary>
+/// [DF-1] Read-only checklist for the participant of a campaign. Deliberately guarded by
+/// maintenance.campaigns (not maintenance.templates): the executor may read the pinned version's
+/// items but cannot read/manage the template itself. Visibility is scoped to the campaign company.
+/// </summary>
+public record GetCampaignChecklistQuery(Guid CampaignId)
+    : IRequest<GetCampaignChecklistResult>;
+
+public record GetCampaignChecklistResult(
+    bool Success,
+    string? ErrorCode = null,
+    IReadOnlyList<TemplateItemDto>? Items = null);
+
+public class GetCampaignChecklistQueryHandler
+    : IRequestHandler<GetCampaignChecklistQuery, GetCampaignChecklistResult>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICompanyScopeService _companyScope;
+
+    public GetCampaignChecklistQueryHandler(IApplicationDbContext context, ICompanyScopeService companyScope)
+    {
+        _context = context;
+        _companyScope = companyScope;
+    }
+
+    public async Task<GetCampaignChecklistResult> Handle(
+        GetCampaignChecklistQuery request, CancellationToken cancellationToken)
+    {
+        var campaign = await CampaignAccess.GetVisibleCampaignAsync(_context, _companyScope, request.CampaignId);
+        if (campaign == null)
+            return new GetCampaignChecklistResult(false, "NOT_FOUND");
+
+        var items = await _context.MaintenanceChecklistItems.AsNoTracking()
+            .Include(i => i.Positions).ThenInclude(p => p.SystemPosition)
+            .Include(i => i.StandardParams)
+            .Where(i => i.TemplateVersionId == campaign.TemplateVersionId)
+            .OrderBy(i => i.Order)
+            .Select(i => new TemplateItemDto(
+                i.Id, i.Order, i.Name, i.CycleMonths, i.ToolsRequired, i.Instruction,
+                i.Positions.Select(p => p.SystemPositionId).ToList(),
+                i.Positions.Select(p => p.SystemPosition != null ? p.SystemPosition.Name : null).ToList(),
+                i.StandardParams.OrderBy(p => p.ParamName).Select(p => new TemplateParamDto(
+                    p.Id, p.ParamName, p.NominalValue, p.ThresholdOperator, p.ThresholdValue,
+                    p.CheckMethod, p.Unit)).ToList()))
+            .ToListAsync(cancellationToken);
+
+        return new GetCampaignChecklistResult(true, Items: items);
     }
 }
 

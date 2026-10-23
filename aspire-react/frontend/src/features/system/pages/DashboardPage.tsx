@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Card, Col, Empty, Progress, Row, Space, Spin, Table, Tag, Timeline, Tooltip, Typography } from 'antd';
+import { Alert, Button, Card, Col, Empty, Progress, Row, Space, Spin, Table, Tag, Timeline, Tooltip, Typography } from 'antd';
 import {
   AuditOutlined, CheckCircleOutlined, ExperimentOutlined, FileProtectOutlined,
   InboxOutlined, KeyOutlined, LaptopOutlined, ReloadOutlined, ToolOutlined,
@@ -139,14 +139,22 @@ export default function DashboardPage() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // [DF-2] A 403/5xx must not silently render all-zero widgets as if the data were empty.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
     try {
       const res = await apiClient.get('/dashboard/overview');
       setOverview(res.data?.data as DashboardOverview);
-    } catch {
-      /* keep last successful snapshot */
+      setLoadError(null);
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { message?: string } } };
+      setLoadError(
+        e?.response?.status === 403
+          ? 'Bạn không có quyền xem tổng quan.'
+          : e?.response?.data?.message || 'Không tải được tổng quan. Đây là lỗi tải dữ liệu, không phải “không có dữ liệu”.',
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -161,6 +169,18 @@ export default function DashboardPage() {
   }, [overview?.updatedAt]);
 
   if (loading) return <Spin size="large" />;
+
+  if (loadError && !overview) {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        title="Không tải được tổng quan"
+        description={loadError}
+        action={<Button size="small" icon={<ReloadOutlined />} onClick={() => void load()}>Thử lại</Button>}
+      />
+    );
+  }
 
   const statusTotal = (overview?.byStatus ?? []).reduce((sum, row) => sum + row.count, 0);
   const categoryTotal = (overview?.byCategory ?? []).reduce((sum, row) => sum + row.count, 0);
@@ -194,6 +214,16 @@ export default function DashboardPage() {
 
   return (
     <div>
+      {loadError && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 12 }}
+          title="Không làm mới được tổng quan — đang hiển thị dữ liệu lần trước"
+          description={loadError}
+          action={<Button size="small" icon={<ReloadOutlined />} onClick={() => void load(true)}>Thử lại</Button>}
+        />
+      )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         <Text type="secondary" style={{ fontSize: 12 }}>Cập nhật lúc {updatedTime}</Text>
         <Button icon={<ReloadOutlined />} loading={refreshing} onClick={() => void load(true)}>Làm mới</Button>
