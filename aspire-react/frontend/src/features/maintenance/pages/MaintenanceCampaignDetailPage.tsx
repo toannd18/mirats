@@ -373,112 +373,185 @@ export default function MaintenanceCampaignDetailPage() {
               >
                 Lưu nhóm này{dirtyCount > 0 ? ` (${dirtyCount})` : ''}
               </Button>
-              {!isMobile && <span style={{ fontSize: 12, color: textColors.secondary }}>Nhập xong từng dòng có thể bấm ✓ để lưu ngay dòng đó.</span>}
+              {!isMobile && <span style={{ fontSize: 12, color: textColors.secondary }}>Nhập xong từng dòng có thể bấm “Lưu” để lưu ngay dòng đó.</span>}
             </Space>
           )}
-          <Table<ResultRow>
-            rowKey="key"
-            size="small"
-            pagination={false}
-            scroll={{ x: 'max-content' }}
-            dataSource={rows}
-            locale={{ emptyText: 'Không có thiết bị nào thuộc phạm vi hạng mục này.' }}
-            columns={[
-              {
-                title: 'Thiết bị', key: 'device', width: hasParams ? 170 : 220,
-                onCell: (_: ResultRow, index?: number) => {
-                  if (!hasParams) return {};
-                  const pc = params.length;
-                  if (index === undefined) return {};
-                  return index % pc === 0 ? { rowSpan: pc } : { rowSpan: 0 };
-                },
-                render: (_: unknown, row: ResultRow) => (
-                  <Space size={4} align="start">
-                    <CarOutlined style={{ color: uiColors.labelGray, marginTop: 4 }} />
-                    <div>
-                      <div>{row.snapshot.assetName} <Text code style={{ fontSize: 11 }}>{row.snapshot.assetTag}</Text></div>
-                      <div style={{ fontSize: 11, color: textColors.secondary }}>
-                        SN: {row.snapshot.serial || '—'} · {row.snapshot.systemPositionName || '—'}
+          {isMobile ? (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {rows.map(row => {
+                const k = row.key;
+                const dirty = isDirty(row.snapshot.id, it.id, row.paramId, row.param);
+                const saved = savedKeys.has(k);
+                return (
+                  <Card key={k} size="small" style={{ borderRadius: 10 }}>
+                    <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
+                      <Text strong>{row.snapshot.assetName} <Text code style={{ fontSize: 11 }}>{row.snapshot.assetTag}</Text></Text>
+                      <Text type="secondary" style={{ fontSize: 11 }}>{row.snapshot.systemPositionName || '—'}</Text>
+                    </Space>
+                    <Text type="secondary" style={{ display: 'block', fontSize: 11, marginTop: 2 }}>
+                      SN: {row.snapshot.serial || '—'}
+                    </Text>
+                    {hasParams && row.param && (
+                      <div style={{ marginTop: 8, padding: '8px 10px', background: '#fafafa', borderRadius: 8 }}>
+                        <Text strong><ExperimentOutlined style={{ marginRight: 4, color: uiColors.accentPurple }} />{row.param.paramName}</Text>
+                        <div style={{ fontSize: 11, color: textColors.secondary }}>Ngưỡng: {formatThreshold(row.param)}</div>
                       </div>
+                    )}
+                    <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                      {hasParams && (
+                        <div>
+                          <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Giá trị đo</Text>
+                          {editableRows ? (
+                            <Input
+                              value={drafts[k]?.measuredValue ?? ''}
+                              onChange={e => updateDraft(k, { measuredValue: e.target.value })}
+                              placeholder={row.param?.unit ? `VD: 45 ${row.param.unit}` : 'VD: 45'}
+                              style={{ width: '100%' }}
+                            />
+                          ) : <Text>{drafts[k]?.measuredValue || '—'}</Text>}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>Kết quả</Text>
+                        {hasParams && row.param ? (
+                          (() => {
+                            const auto = evaluateIsPass(row.param, drafts[k]?.measuredValue);
+                            if (auto === null) return <Tag>Chưa xác định</Tag>;
+                            return auto ? <Tag color="success">Đạt</Tag> : <Tag color="error">Không đạt</Tag>;
+                          })()
+                        ) : editableRows ? (
+                          <Switch
+                            checkedChildren="Đạt"
+                            unCheckedChildren="Không đạt"
+                            checked={drafts[k]?.isPass ?? true}
+                            onChange={v => updateDraft(k, { isPass: v })}
+                          />
+                        ) : ((drafts[k]?.isPass ?? true) ? <Tag color="success">Đạt</Tag> : <Tag color="error">Không đạt</Tag>)}
+                      </div>
+                      <div>
+                        <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Ghi chú</Text>
+                        {editableRows ? (
+                          <Input
+                            value={drafts[k]?.notes ?? ''}
+                            onChange={e => updateDraft(k, { notes: e.target.value })}
+                            placeholder="Ghi chú"
+                            style={{ width: '100%' }}
+                          />
+                        ) : <Text>{drafts[k]?.notes || '—'}</Text>}
+                      </div>
+                      {editableRows && (
+                        <Space>
+                          <Button size="small" type="primary" disabled={!dirty} loading={savingKeys.has(k)} onClick={() => saveRow(row.snapshot.id, it.id, row.paramId)}>
+                            Lưu dòng
+                          </Button>
+                          {saved && !dirty && <Tag color="success">Đã lưu</Tag>}
+                        </Space>
+                      )}
                     </div>
-                  </Space>
-                ),
-              },
-              ...(hasParams ? [{
-                title: 'Tiêu chuẩn', key: 'param', width: isMobile ? 130 : 170,
-                render: (_: unknown, row: ResultRow) => (
-                  <div>
-                    <div style={{ fontWeight: 500 }}><ExperimentOutlined style={{ marginRight: 4, color: uiColors.accentPurple }} />{row.param?.paramName}</div>
-                    <div style={{ fontSize: 11, color: textColors.secondary }}>Ngưỡng: {formatThreshold(row.param)}</div>
-                  </div>
-                ),
-              } as never] : []),
-              ...(hasParams ? [{
-                title: 'Giá trị đo', key: 'measured', width: 150,
-                render: (_: unknown, row: ResultRow) => {
-                  const k = row.key;
-                  return editableRows ? (
-                    <Input
-                      value={drafts[k]?.measuredValue ?? ''}
-                      onChange={e => updateDraft(k, { measuredValue: e.target.value })}
-                      placeholder={row.param?.unit ? `VD: 45 ${row.param.unit}` : 'VD: 45'}
-                      size={isMobile ? 'small' : 'middle'}
-                    />
-                  ) : <span>{drafts[k]?.measuredValue || '—'}</span>;
+                  </Card>
+                );
+              })}
+            </div>
+          ) : (
+            <Table<ResultRow>
+              rowKey="key"
+              size="small"
+              pagination={false}
+              scroll={{ x: 'max-content' }}
+              dataSource={rows}
+              locale={{ emptyText: 'Không có thiết bị nào thuộc phạm vi hạng mục này.' }}
+              columns={[
+                {
+                  title: 'Thiết bị', key: 'device', width: hasParams ? 170 : 220,
+                  onCell: (_: ResultRow, index?: number) => {
+                    if (!hasParams) return {};
+                    const pc = params.length;
+                    if (index === undefined) return {};
+                    return index % pc === 0 ? { rowSpan: pc } : { rowSpan: 0 };
+                  },
+                  render: (_: unknown, row: ResultRow) => (
+                    <Space size={4} align="start">
+                      <CarOutlined style={{ color: uiColors.labelGray, marginTop: 4 }} />
+                      <div>
+                        <div>{row.snapshot.assetName} <Text code style={{ fontSize: 11 }}>{row.snapshot.assetTag}</Text></div>
+                        <div style={{ fontSize: 11, color: textColors.secondary }}>
+                          SN: {row.snapshot.serial || '—'} · {row.snapshot.systemPositionName || '—'}
+                        </div>
+                      </div>
+                    </Space>
+                  ),
                 },
-              } as never] : []),
-              {
-                title: 'Đạt?', key: 'isPass', width: hasParams ? 110 : 100,
-                render: (_: unknown, row: ResultRow) => {
-                  const k = row.key;
-                  if (hasParams && row.param) {
-                    const auto = evaluateIsPass(row.param, drafts[k]?.measuredValue);
-                    if (auto === null) return <Tag>Chưa xác định</Tag>;
-                    return auto ? <Tag color="success">Đạt</Tag> : <Tag color="error">Không đạt</Tag>;
-                  }
-                  const val = drafts[k]?.isPass ?? true;
-                  return editableRows ? (
-                    <Switch
-                      checkedChildren="Đạt"
-                      unCheckedChildren="KĐạt"
-                      checked={val}
-                      onChange={v => updateDraft(k, { isPass: v })}
-                      size={isMobile ? 'small' : 'middle'}
-                    />
-                  ) : val ? <Tag color="success">Đạt</Tag> : <Tag color="error">Không đạt</Tag>;
+                ...(hasParams ? [{
+                  title: 'Tiêu chuẩn', key: 'param', width: 170,
+                  render: (_: unknown, row: ResultRow) => (
+                    <div>
+                      <div style={{ fontWeight: 500 }}><ExperimentOutlined style={{ marginRight: 4, color: uiColors.accentPurple }} />{row.param?.paramName}</div>
+                      <div style={{ fontSize: 11, color: textColors.secondary }}>Ngưỡng: {formatThreshold(row.param)}</div>
+                    </div>
+                  ),
+                } as never] : []),
+                ...(hasParams ? [{
+                  title: 'Giá trị đo', key: 'measured', width: 150,
+                  render: (_: unknown, row: ResultRow) => {
+                    const k = row.key;
+                    return editableRows ? (
+                      <Input
+                        value={drafts[k]?.measuredValue ?? ''}
+                        onChange={e => updateDraft(k, { measuredValue: e.target.value })}
+                        placeholder={row.param?.unit ? `VD: 45 ${row.param.unit}` : 'VD: 45'}
+                      />
+                    ) : <span>{drafts[k]?.measuredValue || '—'}</span>;
+                  },
+                } as never] : []),
+                {
+                  title: 'Đạt?', key: 'isPass', width: hasParams ? 110 : 100,
+                  render: (_: unknown, row: ResultRow) => {
+                    const k = row.key;
+                    if (hasParams && row.param) {
+                      const auto = evaluateIsPass(row.param, drafts[k]?.measuredValue);
+                      if (auto === null) return <Tag>Chưa xác định</Tag>;
+                      return auto ? <Tag color="success">Đạt</Tag> : <Tag color="error">Không đạt</Tag>;
+                    }
+                    const val = drafts[k]?.isPass ?? true;
+                    return editableRows ? (
+                      <Switch
+                        checkedChildren="Đạt"
+                        unCheckedChildren="KĐạt"
+                        checked={val}
+                        onChange={v => updateDraft(k, { isPass: v })}
+                      />
+                    ) : val ? <Tag color="success">Đạt</Tag> : <Tag color="error">Không đạt</Tag>;
+                  },
                 },
-              },
-              {
-                title: 'Ghi chú', key: 'notes',
-                render: (_: unknown, row: ResultRow) => {
-                  const k = row.key;
-                  return editableRows ? (
-                    <Input
-                      value={drafts[k]?.notes ?? ''}
-                      onChange={e => updateDraft(k, { notes: e.target.value })}
-                      placeholder="Ghi chú"
-                      size={isMobile ? 'small' : 'middle'}
-                    />
-                  ) : <span>{drafts[k]?.notes || '—'}</span>;
+                {
+                  title: 'Ghi chú', key: 'notes',
+                  render: (_: unknown, row: ResultRow) => {
+                    const k = row.key;
+                    return editableRows ? (
+                      <Input
+                        value={drafts[k]?.notes ?? ''}
+                        onChange={e => updateDraft(k, { notes: e.target.value })}
+                        placeholder="Ghi chú"
+                      />
+                    ) : <span>{drafts[k]?.notes || '—'}</span>;
+                  },
                 },
-              },
-              ...(editableRows ? [{
-                title: '', key: 'rowSave', width: 56,
-                render: (_: unknown, row: ResultRow) => {
-                  const k = row.key;
-                  const dirty = isDirty(row.snapshot.id, it.id, row.paramId, row.param);
-                  const saved = savedKeys.has(k);
-                  return savingKeys.has(k)
-                    ? <Spin size="small" />
-                    : saved && !dirty
-                      ? <CheckCircleOutlined style={{ color: uiColors.success }} />
-                      : <Tooltip title="Lưu dòng này">
-                          <Button size="small" type="link" disabled={!dirty} onClick={() => saveRow(row.snapshot.id, it.id, row.paramId)}>✓</Button>
-                        </Tooltip>;
-                },
-              } as never] : []),
-            ]}
-          />
+                ...(editableRows ? [{
+                  title: 'Lưu', key: 'rowSave', width: 80,
+                  render: (_: unknown, row: ResultRow) => {
+                    const k = row.key;
+                    const dirty = isDirty(row.snapshot.id, it.id, row.paramId, row.param);
+                    const saved = savedKeys.has(k);
+                    return savingKeys.has(k)
+                      ? <Spin size="small" />
+                      : saved && !dirty
+                        ? <CheckCircleOutlined style={{ color: uiColors.success }} />
+                        : <Button size="small" type="link" disabled={!dirty} onClick={() => saveRow(row.snapshot.id, it.id, row.paramId)}>Lưu</Button>;
+                  },
+                } as never] : []),
+              ]}
+            />
+          )}
         </>
       ),
     };
@@ -487,7 +560,7 @@ export default function MaintenanceCampaignDetailPage() {
   return (
     <div>
       <Space style={{ marginBottom: 12 }} wrap>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/maintenance/campaigns')} />
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/maintenance/campaigns')}>Quay lại</Button>
         <Text strong style={{ fontSize: 16 }}>Đợt bảo dưỡng {campaign.batchNumber || '(không mã)'}</Text>
         <Tag icon={<ClusterOutlined />}>{campaign.systemInfoName}</Tag>
         <Tag color="blue">v{campaign.versionNumber}</Tag>

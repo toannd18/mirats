@@ -1,8 +1,8 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   App, Button, Card, Divider, Form, Input, Popconfirm, Select, Space, Switch, Tag, Tooltip, Typography,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, ExperimentOutlined, ClusterOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ExperimentOutlined, ClusterOutlined, SearchOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useNavigate } from 'react-router-dom';
@@ -61,6 +61,9 @@ export default function MaintenanceTemplateListPage() {
 
   const [systems, setSystems] = useState<SystemOption[]>([]);
   const [systemsLoading, setSystemsLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [systemFilter, setSystemFilter] = useState<string | undefined>();
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
   // Systems picker — scoped list (same /system-infos endpoint the admin page uses).
   const loadSystems = async () => {
@@ -74,6 +77,61 @@ export default function MaintenanceTemplateListPage() {
       setSystemsLoading(false);
     }
   };
+
+  useEffect(() => {
+    void loadSystems();
+  }, []);
+
+  useEffect(() => {
+    actionRef.current?.reload();
+  }, [search, systemFilter, activeFilter]);
+
+  const filterTemplates = (rows: TemplateDto[]): TemplateDto[] => {
+    const needle = search.trim().toLowerCase();
+    return rows.filter(r => {
+      if (systemFilter && r.systemInfo.id !== systemFilter) return false;
+      if (activeFilter === 'active' && !r.isActive) return false;
+      if (activeFilter === 'inactive' && r.isActive) return false;
+      if (!needle) return true;
+      return `${r.name} ${r.systemInfo.name} ${r.systemInfo.code} ${r.company?.name ?? ''}`
+        .toLowerCase()
+        .includes(needle);
+    });
+  };
+
+  const filterBar = (
+    <Card size="small" style={{ marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+        <Input
+          allowClear
+          prefix={<SearchOutlined />}
+          placeholder="Tìm theo tên mẫu, hệ thống, công ty…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        <Select
+          allowClear
+          style={{ width: '100%' }}
+          placeholder="Tất cả hệ thống"
+          value={systemFilter}
+          onChange={setSystemFilter}
+          options={systems.map(s => ({ value: s.id, label: `${s.name} (${s.code})` }))}
+          showSearch
+          optionFilterProp="label"
+        />
+        <Select
+          style={{ width: '100%' }}
+          value={activeFilter}
+          onChange={setActiveFilter}
+          options={[
+            { value: 'all', label: 'Tất cả trạng thái' },
+            { value: 'active', label: 'Đang kích hoạt' },
+            { value: 'inactive', label: 'Ngừng kích hoạt' },
+          ]}
+        />
+      </div>
+    </Card>
+  );
 
   const handleAdd = () => {
     setEditingId(null);
@@ -133,7 +191,7 @@ export default function MaintenanceTemplateListPage() {
   // ST7b — 1 fetch dùng chung cho ProTable (desktop) và ProList Card (mobile): không trùng code gọi API.
   const fetchTemplates = async (): Promise<TemplateDto[]> => {
     const res = await apiClient.get('/maintenance/templates');
-    return (res.data.data || []) as TemplateDto[];
+    return filterTemplates((res.data.data || []) as TemplateDto[]);
   };
 
   // ST7b + T-UX1 — action buttons dùng chung desktop/mobile; MỌI nút phải stopPropagation
@@ -160,12 +218,12 @@ export default function MaintenanceTemplateListPage() {
 
   const columns: ProColumns<TemplateDto>[] = [
     {
-      title: 'Tên mẫu', dataIndex: 'name', key: 'name', width: 220,
+      title: 'Tên mẫu', dataIndex: 'name', key: 'name', width: 190,
       // [FE-R4] Click-cả-row mở detail (onRow ở ProTable) — cột tên là text thường, không còn <a> riêng.
       render: (_, r) => <Text strong>{r.name}</Text>,
     },
     {
-      title: 'Hệ thống', key: 'systemInfo', width: 220,
+      title: 'Hệ thống', key: 'systemInfo', width: 190,
       render: (_, r) => (
         <Space size={4}>
           <ClusterOutlined style={{ fontSize: 12, color: uiColors.labelGray }} />
@@ -174,11 +232,11 @@ export default function MaintenanceTemplateListPage() {
       ),
     },
     {
-      title: 'Công ty', key: 'company', width: 150,
+      title: 'Công ty', key: 'company', width: 130,
       render: (_, r) => r.company?.name || <Tag>Không thuộc công ty</Tag>,
     },
     {
-      title: 'Phiên bản', key: 'versions', width: 200,
+      title: 'Phiên bản', key: 'versions', width: 170,
       render: (_, r) => {
         if (!r.currentVersion) return <Tag>Chưa công bố</Tag>;
         const v = r.currentVersion;
@@ -193,15 +251,15 @@ export default function MaintenanceTemplateListPage() {
       },
     },
     {
-      title: 'Đợt bảo dưỡng', dataIndex: 'campaignCount', key: 'campaignCount', width: 120,
+      title: 'Đợt bảo dưỡng', dataIndex: 'campaignCount', key: 'campaignCount', width: 100,
       render: (_, r) => <Tag color={r.campaignCount > 0 ? 'green' : 'default'}>{r.campaignCount}</Tag>,
     },
     {
-      title: 'Kích hoạt', dataIndex: 'isActive', key: 'isActive', width: 100,
+      title: 'Kích hoạt', dataIndex: 'isActive', key: 'isActive', width: 80,
       render: (_, r) => (r.isActive ? <Tag color="success">Có</Tag> : <Tag>Không</Tag>),
     },
     {
-      title: 'Hành động', key: 'actions', valueType: 'option' as const, width: 190,
+      title: 'Hành động', key: 'actions', valueType: 'option' as const, width: 160,
       render: (_, record) => (
         <Space size="small">{renderActions(record)}</Space>
       ),
@@ -266,6 +324,7 @@ export default function MaintenanceTemplateListPage() {
   if (isMobile) {
     return (
       <div>
+        {filterBar}
         <ProList<TemplateDto>
           headerTitle="Danh sách mẫu bảo dưỡng"
           actionRef={actionRef}
@@ -332,6 +391,7 @@ export default function MaintenanceTemplateListPage() {
 
   return (
     <div>
+      {filterBar}
       <ProTable<TemplateDto>
         headerTitle="Danh sách mẫu bảo dưỡng"
         rowKey="id"

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  App, Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Popconfirm,
+  App, Alert, Button, Card, Col, Descriptions, Dropdown, Empty, Form, Input, InputNumber, Popconfirm,
   Row, Select, Space, Spin, Table, Tag, Typography,
 } from 'antd';
 import {
   ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined,
-  ExperimentOutlined, CarOutlined, ClusterOutlined,
+  ExperimentOutlined, CarOutlined, ClusterOutlined, MoreOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import apiClient from '../../../services/api-client';
@@ -104,7 +104,7 @@ function fmtDate(v?: string | null): string {
  * StandardParam. Trạng thái sửa/khóa lấy thẳng field `editable` từ API MC-2 (KHÔNG tự suy luận).
  */
 export default function MaintenanceTemplateBuilderPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isMobile = useIsMobile();
@@ -332,11 +332,123 @@ export default function MaintenanceTemplateBuilderPage() {
 
   const editable = version?.editable ?? false;
 
+  const confirmDeleteItem = (it: ChecklistItemDto) => {
+    modal.confirm({
+      title: 'Xóa hạng mục?',
+      content: `Hạng mục "${it.name}" sẽ bị xóa khỏi phiên bản này.`,
+      okText: 'Xóa',
+      cancelText: 'Hủy',
+      okButtonProps: { danger: true },
+      onOk: () => deleteItem(it),
+    });
+  };
+
+  const confirmDeleteParam = (itemId: string, p: StandardParamDto) => {
+    modal.confirm({
+      title: 'Xóa tiêu chuẩn kỹ thuật?',
+      content: `${p.paramName} sẽ bị xóa khỏi hạng mục.`,
+      okText: 'Xóa',
+      cancelText: 'Hủy',
+      okButtonProps: { danger: true },
+      onOk: () => deleteParam(itemId, p),
+    });
+  };
+
+  const itemActions = (it: ChecklistItemDto) => (
+    <Space size={4} wrap>
+      {canManage && editable && (
+        <Button size="small" type="primary" icon={<EditOutlined />} onClick={() => openEditItem(it)}>
+          Sửa
+        </Button>
+      )}
+      {canManage && editable && (
+        <Dropdown
+          trigger={['click']}
+          menu={{
+            items: [
+              {
+                key: 'delete',
+                label: 'Xóa hạng mục',
+                danger: true,
+                icon: <DeleteOutlined />,
+                onClick: () => confirmDeleteItem(it),
+              },
+            ],
+          }}
+        >
+          <Button size="small" icon={<MoreOutlined />} aria-label="Thao tác khác" />
+        </Dropdown>
+      )}
+    </Space>
+  );
+
+  const paramActions = (itemId: string, p: StandardParamDto) => (
+    <Space size={4} wrap>
+      {canManage && editable && (
+        <Button size="small" type="primary" icon={<EditOutlined />} onClick={() => openEditParam(itemId, p)}>
+          Sửa
+        </Button>
+      )}
+      {canManage && editable && (
+        <Dropdown
+          trigger={['click']}
+          menu={{
+            items: [
+              {
+                key: 'delete',
+                label: 'Xóa tiêu chuẩn',
+                danger: true,
+                icon: <DeleteOutlined />,
+                onClick: () => confirmDeleteParam(itemId, p),
+              },
+            ],
+          }}
+        >
+          <Button size="small" icon={<MoreOutlined />} aria-label="Thao tác khác" />
+        </Dropdown>
+      )}
+    </Space>
+  );
+
+  const mobileItems = (version?.items ?? []).map(it => (
+    <Card key={it.id} size="small" style={{ marginBottom: 12, borderRadius: 10 }}>
+      <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
+        <Text strong>{it.order}. {it.name}</Text>
+        <Tag color={it.cycleMonths <= 3 ? 'orange' : 'blue'}>{it.cycleMonths} tháng</Tag>
+      </Space>
+      <div style={{ marginTop: 8, fontSize: 13, display: 'grid', gap: 4 }}>
+        <Text type="secondary">Dụng cụ: <Text>{it.toolsRequired || '—'}</Text></Text>
+        <Text type="secondary">Hướng dẫn: <Text>{it.instruction || '—'}</Text></Text>
+        <Text type="secondary">Vị trí: <Text>{(it.positionNames ?? []).length ? (it.positionNames ?? []).join(', ') : 'Mọi vị trí'}</Text></Text>
+      </div>
+      {editable && canManage && <div style={{ marginTop: 8 }}>{itemActions(it)}</div>}
+      <div style={{ marginTop: 10 }}>
+        <Text strong style={{ fontSize: 13 }}>Tiêu chuẩn kỹ thuật ({(it.standardParams ?? []).length})</Text>
+        {(it.standardParams ?? []).length === 0 ? (
+          <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>Chưa có tiêu chuẩn kỹ thuật nào.</Text>
+        ) : (it.standardParams ?? []).map(p => (
+          <Card key={p.id} size="small" style={{ marginTop: 8, background: '#fafafa' }}>
+            <Text strong>{p.paramName}</Text>
+            <div style={{ fontSize: 12, marginTop: 4 }}>
+              <Text type="secondary">Định mức: {p.nominalValue || '—'} · Ngưỡng: {formatThreshold(p)} · Cách kiểm tra: {p.checkMethod || '—'}</Text>
+            </div>
+            {editable && canManage && <div style={{ marginTop: 8 }}>{paramActions(it.id, p)}</div>}
+          </Card>
+        ))}
+        {editable && canManage && (
+          <Button size="small" type="primary" icon={<PlusOutlined />} style={{ marginTop: 8 }} onClick={() => openAddParam(it.id)}>
+            Thêm tiêu chuẩn
+          </Button>
+        )}
+      </div>
+    </Card>
+  ));
+
   return (
     <div>
-      <Space style={{ marginBottom: 12 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/maintenance/templates')} />
-        <Text strong style={{ fontSize: 16 }}>{template.name}</Text>
+      <Space style={{ marginBottom: 12, width: '100%', rowGap: 6 }} wrap>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/maintenance/templates')}>Quay lại</Button>
+        <Text strong style={{ fontSize: 16, whiteSpace: 'normal' }}>{template.name}</Text>
         <Tag icon={<ClusterOutlined />}>{template.systemInfo.name} ({template.systemInfo.code})</Tag>
         {template.company ? <Tag>{template.company.name}</Tag> : <Tag>Không thuộc công ty</Tag>}
         {!template.isActive && <Tag color="orange">Ngừng kích hoạt</Tag>}
@@ -413,106 +525,98 @@ export default function MaintenanceTemplateBuilderPage() {
           <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAddItem}>Thêm hạng mục</Button>
         )}
       >
-        <Table<ChecklistItemDto>
-          rowKey="id"
-          size="small"
-          dataSource={version?.items ?? []}
-          pagination={false}
-          scroll={{ x: 'max-content' }}
-          expandable={{
-            rowExpandable: () => true,
-            expandedRowRender: (it) => (
-              <div style={{ padding: '4px 8px' }}>
-                <Space orientation="vertical" style={{ width: '100%' }}>
-                  <Space style={{ justifyContent: 'space-between', width: '100%' }}>
-                    <Text strong style={{ fontSize: 13 }}>Tiêu chuẩn kỹ thuật của hạng mục "{it.name}"</Text>
-                    {canManage && editable && (
-                      <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => openAddParam(it.id)}>
-                        Thêm tiêu chuẩn
-                      </Button>
-                    )}
+        {isMobile ? (
+          (version?.items?.length ?? 0) === 0
+            ? <Empty description="Chưa có hạng mục kiểm tra nào." />
+            : mobileItems
+        ) : (
+          <Table<ChecklistItemDto>
+            rowKey="id"
+            size="small"
+            dataSource={version?.items ?? []}
+            pagination={false}
+            scroll={{ x: 'max-content' }}
+            expandable={{
+              rowExpandable: () => true,
+              expandedRowRender: (it) => (
+                <div style={{ padding: '4px 8px' }}>
+                  <Space orientation="vertical" style={{ width: '100%' }}>
+                    <Space style={{ justifyContent: 'space-between', width: '100%' }} wrap>
+                      <Text strong style={{ fontSize: 13 }}>Tiêu chuẩn kỹ thuật của hạng mục "{it.name}"</Text>
+                      {canManage && editable && (
+                        <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => openAddParam(it.id)}>
+                          Thêm tiêu chuẩn
+                        </Button>
+                      )}
+                    </Space>
+                    <Table<StandardParamDto>
+                      rowKey="id"
+                      size="small"
+                      dataSource={it.standardParams ?? []}
+                      pagination={false}
+                      locale={{ emptyText: 'Chưa có tiêu chuẩn kỹ thuật nào.' }}
+                      scroll={{ x: 'max-content' }}
+                      columns={[
+                        { title: 'Thông số', dataIndex: 'paramName', key: 'paramName', width: 140 },
+                        { title: 'Định mức', dataIndex: 'nominalValue', key: 'nominalValue', width: 100, render: (v?: string | null) => v || '—' },
+                        { title: 'Ngưỡng', dataIndex: 'thresholdValue', key: 'thresholdValue', width: 100, render: (_, p: StandardParamDto) => <span>{formatThreshold(p)}</span> },
+                        { title: 'Cách kiểm tra', dataIndex: 'checkMethod', key: 'checkMethod', width: 130, render: (v?: string | null) => v || '—' },
+                        { title: 'Đơn vị', dataIndex: 'unit', key: 'unit', width: 70, render: (v?: string | null) => v || '—' },
+                        ...(editable ? [{
+                          title: 'Hành động', key: 'actions', width: 170,
+                          render: (_: unknown, p: StandardParamDto) => paramActions(it.id, p),
+                        }] : []),
+                      ]}
+                    />
                   </Space>
-                  <Table<StandardParamDto>
-                    rowKey="id"
-                    size="small"
-                    dataSource={it.standardParams ?? []}
-                    pagination={false}
-                    locale={{ emptyText: 'Chưa có tiêu chuẩn kỹ thuật nào.' }}
-                    scroll={{ x: 'max-content' }}
-                    columns={[
-                      { title: 'Thông số', dataIndex: 'paramName', key: 'paramName', width: 140 },
-                      { title: 'Định mức', dataIndex: 'nominalValue', key: 'nominalValue', width: 100, render: (v?: string | null) => v || '—' },
-                      { title: 'Ngưỡng', dataIndex: 'thresholdValue', key: 'thresholdValue', width: 100, render: (_, p: StandardParamDto) => <span>{formatThreshold(p)}</span> },
-                      { title: 'Cách kiểm tra', dataIndex: 'checkMethod', key: 'checkMethod', width: 130, render: (v?: string | null) => v || '—' },
-                      { title: 'Đơn vị', dataIndex: 'unit', key: 'unit', width: 70, render: (v?: string | null) => v || '—' },
-                      ...(editable ? [{
-                        title: 'Hành động', key: 'actions', width: 110,
-                        render: (_: unknown, p: StandardParamDto) => (
-                          <Space size={4}>
-                            <Button size="small" icon={<EditOutlined />} onClick={() => openEditParam(it.id, p)} />
-                            <Popconfirm title="Xóa tiêu chuẩn?" onConfirm={() => deleteParam(it.id, p)}>
-                              <Button size="small" danger icon={<DeleteOutlined />} />
-                            </Popconfirm>
-                          </Space>
-                        ),
-                      }] : []),
-                    ]}
-                  />
-                </Space>
-              </div>
-            ),
-          }}
-          columns={[
-            { title: '#', dataIndex: 'order', key: 'order', width: 56 },
-            { title: 'Hạng mục', dataIndex: 'name', key: 'name', width: 200 },
-            {
-              title: 'Chu kỳ (tháng)', dataIndex: 'cycleMonths', key: 'cycleMonths', width: 110,
-              render: (v: number) => <Tag color={v <= 3 ? 'orange' : 'blue'}>{v} tháng</Tag>,
-            },
-            {
-              title: 'Dụng cụ', dataIndex: 'toolsRequired', key: 'toolsRequired', width: 140,
-              render: (v?: string | null) => v || '—',
-            },
-            {
-              title: 'Hướng dẫn', dataIndex: 'instruction', key: 'instruction', width: 200,
-              render: (v?: string | null) => v || '—',
-            },
-            {
-              // [MC-7d] Phạm vi vị trí: [] = universal → Tag "Mọi vị trí"; có khai báo → Tag từng vị trí.
-              title: 'Vị trí áp dụng', key: 'positions', width: 180,
-              render: (_: unknown, it: ChecklistItemDto) => {
-                const names = it.positionNames ?? [];
-                if (names.length === 0) return <Tag icon={<ClusterOutlined />}>Mọi vị trí</Tag>;
-                return (
-                  <Space size={4} wrap>
-                    {names.map((n, idx) => (
-                      <Tag key={idx} color="blue">{n || '—'}</Tag>
-                    ))}
-                  </Space>
-                );
-              },
-            },
-            {
-              // [MC-8] Số tiêu chuẩn của riêng hạng mục — nhất quán với cách hiển thị Positions.
-              title: 'Tiêu chuẩn', key: 'params', width: 100,
-              render: (_: unknown, it: ChecklistItemDto) => {
-                const n = it.standardParams?.length ?? 0;
-                return <Tag icon={<CarOutlined />} color={n > 0 ? 'green' : 'default'}>{n} tiêu chuẩn</Tag>;
-              },
-            },
-            ...(editable ? [{
-              title: 'Hành động', key: 'actions', width: 110,
-              render: (_: unknown, it: ChecklistItemDto) => (
-                <Space size={4}>
-                  <Button size="small" icon={<EditOutlined />} onClick={() => openEditItem(it)} />
-                  <Popconfirm title="Xóa hạng mục?" onConfirm={() => deleteItem(it)}>
-                    <Button size="small" danger icon={<DeleteOutlined />} />
-                  </Popconfirm>
-                </Space>
+                </div>
               ),
-            }] : []),
-          ]}
-        />
+            }}
+            columns={[
+              { title: '#', dataIndex: 'order', key: 'order', width: 48 },
+              { title: 'Hạng mục', dataIndex: 'name', key: 'name', width: 170 },
+              {
+                title: 'Chu kỳ (tháng)', dataIndex: 'cycleMonths', key: 'cycleMonths', width: 100,
+                render: (v: number) => <Tag color={v <= 3 ? 'orange' : 'blue'}>{v} tháng</Tag>,
+              },
+              {
+                title: 'Dụng cụ', dataIndex: 'toolsRequired', key: 'toolsRequired', width: 120,
+                render: (v?: string | null) => v || '—',
+              },
+              {
+                title: 'Hướng dẫn', dataIndex: 'instruction', key: 'instruction', width: 170,
+                render: (v?: string | null) => v || '—',
+              },
+              {
+                // [MC-7d] Phạm vi vị trí: [] = universal → Tag "Mọi vị trí"; có khai báo → Tag từng vị trí.
+                title: 'Vị trí áp dụng', key: 'positions', width: 140,
+                render: (_: unknown, it: ChecklistItemDto) => {
+                  const names = it.positionNames ?? [];
+                  if (names.length === 0) return <Tag icon={<ClusterOutlined />}>Mọi vị trí</Tag>;
+                  return (
+                    <Space size={4} wrap>
+                      {names.map((n, idx) => (
+                        <Tag key={idx} color="blue">{n || '—'}</Tag>
+                      ))}
+                    </Space>
+                  );
+                },
+              },
+              {
+                // [MC-8] Số tiêu chuẩn của riêng hạng mục — nhất quán với cách hiển thị Positions.
+                title: 'Tiêu chuẩn', key: 'params', width: 100,
+                render: (_: unknown, it: ChecklistItemDto) => {
+                  const n = it.standardParams?.length ?? 0;
+                  return <Tag icon={<CarOutlined />} color={n > 0 ? 'green' : 'default'}>{n} tiêu chuẩn</Tag>;
+                },
+              },
+              ...(editable ? [{
+                title: 'Hành động', key: 'actions', width: 170,
+                render: (_: unknown, it: ChecklistItemDto) => itemActions(it),
+              }] : []),
+            ]}
+          />
+        )}
       </Card>
 
       {/* Item modal */}
