@@ -7,6 +7,7 @@ import { groupsApi } from '../services/groups.service';
 import type { GroupDto, PermissionResourceGroup } from '../types/groups';
 import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
+import { actionLabel, resourceLabel } from '../utils/permissionLabels';
 
 const { Text } = Typography;
 
@@ -134,7 +135,7 @@ export default function GroupFormModal({ open, group, onClose, onSaved }: GroupF
         key: g.resource,
         label: (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <span style={{ textTransform: 'capitalize' }}>{g.resource}</span>
+            <span>{resourceLabel(g.resource)}</span>
             <Checkbox
               checked={allChecked}
               indeterminate={someChecked && !allChecked}
@@ -149,7 +150,10 @@ export default function GroupFormModal({ open, group, onClose, onSaved }: GroupF
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 4 }}>
             {resourcePerms.map(p => (
               <Checkbox key={p.code} checked={perms[p.code] === 1} onChange={() => toggle(p.code)}>
-                <span title={p.description} style={{ fontSize: 12 }}>{p.code}</span>
+                <span title={`${p.code} — ${p.description}`} style={{ fontSize: 12 }}>
+                  {actionLabel(p.action)}
+                  <span style={{ color: '#8c8c8c', marginLeft: 4 }}>({p.code.split('.')[0]})</span>
+                </span>
               </Checkbox>
             ))}
           </div>
@@ -175,8 +179,8 @@ export default function GroupFormModal({ open, group, onClose, onSaved }: GroupF
             type="info"
             showIcon
             style={{ marginBottom: 12 }}
-            title="Nhóm hệ thống"
-            description="Nhóm hệ thống không thể đổi tên hoặc xóa (bảo vệ chống tự khóa quyền), nhưng vẫn chỉnh sửa được danh sách quyền."
+            title="Ảnh hưởng nhóm hệ thống"
+            description="Đây là nhóm hệ thống (Admin/Superuser). Thay đổi quyền áp dụng NGAY cho mọi thành viên của nhóm; gỡ quyền quản trị có thể khiến người dùng mất quyền quản lý. Không thể đổi tên hoặc xóa nhóm."
           />
         )}
         <Form form={form} layout="vertical">

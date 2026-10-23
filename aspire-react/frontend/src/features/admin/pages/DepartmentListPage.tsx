@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { Button, Space, Form, Input, Select, Card, Divider, Tag, Typography, Popconfirm, App } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, PhoneOutlined, PrinterOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, PhoneOutlined, PrinterOutlined, SearchOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { withOptionalFkCleared } from '../../../shared/utils/fk';
@@ -40,6 +40,11 @@ export default function DepartmentListPage() {
   const actionRef = useRef<ActionType | null>(null);
   const isMobile = useIsMobile();
   const [users, setUsers] = useState<{ label: string; value: string }[]>([]);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    actionRef.current?.reload();
+  }, [search]);
 
   // ST6b — permission gating (mirrors backend [Authorize(Policy=...)]).
   const canCreate = usePermission('departments.create');
@@ -97,7 +102,10 @@ export default function DepartmentListPage() {
   // ST7b — 1 fetch dùng chung cho ProTable (desktop) và ProList (mobile Card).
   const fetchList = async () => {
     const r = await apiClient.get('/departments');
-    return { list: (r.data.data || []) as DepartmentDto[], total: (r.data.data || []).length };
+    const needle = search.trim().toLowerCase();
+    const rows = ((r.data.data || []) as DepartmentDto[]).filter(row =>
+      !needle || `${row.name} ${row.company?.name ?? ''}`.toLowerCase().includes(needle));
+    return { list: rows, total: rows.length };
   };
 
   // ST7b — action buttons dùng chung desktop/mobile.
@@ -160,6 +168,8 @@ export default function DepartmentListPage() {
           search={false}
           grid={{ gutter: 16, xs: 1, sm: 1 }}
           toolBarRender={() => [
+            <Input key="search" allowClear prefix={<SearchOutlined />} placeholder="Tìm phòng ban…"
+              value={search} onChange={e => setSearch(e.target.value)} style={{ width: 170 }} />,
             canCreate && <Button key="add" type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Thêm</Button>,
           ]}
           request={async () => {
@@ -207,6 +217,8 @@ export default function DepartmentListPage() {
         search={false}
         options={{ reload: true, density: true, setting: true }}
         toolBarRender={() => [
+          <Input key="search" allowClear prefix={<SearchOutlined />} placeholder="Tìm phòng ban…"
+            value={search} onChange={e => setSearch(e.target.value)} style={{ width: 220 }} />,
           canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Thêm phòng ban</Button>,
         ]}
         request={async () => {

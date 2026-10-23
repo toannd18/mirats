@@ -63,13 +63,11 @@ public class AssetTagGenerator : IAssetTagGenerator
         }
 
         // Transaction + FOR UPDATE: read-and-increment the per-(company, year) counter atomically.
-        // Npgsql's retrying execution strategy requires the transaction to run inside
-        // CreateExecutionStrategy (Task O/O-FIX convention).
-        var strategy = _context.Database.CreateExecutionStrategy();
+        // When called inside an outer transaction (e.g. import precheck/create), join it instead
+        // of committing a nested counter — a rollback must also roll back the sequence.
         long seq = 0;
-        await strategy.ExecuteAsync(async () =>
+        async Task IncrementAsync()
         {
-            await using var tx = await _context.Database.BeginTransactionAsync(ct);
             // Explicit typed parameter so Npgsql resolves the NULL companyId (raw SQL with an
             // interpolated null Guid cannot infer its type → PostgresException 42P18).
             var companyParam = new NpgsqlParameter("companyId", NpgsqlDbType.Uuid)
@@ -99,8 +97,22 @@ public class AssetTagGenerator : IAssetTagGenerator
             counter.UpdatedAt = DateTime.UtcNow;
             seq = counter.CurrentSeq;
             await _context.SaveChangesAsync(ct);
-            await tx.CommitAsync(ct);
-        });
+        }
+
+        if (_context.Database.CurrentTransaction is not null)
+        {
+            await IncrementAsync();
+        }
+        else
+        {
+            var strategy = _context.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var tx = await _context.Database.BeginTransactionAsync(ct);
+                await IncrementAsync();
+                await tx.CommitAsync(ct);
+            });
+        }
 
         return Render(format, year, seq, companyCode);
     }

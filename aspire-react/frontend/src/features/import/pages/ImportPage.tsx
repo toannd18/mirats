@@ -45,6 +45,7 @@ export default function ImportPage() {
   const [downloadingTpl, setDownloadingTpl] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [rowFilter, setRowFilter] = useState<'all' | 'ok' | 'error'>('all');
+  const [prechecked, setPrechecked] = useState(false);
 
   const hasPerm = (code: string): boolean => {
     if (!perm) return false; // still loading → fail-closed for the options list
@@ -59,17 +60,43 @@ export default function ImportPage() {
   // Client-side pre-validation (backend re-validates everything — never trusts the client).
   const missing = !importType ? 'Chọn loại dữ liệu.' : !companyId ? 'Chọn công ty áp dụng cho lần import này.' : !file ? 'Chọn file Excel (.xlsx).' : null;
 
-  const handleImport = async () => {
+  const handlePrecheck = async () => {
     if (missing || !selectedType || !file || !companyId) return;
     setLoading(true);
     setResult(null);
+    setPrechecked(false);
     try {
-      const res = await importExcel(importType, file, companyId);
+      const res = await importExcel(importType, file, companyId, true);
       setResult(res);
       if (res.failed === 0) {
-        message.success(`Import hoàn tất: ${res.created} bản ghi.`);
+        setPrechecked(true);
+        message.success('Kiểm tra trước thành công — chưa ghi dữ liệu. Có thể bấm Import thật.');
       } else {
-        message.warning(`Import hoàn tất: ${res.created} thành công, ${res.failed} lỗi — xem báo cáo bên dưới.`);
+        message.warning(`Kiểm tra trước phát hiện ${res.failed} lỗi — chưa ghi dữ liệu.`);
+      }
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { message?: string; error_code?: string } } };
+      message.error(e?.response?.data?.message ?? 'Kiểm tra trước thất bại.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (missing || !selectedType || !file || !companyId) return;
+    if (!prechecked) {
+      message.warning('Hãy chạy Kiểm tra trước và xử lý hết lỗi trước khi Import thật.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await importExcel(importType, file, companyId, false);
+      setResult(res);
+      setPrechecked(false);
+      if (res.rolledBack || res.failed > 0) {
+        message.error(`Import bị chặn: ${res.failed} lỗi — toàn bộ dữ liệu đã được hoàn tác, không ghi gì.`);
+      } else {
+        message.success(`Import hoàn tất: ${res.created} bản ghi.`);
       }
     } catch (err: unknown) {
       const e = err as { response?: { status?: number; data?: { message?: string; error_code?: string } } };
@@ -113,8 +140,9 @@ export default function ImportPage() {
       <Title level={4} style={{ marginTop: 0 }}>Nhập Excel</Title>
       <Paragraph type="secondary">
         Import dữ liệu từ file Excel (.xlsx) theo cấu trúc file mẫu. Mỗi lần import áp dụng cho
-        ĐÚNG MỘT công ty được chọn bên dưới. Import chạy ngay (best-effort từng dòng) — dòng lỗi
-        được báo cáo chi tiết, không chặn các dòng khác.
+        ĐÚNG MỘT công ty được chọn bên dưới. Hãy <b>Kiểm tra trước</b> để xem lỗi từng dòng mà
+        không ghi dữ liệu; chỉ khi không còn lỗi mới được Import thật. Import thật chạy trong một
+        transaction — nếu có lỗi giữa chừng, toàn bộ batch được hoàn tác.
       </Paragraph>
 
       <Card style={{ marginBottom: 16 }}>
@@ -124,7 +152,7 @@ export default function ImportPage() {
             <Radio.Group
               style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}
               value={importType}
-              onChange={(e) => { setImportType(e.target.value as ImportType); setResult(null); }}
+              onChange={(e) => { setImportType(e.target.value as ImportType); setResult(null); setPrechecked(false); }}
               options={IMPORT_TYPES.map(t => ({
                 value: t.value,
                 label: t.label,
@@ -139,7 +167,7 @@ export default function ImportPage() {
             <div style={{ maxWidth: 480, marginTop: 8 }}>
               <CompanyTreeSelect
                 value={companyId}
-                onChange={(v) => { setCompanyId(v); setResult(null); }}
+                onChange={(v) => { setCompanyId(v); setResult(null); setPrechecked(false); }}
                 placeholder="Chọn công ty cho lần import này"
               />
             </div>
@@ -164,7 +192,7 @@ export default function ImportPage() {
                   }
                   return false; // manual upload — gửi qua nút Import
                 }}
-                onChange={(info) => { setFileList(info.fileList.slice(-1)); setResult(null); }}
+                onChange={(info) => { setFileList(info.fileList.slice(-1)); setResult(null); setPrechecked(false); }}
               >
                 <p className="ant-upload-drag-icon"><CloudUploadOutlined /></p>
                 <p className="ant-upload-text">Kéo thả hoặc bấm để chọn file .xlsx</p>
@@ -178,24 +206,39 @@ export default function ImportPage() {
               icon={<ImportOutlined />}
               loading={loading}
               disabled={!!missing}
+              onClick={() => void handlePrecheck()}
+            >
+              Kiểm tra trước
+            </Button>
+            <Button
+              type="primary"
+              danger
+              icon={<ImportOutlined />}
+              loading={loading}
+              disabled={!!missing || !prechecked}
               onClick={() => void handleImport()}
             >
-              Import
+              Import thật
             </Button>
             <Button
               icon={<DownloadOutlined />}
               loading={downloadingTpl}
               onClick={() => void handleTemplate()}
             >
-              Tải file mẫu
+              Tải file mẫu{selectedType ? ` — ${selectedType.label}` : ''}
             </Button>
           </Space>
+          {!prechecked && !missing && (
+            <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+              Import thật đang chờ kiểm tra trước thành công.
+            </Text>
+          )}
         </Space>
       </Card>
 
       {result && (
         <Card
-          title="Báo cáo kết quả import"
+          title={result.validateOnly ? 'Kết quả kiểm tra trước (không ghi dữ liệu)' : 'Báo cáo kết quả import'}
           extra={
             <Segmented
               value={rowFilter}
@@ -210,9 +253,13 @@ export default function ImportPage() {
         >
           <Alert
             style={{ marginBottom: 12 }}
-            type={result.failed === 0 ? 'success' : result.created === 0 ? 'error' : 'warning'}
+            type={result.failed === 0 ? 'success' : result.rolledBack ? 'error' : result.created === 0 ? 'error' : 'warning'}
             showIcon
-            title={`Đã tạo ${result.created} bản ghi — ${result.failed} dòng lỗi.`}
+            title={result.validateOnly
+              ? `Kiểm tra trước: ${result.failed === 0 ? 'hợp lệ' : `${result.failed} dòng lỗi`} — chưa ghi dữ liệu.`
+              : result.rolledBack
+                ? `Import bị chặn — ${result.failed} dòng lỗi, toàn bộ batch đã hoàn tác.`
+                : `Đã tạo ${result.created} bản ghi — ${result.failed} dòng lỗi.`}
           />
           <Table
             size="small"
@@ -228,7 +275,7 @@ export default function ImportPage() {
                   ? <Tag color="success">✓ Thành công</Tag>
                   : <Tag color="error">✗ Lỗi</Tag>,
               },
-              { title: 'Chi tiết', dataIndex: 'message' },
+              { title: 'Cột / Lý do', dataIndex: 'message' },
             ]}
           />
         </Card>

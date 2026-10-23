@@ -1,6 +1,6 @@
-import { useState, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Space, Form, Input, TreeSelect, Card, Divider, Tag, Tooltip, Typography, Popconfirm, App } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
@@ -40,7 +40,12 @@ export default function CompanyListPage() {
   const [form] = Form.useForm();
   // ST7b — 1 actionRef dùng chung cho ProTable (desktop) và ProList (mobile Card).
   const actionRef = useRef<ActionType | null>(null);
+  const [search, setSearch] = useState('');
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    actionRef.current?.reload();
+  }, [search]);
 
   // ST6b — permission gating (mirrors backend [Authorize(Policy=...)]).
   const canCreate = usePermission('companies.create');
@@ -149,7 +154,13 @@ export default function CompanyListPage() {
   // ST7b — 1 fetch dùng chung cho ProTable (desktop) và ProList (mobile Card).
   const fetchTree = async (): Promise<CompanyNode[]> => {
     const r = await apiClient.get('/companies');
-    return (r.data.data || []) as CompanyNode[];
+    const raw = (r.data.data || []) as CompanyNode[];
+    const needle = search.trim().toLowerCase();
+    if (!needle) return raw;
+    const filterNodes = (nodes: CompanyNode[]): CompanyNode[] => nodes
+      .map(node => ({ ...node, children: filterNodes(node.children ?? []) }))
+      .filter(node => `${node.name} ${node.code}`.toLowerCase().includes(needle) || node.children.length > 0);
+    return filterNodes(raw);
   };
 
   // ST7b — action buttons dùng chung desktop/mobile.
@@ -233,6 +244,8 @@ export default function CompanyListPage() {
           search={false}
           grid={{ gutter: 16, xs: 1, sm: 1 }}
           toolBarRender={() => [
+            <Input key="search" allowClear prefix={<SearchOutlined />} placeholder="Tìm công ty…"
+              value={search} onChange={e => setSearch(e.target.value)} style={{ width: 170 }} />,
             canCreate && (
               <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => handleAdd()}>
                 Thêm
@@ -282,6 +295,8 @@ export default function CompanyListPage() {
         search={false}
         options={{ reload: true, density: true, setting: true }}
         toolBarRender={() => [
+          <Input key="search" allowClear prefix={<SearchOutlined />} placeholder="Tìm công ty…"
+            value={search} onChange={e => setSearch(e.target.value)} style={{ width: 220 }} />,
           canCreate && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => handleAdd()}>
               Tạo công ty

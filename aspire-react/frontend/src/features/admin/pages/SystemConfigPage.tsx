@@ -12,7 +12,7 @@ const { Text } = Typography;
  */
 export default function SystemConfigPage() {
   // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -54,7 +54,7 @@ export default function SystemConfigPage() {
     }
   };
 
-  const togglePasskeys = async (checked: boolean) => {
+  const performPasskeyChange = async (checked: boolean) => {
     setPasskeySaving(true);
     const previous = passkeysEnabled;
     setPasskeysEnabled(checked);
@@ -70,12 +70,28 @@ export default function SystemConfigPage() {
     }
   };
 
+  const requestPasskeyChange = (checked: boolean) => {
+    if (checked) {
+      void performPasskeyChange(true);
+      return;
+    }
+    modal.confirm({
+      title: 'Tắt đăng nhập bằng Passkey?',
+      content: 'Người dùng sẽ không thể đăng nhập bằng passkey cho đến khi bật lại. Passkey đã đăng ký vẫn được giữ trong hệ thống; đăng nhập bằng mật khẩu vẫn hoạt động.',
+      okText: 'Tắt Passkey',
+      cancelText: 'Hủy',
+      okButtonProps: { danger: true },
+      onOk: () => performPasskeyChange(false),
+    });
+  };
+
   return (
     <Card
       title="Cấu hình hệ thống"
       loading={loading}
       extra={!canEdit ? <Text type="secondary">Chỉ đọc — cần quyền quản trị hệ thống</Text> : undefined}
     >
+      <Text strong style={{ display: 'block', marginBottom: 8 }}>Nhóm: Định dạng mã tài sản</Text>
       <Alert
         type="info"
         showIcon
@@ -110,6 +126,7 @@ export default function SystemConfigPage() {
       </Form>
       <Divider />
       {/* [AUTH Phase 3] Passkey flag — auth.passkeys.enabled */}
+      <Text strong style={{ display: 'block', marginBottom: 8 }}>Nhóm: Đăng nhập &amp; bảo mật</Text>
       <Alert
         type="info"
         showIcon
@@ -122,7 +139,7 @@ export default function SystemConfigPage() {
           checked={passkeysEnabled}
           loading={passkeySaving}
           disabled={!canEdit}
-          onChange={checked => void togglePasskeys(checked)}
+          onChange={requestPasskeyChange}
         />
         <Text>{passkeysEnabled ? 'BẬT — đăng nhập bằng Passkey khả dụng' : 'TẮT — chỉ đăng nhập bằng mật khẩu'}</Text>
       </Space>

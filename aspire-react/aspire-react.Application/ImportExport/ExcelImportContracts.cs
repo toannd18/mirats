@@ -5,7 +5,13 @@ public sealed record ImportRowResult(int RowNumber, bool Success, string Message
 
 /// <summary>Aggregated outcome of one sheet import. <c>Rows</c> = every processed row (for the
 /// per-row UI report), <c>Errors</c> = the failed subset.</summary>
-public sealed record ImportSheetResult(int Created, int Failed, IReadOnlyList<ImportRowResult> Rows, IReadOnlyList<ImportRowResult> Errors);
+public sealed record ImportSheetResult(
+    int Created,
+    int Failed,
+    IReadOnlyList<ImportRowResult> Rows,
+    IReadOnlyList<ImportRowResult> Errors,
+    bool RolledBack = false,
+    bool ValidateOnly = false);
 
 /// <summary>
 /// Shared Excel (.xlsx) import machinery for the Mirats import feature (T1–T4).

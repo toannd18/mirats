@@ -1,6 +1,6 @@
-import { useRef, useState, type ReactNode } from 'react';
-import { App, Button, Popconfirm, Space, Tag, Tooltip, Typography, Card, Divider } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { App, Button, Card, Divider, Input, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd';
+import { PlusOutlined, DeleteOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { groupsApi } from '../services/groups.service';
@@ -19,6 +19,31 @@ export default function GroupListPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<GroupDto | null>(null);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    actionRef.current?.reload();
+  }, [search]);
+
+  const filterGroups = (rows: GroupDto[]) => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return rows;
+    return rows.filter(group =>
+      `${group.name} ${group.description ?? ''}`.toLowerCase().includes(needle),
+    );
+  };
+
+  const searchBar = (
+    <Card size="small" style={{ marginBottom: 12 }}>
+      <Input
+        allowClear
+        prefix={<SearchOutlined />}
+        placeholder="Tìm nhóm theo tên hoặc mô tả…"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+      />
+    </Card>
+  );
 
   // ST6b — GroupsController is protected by the "admin" policy (no per-action keys).
   const canAdmin = usePermission('admin');
@@ -150,6 +175,7 @@ export default function GroupListPage() {
   if (isMobile) {
     return (
       <>
+        {searchBar}
         <ProList<GroupDto>
           headerTitle="Quản lý nhóm phân quyền"
           actionRef={actionRef}
@@ -168,7 +194,8 @@ export default function GroupListPage() {
           request={async () => {
             try {
               const res = await groupsApi.list();
-              return { data: res.data?.data ?? [], success: true, total: (res.data?.data ?? []).length };
+              const rows = filterGroups((res.data?.data ?? []) as GroupDto[]);
+              return { data: rows, success: true, total: rows.length };
             } catch {
               void message.error('Không thể tải danh sách nhóm');
               return { data: [], success: false, total: 0 };
@@ -214,6 +241,7 @@ export default function GroupListPage() {
 
   return (
     <>
+      {searchBar}
       <ProTable<GroupDto>
         headerTitle="Quản lý nhóm phân quyền"
         actionRef={actionRef}
@@ -238,7 +266,8 @@ export default function GroupListPage() {
         request={async () => {
           try {
             const res = await groupsApi.list();
-            return { data: res.data?.data ?? [], success: true, total: (res.data?.data ?? []).length };
+            const rows = filterGroups((res.data?.data ?? []) as GroupDto[]);
+            return { data: rows, success: true, total: rows.length };
           } catch {
             void message.error('Không thể tải danh sách nhóm');
             return { data: [], success: false, total: 0 };

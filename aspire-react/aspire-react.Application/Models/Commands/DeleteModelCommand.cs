@@ -46,9 +46,9 @@ public class DeleteModelCommandHandler : IRequestHandler<DeleteModelCommand, Mod
 
     public async Task<ModelResult> Handle(DeleteModelCommand request, CancellationToken cancellationToken)
     {
-        var hasAssets = await _context.Assets.AnyAsync(a => a.ModelId == request.Id, cancellationToken);
-        if (hasAssets)
-            return new ModelResult(false, "Không thể xóa Model đang có tài sản sử dụng.");
+        var assetCount = await _context.Assets.CountAsync(a => a.ModelId == request.Id, cancellationToken);
+        if (assetCount > 0)
+            return new ModelResult(false, $"Không thể xóa Model vì đang được {assetCount} tài sản sử dụng.");
 
         var m = await _context.Models.FindAsync(request.Id);
         if (m == null)

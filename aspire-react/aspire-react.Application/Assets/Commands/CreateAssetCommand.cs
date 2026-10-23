@@ -74,44 +74,51 @@ public class CreateAssetCommandHandler : IRequestHandler<CreateAssetCommand, Ass
             return new AssetResult(false, "Bạn chỉ được tạo tài sản cho công ty của mình.", ErrorCode: "COMPANY_MISMATCH");
 
         // [Task ASSET-TAG-AUTO] Empty/null AssetTag → auto-generate from the configured format.
-        // Non-empty → use the caller's value as-is (still passes the unique DB constraint).
-        var assetTag = await _assetTagGenerator.ResolveAssetTagAsync(request.AssetTag, request.CompanyId, cancellationToken);
-
-        var asset = new Asset
+        // The counter and asset are committed in the SAME transaction, so a failed create or a
+        // precheck rollback cannot consume a sequence number.
+        var strategy = _context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            AssetTag = assetTag,
-            Name = request.Name,
-            Serial = request.Serial,
-            Image = request.Image,
-            ModelId = request.ModelId,
-            LocationId = request.LocationId,
-            SupplierId = request.SupplierId,
-            CompanyId = request.CompanyId,
-            PurchaseCost = request.PurchaseCost,
-            PurchaseDate = request.PurchaseDate,
-            WarrantyMonths = request.WarrantyMonths,
-            Physical = request.Physical,
-            Requestable = request.Requestable,
-            OrderNumber = request.OrderNumber,
-            Notes = request.Notes,
-            // The "Xác nhận tạo" button in the UI IS the final confirmation: the asset is
-            // created officially onboarded (IsConfirmed=true) so it is immediately ready for
-            // allocation and its fields are locked (only Name/Notes remain editable).
-            IsConfirmed = true
-        };
-        _context.Assets.Add(asset);
+            await using var tx = await _context.Database.BeginTransactionAsync(cancellationToken);
+            var assetTag = await _assetTagGenerator.ResolveAssetTagAsync(request.AssetTag, request.CompanyId, cancellationToken);
 
-        _actionLogService.LogAction(
-            itemType: ItemType.Asset,
-            itemId: asset.Id,
-            actionType: ActionType.Create,
-            loggedByUserId: request.CurrentUserId,
-            companyId: asset.CompanyId,
-            note: $"Tạo thiết bị: {assetTag} - {request.Name}",
-            logMeta: JsonSerializer.Serialize(new { assetTag, name = request.Name, serial = request.Serial }));
+            var asset = new Asset
+            {
+                AssetTag = assetTag,
+                Name = request.Name,
+                Serial = request.Serial,
+                Image = request.Image,
+                ModelId = request.ModelId,
+                LocationId = request.LocationId,
+                SupplierId = request.SupplierId,
+                CompanyId = request.CompanyId,
+                PurchaseCost = request.PurchaseCost,
+                PurchaseDate = request.PurchaseDate,
+                WarrantyMonths = request.WarrantyMonths,
+                Physical = request.Physical,
+                Requestable = request.Requestable,
+                OrderNumber = request.OrderNumber,
+                Notes = request.Notes,
+                // The "Xác nhận tạo" button in the UI IS the final confirmation: the asset is
+                // created officially onboarded (IsConfirmed=true) so it is immediately ready for
+                // allocation and its fields are locked (only Name/Notes remain editable).
+                IsConfirmed = true
+            };
+            _context.Assets.Add(asset);
 
-        await _context.SaveChangesAsync(cancellationToken);
+            _actionLogService.LogAction(
+                itemType: ItemType.Asset,
+                itemId: asset.Id,
+                actionType: ActionType.Create,
+                loggedByUserId: request.CurrentUserId,
+                companyId: asset.CompanyId,
+                note: $"Tạo thiết bị: {assetTag} - {request.Name}",
+                logMeta: JsonSerializer.Serialize(new { assetTag, name = request.Name, serial = request.Serial }));
 
-        return new AssetResult(true, "Asset created successfully.", AssetId: asset.Id);
+            await _context.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            return new AssetResult(true, "Asset created successfully.", AssetId: asset.Id);
+        });
     }
 }

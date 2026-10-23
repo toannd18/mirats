@@ -54,14 +54,22 @@ public class DeleteCategoryCommandHandler : IRequestHandler<DeleteCategoryComman
 
         // Guard: reject deletion while any entity still references this category
         // (components, asset models, consumables, accessories, licenses — incl. soft-deleted).
-        var inUse =
-            await _context.Components.IgnoreQueryFilters().AnyAsync(x => x.CategoryId == request.Id, cancellationToken)
-            || await _context.Models.AnyAsync(x => x.CategoryId == request.Id, cancellationToken)
-            || await _context.Consumables.AnyAsync(x => x.CategoryId == request.Id, cancellationToken)
-            || await _context.Accessories.AnyAsync(x => x.CategoryId == request.Id, cancellationToken)
-            || await _context.Licenses.AnyAsync(x => x.CategoryId == request.Id, cancellationToken);
-        if (inUse)
-            return new CategoryResult(false, "Danh mục đang được sử dụng — không thể xóa.", "CATEGORY_IN_USE");
+        var blockers = new List<string>();
+        if (await _context.Components.IgnoreQueryFilters().AnyAsync(x => x.CategoryId == request.Id, cancellationToken))
+            blockers.Add("linh kiện");
+        if (await _context.Models.AnyAsync(x => x.CategoryId == request.Id, cancellationToken))
+            blockers.Add("model tài sản");
+        if (await _context.Consumables.AnyAsync(x => x.CategoryId == request.Id, cancellationToken))
+            blockers.Add("vật tư tiêu hao");
+        if (await _context.Accessories.AnyAsync(x => x.CategoryId == request.Id, cancellationToken))
+            blockers.Add("phụ kiện");
+        if (await _context.Licenses.AnyAsync(x => x.CategoryId == request.Id, cancellationToken))
+            blockers.Add("bản quyền");
+        if (blockers.Count > 0)
+            return new CategoryResult(
+                false,
+                $"Danh mục đang được sử dụng bởi {string.Join(", ", blockers)} — không thể xóa.",
+                "CATEGORY_IN_USE");
 
         _context.Categories.Remove(c);
         await _context.SaveChangesAsync(cancellationToken);

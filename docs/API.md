@@ -532,7 +532,7 @@ Body cho issue/return (`componentId` và `consumableId` đúng một):
 | Manufacturers | `GET/POST` `/api/v1/manufacturers`, `GET/PUT/DELETE` `/api/v1/manufacturers/{id}` |
 | Suppliers | `GET` `/api/v1/suppliers` |
 | Locations | `GET/POST` `/api/v1/locations`, `GET/PUT/DELETE` `/api/v1/locations/{id}` |
-| Depreciations | `GET` `/api/v1/depreciations` |
+| Depreciations | `GET/POST` `/api/v1/depreciations` — POST tạo cấu hình (`depreciations.create`) |
 
 ## Custom Fields
 
@@ -557,7 +557,12 @@ Body cho issue/return (`componentId` và `consumableId` đúng một):
 
 | Method | Route | Auth |
 |--------|-------|------|
-| `POST` | `/api/v1/import/assets` | `import` |
+| `POST` | `/api/v1/import/assets` | `assets.create` |
+| `POST` | `/api/v1/import/assets?validateOnly=true` | `assets.create` — kiểm tra trước, **luôn rollback**, không ghi dữ liệu |
 | `GET` | `/api/v1/import/templates/assets` | `import` |
 | `GET` | `/api/v1/export/assets` | `assets.view` |
 | `GET` | `/api/v1/export/consumables` | `consumables.view` |
+
+> Mọi endpoint `POST /api/v1/import/<type>` nhận thêm `?validateOnly=true` để kiểm tra file mà không ghi
+> dữ liệu. Import thật chạy trong một transaction: nếu có bất kỳ dòng lỗi nào, toàn bộ batch bị rollback
+> và response trả `rolledBack: true`.

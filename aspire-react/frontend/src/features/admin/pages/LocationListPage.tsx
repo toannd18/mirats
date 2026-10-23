@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { Button, Space, Form, Input, TreeSelect, Select, Card, Divider, Tag, Tooltip, Typography, Popconfirm, App } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { withOptionalFkCleared } from '../../../shared/utils/fk';
@@ -57,7 +57,12 @@ export default function LocationListPage() {
   const [form] = Form.useForm();
   // ST7b — 1 actionRef dùng chung cho ProTable (desktop) và ProList (mobile Card).
   const actionRef = useRef<ActionType | null>(null);
+  const [search, setSearch] = useState('');
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    actionRef.current?.reload();
+  }, [search]);
   // ST6b — permission gating (mirrors backend [Authorize(Policy=...)]).
   const canCreate = usePermission('locations.create');
   const canEdit = usePermission('locations.edit');
@@ -185,7 +190,9 @@ export default function LocationListPage() {
   // ST7b — 1 fetch dùng chung cho ProTable (desktop) và ProList (mobile Card).
   const fetchFlatList = async (): Promise<LocationDto[]> => {
     const r = await apiClient.get('/locations');
-    return (r.data.data || []) as LocationDto[];
+    const needle = search.trim().toLowerCase();
+    return ((r.data.data || []) as LocationDto[]).filter(row =>
+      !needle || `${row.name} ${row.city ?? ''} ${row.address ?? ''}`.toLowerCase().includes(needle));
   };
 
   // ST7b — action buttons dùng chung desktop/mobile.
@@ -311,6 +318,8 @@ export default function LocationListPage() {
           search={false}
           grid={{ gutter: 16, xs: 1, sm: 1 }}
           toolBarRender={() => [
+            <Input key="search" allowClear prefix={<SearchOutlined />} placeholder="Tìm địa điểm…"
+              value={search} onChange={e => setSearch(e.target.value)} style={{ width: 170 }} />,
             canCreate && (
               <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => handleAdd()}>
                 Thêm
@@ -361,6 +370,8 @@ export default function LocationListPage() {
         search={false}
         options={{ reload: true, density: true, setting: true }}
         toolBarRender={() => [
+          <Input key="search" allowClear prefix={<SearchOutlined />} placeholder="Tìm địa điểm…"
+            value={search} onChange={e => setSearch(e.target.value)} style={{ width: 220 }} />,
           canCreate && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => handleAdd()}>
               Tạo địa điểm

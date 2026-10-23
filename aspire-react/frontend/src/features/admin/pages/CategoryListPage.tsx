@@ -1,12 +1,13 @@
-import { useState, useRef, type ReactNode } from 'react';
-import { Button, Space, Input, Tag, Form, Select, Switch, ColorPicker, Card, Divider, Typography, Popconfirm, App } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Button, Space, Input, Tag, Form, Select, Switch, ColorPicker, Card, Divider, Typography, App } from 'antd';
+import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import ModalFormShell from '../../../shared/components/ModalFormShell';
+import ListRowActions from '../../../shared/components/list/ListRowActions';
 import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 const { Text } = Typography;
@@ -38,14 +39,19 @@ interface CategoryRow {
 
 export default function CategoryListPage() {
   // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form] = Form.useForm();
   // ST7b — 1 actionRef dùng chung cho ProTable (desktop) và ProList (mobile Card).
   const actionRef = useRef<ActionType | null>(null);
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
+  const [search, setSearch] = useState('');
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    actionRef.current?.reload();
+  }, [search, typeFilter]);
 
   // ST6b — permission gating (mirrors backend [Authorize(Policy=...)]).
   const canCreate = usePermission('categories.create');
@@ -115,23 +121,34 @@ export default function CategoryListPage() {
     const params: Record<string, unknown> = {};
     if (typeFilter !== undefined) params.type = typeFilter;
     const r = await apiClient.get('/categories', { params });
-    return { list: (r.data.data ?? []) as CategoryRow[], total: (r.data.data ?? []).length };
+    const needle = search.trim().toLowerCase();
+    const rows = ((r.data.data ?? []) as CategoryRow[]).filter(row =>
+      !needle || `${row.name} ${row.notes ?? ''}`.toLowerCase().includes(needle),
+    );
+    return { list: rows, total: rows.length };
   };
 
   // ST7b — action buttons dùng chung cho cột "Thao tác" (desktop) và Card (mobile):
   // permission-gating + handler nằm MỘT chỗ duy nhất giữa 2 view.
-  const renderActions = (r: CategoryRow): ReactNode[] => [
-    canEdit && <Button key="edit" size="small" onClick={() => handleEdit(r)}>Sửa</Button>,
-    canDelete && (
-      <Popconfirm
-        key="del"
-        title="Xóa danh mục này?"
-        onConfirm={() => handleDelete(r)}
-      >
-        <Button size="small" danger>Xóa</Button>
-      </Popconfirm>
-    ),
-  ].filter(Boolean) as ReactNode[];
+  const renderActions = (r: CategoryRow): ReactNode => (
+    <ListRowActions
+      primary={canEdit ? { key: 'edit', label: 'Sửa', onClick: () => handleEdit(r) } : null}
+      menuItems={canDelete ? [{
+        key: 'delete',
+        label: 'Xóa danh mục',
+        danger: true,
+        onClick: () => modal.confirm({
+          title: 'Xóa danh mục này?',
+          content: `Danh mục "${r.name}" sẽ bị xóa nếu không còn dữ liệu tham chiếu.`,
+          okText: 'Xóa',
+          cancelText: 'Hủy',
+          okButtonProps: { danger: true },
+          onOk: () => handleDelete(r),
+        }),
+      }] : []}
+      stopPropagation
+    />
+  );
 
   // Modal tạo/sửa — định nghĩa MỘT lần, render chung cho cả mobile (ProList) và desktop (ProTable).
   const formModal = (
@@ -218,14 +235,42 @@ export default function CategoryListPage() {
       key: 'actions',
       valueType: 'option' as const,
       width: 120,
-      render: (_, r) => <Space size="small">{renderActions(r)}</Space>,
+      render: (_, r) => renderActions(r),
     },
   ];
+
+  const mobileFilterBar = (
+    <Card size="small" style={{ marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+        <Input
+          allowClear
+          prefix={<SearchOutlined />}
+          placeholder="Tìm danh mục…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        <Select
+          allowClear
+          placeholder="Lọc theo loại"
+          style={{ width: '100%' }}
+          value={typeFilter}
+          onChange={v => setTypeFilter(v)}
+          options={Object.entries(CATEGORY_TYPE_LABELS).filter(([k]) => !/^\d+$/.test(k)).map(([key, label]) => ({ label, value: key }))}
+        />
+        {canCreate && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+            Thêm danh mục
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
 
   // ─── Mobile (ST7b): ProList Card thay Table — cùng fetch + cùng renderActions ───
   if (isMobile) {
     return (
       <div>
+        {mobileFilterBar}
         <ProList<CategoryRow>
           headerTitle="Danh sách danh mục"
           actionRef={actionRef}
@@ -234,22 +279,6 @@ export default function CategoryListPage() {
           cardProps={false}
           search={false}
           grid={{ gutter: 16, xs: 1, sm: 1 }}
-          toolBarRender={() => [
-            <Select
-              key="typeFilter"
-              allowClear
-              placeholder="Lọc theo loại"
-              style={{ minWidth: 140 }}
-              value={typeFilter}
-              onChange={v => { setTypeFilter(v); actionRef.current?.reload(); }}
-              options={Object.entries(CATEGORY_TYPE_LABELS).filter(([k]) => !/^\d+$/.test(k)).map(([key, label]) => ({ label, value: key }))}
-            />,
-            canCreate && (
-              <Button key="add" type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-                Thêm
-              </Button>
-            ),
-          ]}
           request={async () => {
             try {
               const { list, total } = await fetchList();
@@ -260,6 +289,7 @@ export default function CategoryListPage() {
             }
           }}
           pagination={{ defaultPageSize: 20, showSizeChanger: false }}
+          locale={{ emptyText: 'Chưa có danh mục. Bấm Thêm danh mục để tạo mới.' }}
           itemRender={(record) => (
             <Card hoverable style={{ borderRadius: 12, marginBottom: 16 }} styles={{ body: { padding: 16 } }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
@@ -288,7 +318,7 @@ export default function CategoryListPage() {
                 </Text>
               </div>
               <Divider style={{ margin: '10px 0' }} />
-              <Space size="small" wrap>{renderActions(record)}</Space>
+              {renderActions(record)}
             </Card>
           )}
         />
@@ -299,7 +329,15 @@ export default function CategoryListPage() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input
+          allowClear
+          prefix={<SearchOutlined />}
+          placeholder="Tìm danh mục…"
+          value={search}
+          onChange={e => { setSearch(e.target.value); actionRef.current?.reload(); }}
+          style={{ width: 220 }}
+        />
         <Select
           allowClear
           placeholder="Lọc theo loại"
@@ -333,6 +371,7 @@ export default function CategoryListPage() {
           }
         }}
         pagination={{ defaultPageSize: 20, showSizeChanger: true }}
+        locale={{ emptyText: 'Chưa có danh mục. Bấm Thêm danh mục để tạo mới.' }}
         scroll={{ x: 'max-content' }}
       />
 

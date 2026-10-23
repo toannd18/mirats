@@ -1,6 +1,6 @@
-import { useState, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Space, Form, Input, Card, Divider, Tag, Typography, Popconfirm, App } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
@@ -27,7 +27,12 @@ export default function ManufacturerListPage() {
   const [form] = Form.useForm();
   // ST7b — 1 actionRef dùng chung cho ProTable (desktop) và ProList (mobile Card).
   const actionRef = useRef<ActionType | null>(null);
+  const [search, setSearch] = useState('');
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    actionRef.current?.reload();
+  }, [search]);
 
   // ST6b — permission gating (mirrors backend [Authorize(Policy=...)]).
   const canCreate = usePermission('manufacturers.create');
@@ -87,7 +92,10 @@ export default function ManufacturerListPage() {
   // ST7b — 1 fetch dùng chung cho ProTable (desktop) và ProList (mobile Card).
   const fetchList = async () => {
     const r = await apiClient.get('/manufacturers');
-    return { list: (r.data.data || []) as ManufacturerDto[], total: (r.data.data || []).length };
+    const needle = search.trim().toLowerCase();
+    const rows = ((r.data.data || []) as ManufacturerDto[]).filter(row =>
+      !needle || `${row.name} ${row.code} ${row.supportEmail ?? ''}`.toLowerCase().includes(needle));
+    return { list: rows, total: rows.length };
   };
 
   // ST7b — action buttons dùng chung desktop/mobile: permission-gating + handler MỘT chỗ.
@@ -173,6 +181,8 @@ export default function ManufacturerListPage() {
           search={false}
           grid={{ gutter: 16, xs: 1, sm: 1 }}
           toolBarRender={() => [
+            <Input key="search" allowClear prefix={<SearchOutlined />} placeholder="Tìm nhà sản xuất…"
+              value={search} onChange={e => setSearch(e.target.value)} style={{ width: 170 }} />,
             canCreate && (
               <Button key="add" type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Thêm</Button>
             ),
@@ -224,6 +234,8 @@ export default function ManufacturerListPage() {
         search={false}
         options={{ reload: true, density: true, setting: true }}
         toolBarRender={() => [
+          <Input key="search" allowClear prefix={<SearchOutlined />} placeholder="Tìm nhà sản xuất…"
+            value={search} onChange={e => setSearch(e.target.value)} style={{ width: 220 }} />,
           canCreate && (
             <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Thêm NSX</Button>
           ),

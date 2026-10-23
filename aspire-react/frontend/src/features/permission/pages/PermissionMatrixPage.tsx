@@ -9,6 +9,7 @@ import type { PermissionResourceGroup } from '../types/groups';
 import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { serverErrorMessage } from '../../../shared/utils/formErrors';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import { actionLabel, resourceLabel } from '../utils/permissionLabels';
 
 const { Text } = Typography;
 
@@ -25,50 +26,6 @@ interface MatrixUser {
   userPermissions: { permissionKey: string; value: number }[];
   groupPermissions: { groupName: string; permissionKey: string; value: number }[];
 }
-
-const RESOURCE_LABELS: Record<string, string> = {
-  assets: 'Tài sản',
-  consumables: 'Vật tư tiêu hao',
-  components: 'Linh kiện',
-  accessories: 'Phụ kiện',
-  licenses: 'Bản quyền',
-  users: 'Người dùng',
-  companies: 'Công ty',
-  models: 'Model tài sản',
-  categories: 'Danh mục',
-  manufacturers: 'Nhà sản xuất',
-  suppliers: 'Nhà cung cấp',
-  departments: 'Phòng ban',
-  locations: 'Vị trí',
-  statuslabels: 'Trạng thái',
-  depreciations: 'Khấu hao',
-  reports: 'Báo cáo',
-  customfields: 'Trường tùy chỉnh',
-  systems: 'Hệ thống',
-  maintenance: 'Bảo dưỡng',
-  system: 'Hệ thống',
-};
-
-const ACTION_LABELS: Record<string, string> = {
-  view: 'Xem',
-  create: 'Tạo',
-  edit: 'Sửa',
-  delete: 'Xóa',
-  checkout: 'Cấp phát',
-  checkin: 'Thu hồi',
-  audit: 'Kiểm kê',
-  correct: 'Đính chính',
-  templates: 'Mẫu bảo dưỡng',
-  campaigns: 'Đợt bảo dưỡng',
-  import: 'Nhập Excel',
-  export: 'Xuất dữ liệu',
-  admin: 'Quản trị',
-  superuser: 'Toàn quyền',
-  config: 'Cấu hình',
-};
-
-const resourceLabel = (resource: string) => RESOURCE_LABELS[resource] ?? resource;
-const actionLabel = (action: string) => ACTION_LABELS[action] ?? action;
 
 /** Tính permission hiệu dụng theo đúng semantic PermissionHandler: user Deny override, group grant chỉ lấp key chưa set. */
 const computeEffective = (u: MatrixUser): Record<string, number> => {

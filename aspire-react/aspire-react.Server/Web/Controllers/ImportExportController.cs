@@ -7,6 +7,7 @@ using ClosedXML.Excel;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Web.Controllers;
 
@@ -66,61 +67,102 @@ public class ImportExportController : ControllerBase
     /// <summary>Import reference data (categories, manufacturers, locations) from one workbook.</summary>
     [HttpPost("import/reference")]
     [Authorize(Policy = "categories.create")]
-    public async Task<IActionResult> ImportReference(IFormFile? file, [FromForm] Guid companyId)
-        => ImportViaCommand(await _mediator.Send(new ImportReferenceCommand(file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())));
+    public Task<IActionResult> ImportReference(
+        IFormFile? file, [FromForm] Guid companyId, [FromQuery] bool validateOnly = false)
+        => ImportAtomicAsync(() => _mediator.Send(new ImportReferenceCommand(
+            file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())), validateOnly);
 
-    /// <summary>
-    /// Import AssetModel from sheet 3_Model. AssetModel is GLOBAL master data (no CompanyId column) —
-    /// the chosen companyId ONLY stamps the import ActionLogs. Category/Manufacturer are resolved BY NAME
-    /// and NEVER auto-created (a missing reference errors only that row) — so assets must be imported
-    /// AFTER the models/sheets they reference exist. Import models BEFORE sheet 4_TaiSan.
-    /// </summary>
+    /// <summary>Import AssetModel from sheet 3_Model.</summary>
     [HttpPost("import/asset-models")]
     [Authorize(Policy = "models.create")]
-    public async Task<IActionResult> ImportAssetModels(IFormFile? file, [FromForm] Guid companyId)
-        => ImportViaCommand(await _mediator.Send(new ImportAssetModelsCommand(file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())));
+    public Task<IActionResult> ImportAssetModels(
+        IFormFile? file, [FromForm] Guid companyId, [FromQuery] bool validateOnly = false)
+        => ImportAtomicAsync(() => _mediator.Send(new ImportAssetModelsCommand(
+            file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())), validateOnly);
 
     /// <summary>Import assets from sheet 4_TaiSan.</summary>
     [HttpPost("import/assets")]
     [Authorize(Policy = "assets.create")]
-    public async Task<IActionResult> ImportAssets(IFormFile? file, [FromForm] Guid companyId)
-        => ImportViaCommand(await _mediator.Send(new ImportAssetsCommand(file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())));
+    public Task<IActionResult> ImportAssets(
+        IFormFile? file, [FromForm] Guid companyId, [FromQuery] bool validateOnly = false)
+        => ImportAtomicAsync(() => _mediator.Send(new ImportAssetsCommand(
+            file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())), validateOnly);
 
-    /// <summary>Import components from sheet 5_LinhKien (serial rows grouped by Name+Category+ModelNumber).</summary>
+    /// <summary>Import components from sheet 5_LinhKien.</summary>
     [HttpPost("import/components")]
     [Authorize(Policy = "components.create")]
-    public async Task<IActionResult> ImportComponents(IFormFile? file, [FromForm] Guid companyId)
-        => ImportViaCommand(await _mediator.Send(new ImportComponentsCommand(file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())));
+    public Task<IActionResult> ImportComponents(
+        IFormFile? file, [FromForm] Guid companyId, [FromQuery] bool validateOnly = false)
+        => ImportAtomicAsync(() => _mediator.Send(new ImportComponentsCommand(
+            file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())), validateOnly);
 
     /// <summary>Import accessories from sheet 6_PhuKien.</summary>
     [HttpPost("import/accessories")]
     [Authorize(Policy = "accessories.create")]
-    public async Task<IActionResult> ImportAccessories(IFormFile? file, [FromForm] Guid companyId)
-        => ImportViaCommand(await _mediator.Send(new ImportAccessoriesCommand(file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())));
+    public Task<IActionResult> ImportAccessories(
+        IFormFile? file, [FromForm] Guid companyId, [FromQuery] bool validateOnly = false)
+        => ImportAtomicAsync(() => _mediator.Send(new ImportAccessoriesCommand(
+            file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())), validateOnly);
 
     /// <summary>Import consumables from sheet 7_VatTuTieuHao.</summary>
     [HttpPost("import/consumables")]
     [Authorize(Policy = "consumables.create")]
-    public async Task<IActionResult> ImportConsumables(IFormFile? file, [FromForm] Guid companyId)
-        => ImportViaCommand(await _mediator.Send(new ImportConsumablesCommand(file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())));
+    public Task<IActionResult> ImportConsumables(
+        IFormFile? file, [FromForm] Guid companyId, [FromQuery] bool validateOnly = false)
+        => ImportAtomicAsync(() => _mediator.Send(new ImportConsumablesCommand(
+            file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())), validateOnly);
 
-    /// <summary>Import SystemInfo from sheet 1_HeThong (company is the chosen import target).</summary>
+    /// <summary>Import SystemInfo from sheet 1_HeThong.</summary>
     [HttpPost("import/systems")]
     [Authorize(Policy = "systems.create")]
-    public async Task<IActionResult> ImportSystems(IFormFile? file, [FromForm] Guid companyId)
-        => ImportViaCommand(await _mediator.Send(new ImportSystemsCommand(file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())));
+    public Task<IActionResult> ImportSystems(
+        IFormFile? file, [FromForm] Guid companyId, [FromQuery] bool validateOnly = false)
+        => ImportAtomicAsync(() => _mediator.Send(new ImportSystemsCommand(
+            file?.OpenReadStream(), file?.FileName, companyId, GetCurrentUserId())), validateOnly);
 
-    /// <summary>
-    /// Import SystemPosition from sheet 2_ViTri. The parent SystemInfo is resolved BY NAME and the
-    /// position inherits the parent's CompanyId — so NO separate companyId is chosen by the client
-    /// (B0.4 confirmed inheritance). The server still derives the acting user's company scope and
-    /// validates every referenced parent against it: a regular user may only attach positions to
-    /// systems of their own company (or company-less systems); Superuser may attach to any.
-    /// </summary>
+    /// <summary>Import SystemPosition from sheet 2_ViTri (company inherited from parent).</summary>
     [HttpPost("import/system-positions")]
     [Authorize(Policy = "systems.create")]
-    public async Task<IActionResult> ImportSystemPositions(IFormFile? file)
-        => ImportViaCommand(await _mediator.Send(new ImportSystemPositionsCommand(file?.OpenReadStream(), file?.FileName, GetCurrentUserId())));
+    public Task<IActionResult> ImportSystemPositions(
+        IFormFile? file, [FromQuery] bool validateOnly = false)
+        => ImportAtomicAsync(() => _mediator.Send(new ImportSystemPositionsCommand(
+            file?.OpenReadStream(), file?.FileName, GetCurrentUserId())), validateOnly);
+
+    /// <summary>
+    /// Runs one import in a single transaction. validateOnly always rolls back (no writes);
+    /// a real import rolls back atomically if ANY row failed. This implements the preview/atomic
+    /// contract without duplicating the existing per-row Excel service logic.
+    /// </summary>
+    private async Task<IActionResult> ImportAtomicAsync(
+        Func<Task<ImportOutcome>> send, bool validateOnly)
+    {
+        ImportOutcome? outcome = null;
+        var strategy = _context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            outcome = await send();
+            if (!outcome.Success)
+            {
+                await transaction.RollbackAsync();
+                return;
+            }
+            var result = outcome.Result;
+            if (result != null && (validateOnly || result.Failed > 0))
+            {
+                await transaction.RollbackAsync();
+                outcome = outcome with
+                {
+                    Result = result with { RolledBack = true, ValidateOnly = validateOnly },
+                };
+            }
+            else
+            {
+                await transaction.CommitAsync();
+            }
+        });
+        return ImportViaCommand(outcome!);
+    }
 
     /// <summary>
     /// Shared import mapping — the response CONTRACT verbatim: the import body is FLAT
@@ -140,7 +182,9 @@ public class ImportExportController : ControllerBase
             created = outcome.Result!.Created,
             failed = outcome.Result.Failed,
             rows = outcome.Result.Rows,
-            errors = outcome.Result.Errors
+            errors = outcome.Result.Errors,
+            rolledBack = outcome.Result.RolledBack,
+            validateOnly = outcome.Result.ValidateOnly,
         })
     };
 
