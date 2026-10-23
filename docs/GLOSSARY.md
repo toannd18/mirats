@@ -27,6 +27,7 @@
 | Hết vòng đời | **Hết vòng đời (EOL)** | EOL (khi đứng một mình) |
 | Trang web | **Trang web** | Website |
 | Email hỗ trợ | **Email hỗ trợ** | Support Email |
+| Hành động chỉnh sửa | **Sửa** | Cập nhật (trong nhãn hành động quyền) |
 | Serial | **Serial** | Số serial (trong UI mới) |
 | Model | **Model** | Mẫu (khi là tên model) |
 | Mã tài sản | **Mã tài sản** | Asset Tag |

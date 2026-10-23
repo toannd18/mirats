@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { App, Card, DatePicker, Empty, Select, Space, Typography } from 'antd';
+import { App, Card, DatePicker, Empty, Select, Typography } from 'antd';
 import type { Dayjs } from 'dayjs';
 import apiClient from '../../../services/api-client';
 import ActionLogTable from '../../../shared/components/ActionLogTable';
@@ -85,13 +85,20 @@ const SystemHistoryPage: React.FC = () => {
       <Title level={4} style={{ marginTop: 0 }}>Lịch sử hệ thống</Title>
 
       <Card size="small" style={{ marginBottom: 16 }}>
-        <Space size="large" wrap align="end">
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+            gap: 12,
+            alignItems: 'end',
+          }}
+        >
           <div>
             <Text strong style={filterLabelStyle}>Hệ thống *</Text>
             <Select
               showSearch
               size="middle"
-              style={{ minWidth: 320 }}
+              style={{ width: '100%' }}
               placeholder="Chọn hệ thống..."
               loading={systemsLoading}
               value={systemId}
@@ -108,7 +115,7 @@ const SystemHistoryPage: React.FC = () => {
                 <Select
                   showSearch
                   size="middle"
-                  style={{ minWidth: 240 }}
+                  style={{ width: '100%' }}
                   placeholder="Tất cả vị trí"
                   allowClear
                   value={positionId}
@@ -121,7 +128,7 @@ const SystemHistoryPage: React.FC = () => {
                 <Text strong style={filterLabelStyle}>Hành động</Text>
                 <Select
                   size="middle"
-                  style={{ minWidth: 160 }}
+                  style={{ width: '100%' }}
                   placeholder="Tất cả hành động"
                   allowClear
                   value={actionType}
@@ -133,14 +140,14 @@ const SystemHistoryPage: React.FC = () => {
                 <Text strong style={filterLabelStyle}>Khoảng thời gian</Text>
                 <DatePicker.RangePicker
                   size="middle"
-                  style={{ minWidth: 300 }}
+                  style={{ width: '100%' }}
                   value={dateRange}
                   onChange={v => setDateRange(v)}
                 />
               </div>
             </>
           )}
-        </Space>
+        </div>
       </Card>
 
       {!systemId ? (

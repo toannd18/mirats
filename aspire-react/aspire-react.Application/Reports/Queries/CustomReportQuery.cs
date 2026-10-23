@@ -31,7 +31,7 @@ public record CustomReportQuery(
     DateTime? StartDate, DateTime? EndDate, Guid? CategoryId, Guid? LocationId,
     AssetStatus? Status) : IRequest<CustomReportResult>;
 
-public record CustomReportResult(IReadOnlyList<CustomReportRowDto> Items, int Total);
+public record CustomReportResult(IReadOnlyList<CustomReportRowDto> Items, int Total, bool Truncated);
 
 public class CustomReportQueryHandler : IRequestHandler<CustomReportQuery, CustomReportResult>
 {
@@ -59,6 +59,7 @@ public class CustomReportQueryHandler : IRequestHandler<CustomReportQuery, Custo
         if (request.LocationId.HasValue) query = query.Where(a => a.LocationId == request.LocationId);
         if (request.Status.HasValue) query = query.Where(a => a.Status == request.Status.Value);
 
+        var total = await query.CountAsync(cancellationToken);
         var assets = await query.OrderBy(a => a.AssetTag).Take(500).Select(a => new CustomReportRowDto(
             a.Id,
             a.AssetTag,
@@ -73,6 +74,6 @@ public class CustomReportQueryHandler : IRequestHandler<CustomReportQuery, Custo
             a.Company == null ? null : new SystemReportRefDto(a.Company.Id, a.Company.Name),
             a.CreatedAt)).ToListAsync(cancellationToken);
 
-        return new CustomReportResult(assets, assets.Count);
+        return new CustomReportResult(assets, total, total > assets.Count);
     }
 }

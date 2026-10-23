@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Reports.RepairReports;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -18,15 +19,28 @@ public record DepreciationRowDto(
     int MonthsRemaining,
     decimal CurrentBookValue);
 
-/// <summary>
-/// [Giai đoạn 3] GET /api/v1/reports/depreciation (extracted from
-/// ReportsController.DepreciationReport). Company-scoped straight-line depreciation math
-/// (30.44-day months, clamp to total, book value floor 0, round 2) — VERBATIM. Take(200).
-/// </summary>
-public record DepreciationReportQuery : IRequest<IReadOnlyList<DepreciationRowDto>>;
+public record DepreciationReportResult(
+    IReadOnlyList<DepreciationRowDto> Items,
+    int Total,
+    int Page,
+    int PageSize,
+    bool HasMore);
 
-public class DepreciationReportQueryHandler : IRequestHandler<DepreciationReportQuery, IReadOnlyList<DepreciationRowDto>>
+/// <summary>
+/// GET /api/v1/reports/depreciation. Company-scoped straight-line depreciation math
+/// (30.44-day months, clamp to total, book value floor 0, round 2). Paginated so the
+/// report never silently truncates a large inventory.
+/// </summary>
+public record DepreciationReportQuery(
+    int Page = 1,
+    int PageSize = 20,
+    Guid? CompanyId = null,
+    Guid? CategoryId = null,
+    int? Year = null) : IRequest<DepreciationReportResult>;
+
+public class DepreciationReportQueryHandler : IRequestHandler<DepreciationReportQuery, DepreciationReportResult>
 {
+    private const int MaxPageSize = 100;
     private readonly IApplicationDbContext _context;
     private readonly ICompanyScopeService _companyScope;
 
@@ -36,16 +50,35 @@ public class DepreciationReportQueryHandler : IRequestHandler<DepreciationReport
         _companyScope = companyScope;
     }
 
-    public async Task<IReadOnlyList<DepreciationRowDto>> Handle(DepreciationReportQuery request, CancellationToken cancellationToken)
+    public async Task<DepreciationReportResult> Handle(DepreciationReportQuery request, CancellationToken cancellationToken)
     {
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, MaxPageSize);
         var now = DateTime.UtcNow;
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        var assets = await _context.Assets
+
+        var query = _context.Assets
             .Include(a => a.Model).ThenInclude(m => m != null ? m.Depreciation : null)
             .AsNoTracking()
             .Where(a => (userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value)
-                        && a.Model != null && a.Model.Depreciation != null && a.PurchaseCost.HasValue && a.PurchaseDate.HasValue)
-            .Take(200)
+                        && a.Model != null && a.Model.Depreciation != null
+                        && a.PurchaseCost.HasValue && a.PurchaseDate.HasValue);
+
+        if (request.CompanyId.HasValue) query = query.Where(a => a.CompanyId == request.CompanyId);
+        if (request.CategoryId.HasValue)
+            query = query.Where(a => a.Model != null && a.Model.CategoryId == request.CategoryId);
+        if (request.Year.HasValue)
+        {
+            // assets.PurchaseDate is timestamptz: filter by the VN calendar year, not UTC boundaries.
+            var (start, end) = VnReportDate.YearRangeUtc(request.Year.Value);
+            query = query.Where(a => a.PurchaseDate >= start && a.PurchaseDate < end);
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var assets = await query
+            .OrderBy(a => a.AssetTag)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync(cancellationToken);
 
         var data = assets.Select(a =>
@@ -66,8 +99,8 @@ public class DepreciationReportQueryHandler : IRequestHandler<DepreciationReport
                 Math.Min(monthsUsed, months),
                 Math.Max(0, months - Math.Min(monthsUsed, months)),
                 Math.Round(bookValue, 2));
-        }).OrderBy(a => a.AssetTag).ToList();
+        }).ToList();
 
-        return data;
+        return new DepreciationReportResult(data, total, page, pageSize, page * pageSize < total);
     }
 }

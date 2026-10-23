@@ -331,9 +331,10 @@ $script:stats['Sweep 7 (Date helper)'] = "$s7Count violation(s) / $($frontFiles.
 # ------------------------------------------------------------
 # Sweep 8 - VN date helper for maintenance StartDate/CompletionDate
 # ------------------------------------------------------------
-# [REPAIR-REPORT] All month/quarter/year filters, grouping and MTTR must use VnReportDate.
-# Direct ::date, .Date, date_trunc, MONTH(), YEAR(), QUARTER() on these two columns is banned
-# outside the single helper (MT-TZ-B drift: 31/10 17:30 UTC == 01/11 VN).
+# [REPAIR-REPORT/UI-3D] All month/quarter/year filters, grouping and MTTR must use VnReportDate.
+# Direct ::date, .Date, date_trunc, MONTH(), YEAR(), QUARTER() on StartDate/CompletionDate
+# OR PurchaseDate is banned outside the single helper (MT-TZ-B drift: 31/10 17:30 UTC == 01/11 VN;
+# PurchaseDate is a timestamptz instant and must be filtered/grouped by its VN calendar date).
 $s8Count = 0
 $allRepoCsFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'aspire-react') -Recurse -File -Filter *.cs |
     Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' })
@@ -344,8 +345,8 @@ foreach ($f in $allRepoCsFiles) {
     $lines = Get-Content -LiteralPath $f.FullName
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $line = $lines[$i]
-        if ($line -match '(?i)(StartDate|CompletionDate)' -and $line -match $rawDatePattern) {
-            Add-Violation 'S8' ("{0}:{1}: raw date extraction on StartDate/CompletionDate outside VnReportDate - {2}" -f $normPath, ($i + 1), $line.Trim())
+        if ($line -match '(?i)(StartDate|CompletionDate|PurchaseDate)' -and $line -match $rawDatePattern) {
+            Add-Violation 'S8' ("{0}:{1}: raw date extraction on StartDate/CompletionDate/PurchaseDate outside VnReportDate - {2}" -f $normPath, ($i + 1), $line.Trim())
             $s8Count++
         }
     }

@@ -31,7 +31,13 @@ public class ReportsController : ControllerBase
         [FromQuery] AssetStatus? status, [FromQuery] string? groupBy)
     {
         var result = await _mediator.Send(new CustomReportQuery(startDate, endDate, categoryId, locationId, status));
-        return Ok(new { status = "success", data = result.Items, total = result.Total });
+        return Ok(new
+        {
+            status = "success",
+            data = result.Items,
+            total = result.Total,
+            truncated = result.Truncated,
+        });
     }
 
     [HttpGet("repairs")]
@@ -88,18 +94,26 @@ public class ReportsController : ControllerBase
 
     [HttpGet("depreciation")]
     [Authorize(Policy = "reports.view")]
-    public async Task<IActionResult> DepreciationReport()
+    public async Task<IActionResult> DepreciationReport(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] Guid? companyId = null,
+        [FromQuery] Guid? categoryId = null,
+        [FromQuery] int? year = null)
     {
-        var data = await _mediator.Send(new DepreciationReportQuery());
+        var data = await _mediator.Send(new DepreciationReportQuery(page, pageSize, companyId, categoryId, year));
         return Ok(new { status = "success", data });
     }
 
     [HttpGet("audit")]
     [Authorize(Policy = "reports.view")]
-    public async Task<IActionResult> AuditReport()
+    public async Task<IActionResult> AuditReport(
+        [FromQuery] Guid? companyId = null,
+        [FromQuery] Guid? categoryId = null,
+        [FromQuery] int? year = null)
     {
-        var dto = await _mediator.Send(new AuditReportQuery());
-        return Ok(new { status = "success", data = new { dto.TotalAudited, dto.NotAudited, dto.OverdueAudit } });
+        var dto = await _mediator.Send(new AuditReportQuery(companyId, categoryId, year));
+        return Ok(new { status = "success", data = dto });
     }
 
     [HttpGet("checkout-history")]

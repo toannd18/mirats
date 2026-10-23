@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Reports.RepairReports;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using MediatR;
@@ -6,13 +7,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace aspire_react.Server.Application.Reports.Queries;
 
-public record AuditReportDto(int TotalAudited, int NotAudited, int OverdueAudit);
+public record AuditReportDto(int TotalAudited, int NotAudited, int OverdueAudit, int TotalAssets);
 
 /// <summary>
-/// [Giai đoạn 3] GET /api/v1/reports/audit (extracted from ReportsController.AuditReport).
-/// Company-scoped audit counters (audited / not-audited / overdue non-archived) — verbatim.
+/// GET /api/v1/reports/audit. Company-scoped audit counters with the same optional
+/// company/category/year filters exposed by the depreciation report.
 /// </summary>
-public record AuditReportQuery : IRequest<AuditReportDto>;
+public record AuditReportQuery(
+    Guid? CompanyId = null,
+    Guid? CategoryId = null,
+    int? Year = null) : IRequest<AuditReportDto>;
 
 public class AuditReportQueryHandler : IRequestHandler<AuditReportQuery, AuditReportDto>
 {
@@ -29,17 +33,27 @@ public class AuditReportQueryHandler : IRequestHandler<AuditReportQuery, AuditRe
     {
         var now = DateTime.UtcNow;
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        var audited = await _context.Assets.AsNoTracking()
-            .Where(a => (userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value) && a.LastAuditDate != null)
-            .CountAsync(cancellationToken);
-        var notAudited = await _context.Assets.AsNoTracking()
-            .Where(a => (userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value) && a.LastAuditDate == null)
-            .CountAsync(cancellationToken);
-        var overdue = await _context.Assets.AsNoTracking()
-                .Where(a => (userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value)
-                            && a.NextAuditDate != null && a.NextAuditDate < now && a.Status != AssetStatus.Archived)
-                .CountAsync(cancellationToken);
 
-        return new AuditReportDto(audited, notAudited, overdue);
+        var query = _context.Assets.AsNoTracking()
+            .Where(a => userCompanyId == null || a.CompanyId == null || a.CompanyId == userCompanyId.Value);
+
+        if (request.CompanyId.HasValue) query = query.Where(a => a.CompanyId == request.CompanyId);
+        if (request.CategoryId.HasValue)
+            query = query.Where(a => a.Model != null && a.Model.CategoryId == request.CategoryId);
+        if (request.Year.HasValue)
+        {
+            // assets.PurchaseDate is timestamptz: filter by the VN calendar year, not UTC boundaries.
+            var (start, end) = VnReportDate.YearRangeUtc(request.Year.Value);
+            query = query.Where(a => a.PurchaseDate >= start && a.PurchaseDate < end);
+        }
+
+        var audited = await query.CountAsync(a => a.LastAuditDate != null, cancellationToken);
+        var notAudited = await query.CountAsync(a => a.LastAuditDate == null, cancellationToken);
+        var overdue = await query.CountAsync(
+            a => a.NextAuditDate != null && a.NextAuditDate < now && a.Status != AssetStatus.Archived,
+            cancellationToken);
+        var totalAssets = await query.CountAsync(cancellationToken);
+
+        return new AuditReportDto(audited, notAudited, overdue, totalAssets);
     }
 }

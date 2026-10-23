@@ -94,7 +94,12 @@ function statusColor(status: string): string {
   return 'blue';
 }
 
-export default function RepairReportPage() {
+interface RepairReportPageProps {
+  /** Embedded inside the unified Reports tabs; hide the standalone back/title row. */
+  embedded?: boolean;
+}
+
+export default function RepairReportPage({ embedded = false }: RepairReportPageProps) {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const canView = usePermission('reports.view');
@@ -248,11 +253,13 @@ export default function RepairReportPage() {
 
   return (
     <div>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }} wrap>
-        <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/reports')}>Quay lại</Button>
-          <Title level={4} style={{ margin: 0 }}>Báo cáo sửa chữa</Title>
-        </Space>
+      <Space style={{ width: '100%', justifyContent: embedded ? 'flex-end' : 'space-between', marginBottom: 16 }} wrap>
+        {!embedded && (
+          <Space>
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/reports')}>Quay lại</Button>
+            <Title level={4} style={{ margin: 0 }}>Báo cáo sửa chữa</Title>
+          </Space>
+        )}
         <Space>
           <Button icon={<PrinterOutlined />} onClick={() => navigate(`/reports/repairs/print?${filterParams}`)}>
             In

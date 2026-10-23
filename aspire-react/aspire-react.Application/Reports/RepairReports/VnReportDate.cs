@@ -26,9 +26,34 @@ public static class VnReportDate
         return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(utc, VnTz));
     }
 
+    /// <summary>
+    /// Convert an instant (timestamptz value, e.g. assets.PurchaseDate) to the VN calendar date.
+    /// Values read from Npgsql are Kind=Utc; Unspecified is treated as the stored UTC instant.
+    /// </summary>
+    public static DateOnly ToVnDateFromInstant(DateTime instant)
+    {
+        var utc = instant.Kind switch
+        {
+            DateTimeKind.Utc => instant,
+            DateTimeKind.Local => instant.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(instant, DateTimeKind.Utc),
+        };
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(utc, VnTz));
+    }
+
     /// <summary>VN 00:00 of a date as an absolute UTC instant (for timestamptz comparisons).</summary>
     public static DateTime StartOfDayUtc(DateOnly date) =>
         TimeZoneInfo.ConvertTimeToUtc(date.ToDateTime(TimeOnly.MinValue), VnTz);
+
+    /// <summary>
+    /// UTC bounds of a Vietnamese calendar year. Use for timestamptz columns such as
+    /// assets.PurchaseDate, never raw UTC year boundaries.
+    /// </summary>
+    public static (DateTime StartUtc, DateTime EndUtc) YearRangeUtc(int year)
+    {
+        var startDate = new DateOnly(year, 1, 1);
+        return (StartOfDayUtc(startDate), StartOfDayUtc(startDate.AddYears(1)));
+    }
 
     /// <summary>SQL: naive UTC timestamp -> VN local timestamp (timestamp without time zone).</summary>
     public static string SqlLocalTimestamp(string alias, string column) =>
