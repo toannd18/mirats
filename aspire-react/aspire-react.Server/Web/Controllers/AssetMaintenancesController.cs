@@ -237,9 +237,10 @@ public class AssetMaintenancesController : ControllerBase
     // Close/Inspect dùng 403, chỉ Update dùng 404 — KHÔNG thống nhất). Closing is the natural
     // completion step of the workflow: anyone who may edit the record (same company) may close it,
     // but only once CompletionDate is set. After close the record is frozen (PUT rejects ALL fields
-    // with MAINTENANCE_CLOSED). [DF-1S] Reopening requires the SAME assets.edit policy as Close and
-    // is company-scoped in the handler — NOT superuser-only. It keeps ClosedAt/ClosedById as the
-    // history of the most recent close; every close/reopen is itself recorded in ActionLog.
+    // with MAINTENANCE_CLOSED). [DF-1R] Reopening requires assets.edit AND remains Superuser-only
+    // in the handler (breaks the audit lock). The handler also keeps a company-scope guard as
+    // defense-in-depth. It keeps ClosedAt/ClosedById as the history of the most recent close; every
+    // close/reopen is itself recorded in ActionLog.
 
     [HttpPost("maintenances/{id:guid}/close")]
     [Authorize(Policy = "assets.edit")]

@@ -46,6 +46,14 @@ if (!ADMIN_PASSWORD) {
   console.error('[seed-demo] DEMO_ADMIN_PASSWORD is required (there is no default password).');
   process.exit(1);
 }
+// [DF-5b] Remote runs must not inherit the demo defaults for shared demo accounts.
+if (allowRemote && (!process.env.DEMO_TECH_PASSWORD || !process.env.DEMO_LEADER_PASSWORD)) {
+  console.error(
+    '[seed-demo] --allow-remote requires DEMO_TECH_PASSWORD and DEMO_LEADER_PASSWORD ' +
+    '(demo account defaults are not allowed on a remote environment).',
+  );
+  process.exit(1);
+}
 const TECH_PASSWORD = process.env.DEMO_TECH_PASSWORD || 'DemoTech-2026!';
 const LEADER_PASSWORD = process.env.DEMO_LEADER_PASSWORD || 'DemoLeader-2026!';
 const COMPANY_CODE = 'DEMO-UNIT';

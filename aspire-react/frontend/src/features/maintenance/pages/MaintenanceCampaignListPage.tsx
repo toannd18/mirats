@@ -11,7 +11,7 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useNavigate } from 'react-router-dom';
 import dayjs, { Dayjs } from 'dayjs';
 import apiClient from '../../../services/api-client';
-import { usePermission } from '../../../hooks/usePermission';
+import { usePermissionMap } from '../../../hooks/usePermission';
 import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { formatDate } from '../../../utils/format';
@@ -112,7 +112,15 @@ export default function MaintenanceCampaignListPage() {
   // [FE-R2/FE-R4] Branch desktop Table ↔ mobile Card theo hook dùng chung (T-RESP1).
   const isMobile = useIsMobile();
   const actionRef = useRef<ActionType | null>(null);
-  const canManage = usePermission('maintenance.campaigns');
+  // [DF-2b] Wait for /permissions/check before deciding whether to request the list. The old
+  // `usePermission` returned false while the check was in flight, so an authorized technician saw
+  // an empty list on first mount; removing the gate entirely let unauthorized users fire a 403.
+  const permissionMap = usePermissionMap();
+  const permissionsReady = permissionMap !== null;
+  const hasPermission = (code: string) =>
+    !!permissionMap && (permissionMap.isSuperUser || (permissionMap.permissions[code] ?? 0) === 1);
+  const canView = hasPermission('maintenance.view');
+  const canManage = hasPermission('maintenance.campaigns');
 
   const [createOpen, setCreateOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -508,6 +516,21 @@ export default function MaintenanceCampaignListPage() {
       </Form>
     </ModalFormShell>
   );
+
+  if (!permissionsReady) {
+    return <div style={{ textAlign: 'center', padding: 64 }}><Spin size="large" /></div>;
+  }
+
+  if (!canView) {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        title="Bạn không có quyền xem đợt bảo dưỡng"
+        description="Tài khoản của bạn không có quyền maintenance.view. Liên hệ quản trị viên nếu cần truy cập."
+      />
+    );
+  }
 
   // [FE-R2] Mobile: ProList Card thay Table — cùng fetch + cùng ListRowActions (ST7b pattern).
   if (isMobile) {

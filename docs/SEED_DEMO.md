@@ -5,7 +5,9 @@
 >
 > ⚠️ **CẢNH BÁO:** script tạo công ty, người dùng và tài sản demo. **TUYỆT ĐỐI KHÔNG chạy trên
 > môi trường thật/production.** Script chỉ chấp nhận `localhost`/`127.0.0.1`; muốn trỏ nơi khác
-> phải có đồng thời cờ `--allow-remote` **và** biến `DEMO_SEED_CONFIRM=yes`.
+> phải có đồng thời cờ `--allow-remote` **và** biến `DEMO_SEED_CONFIRM=yes`. Khi dùng
+> `--allow-remote`, bắt buộc đặt `DEMO_TECH_PASSWORD` và `DEMO_LEADER_PASSWORD` (không dùng mật
+> khẩu demo mặc định).
 
 ## 1. Môi trường tạm
 

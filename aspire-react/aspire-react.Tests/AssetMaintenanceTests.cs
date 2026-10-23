@@ -704,9 +704,9 @@ public class AssetMaintenanceTests
     }
 
     [Fact]
-    public async Task ReopenMaintenance_RegularUser_SameCompany_Succeeds_AndLogsReopen()
+    public async Task ReopenMaintenance_RegularUser_Forbidden()
     {
-        await using var ctx = CreateContext(nameof(ReopenMaintenance_RegularUser_SameCompany_Succeeds_AndLogsReopen));
+        await using var ctx = CreateContext(nameof(ReopenMaintenance_RegularUser_Forbidden));
         var (assetId, _, _, _, _, _) = await SeedAssetAsync(ctx);
         var controller = new AssetMaintenancesController(TestHelpers.BuildMediator(ctx, new FakeScope { Super = true }), ctx, new FakeCurrentUser(), new FakeScope { Super = true }, TestHelpers.CreateActionLogService(ctx));
         await controller.Create(assetId, new CreateAssetMaintenanceRequest(
@@ -715,14 +715,12 @@ public class AssetMaintenanceTests
         await controller.Inspect(m.Id); // required pre-close step
         await controller.Close(m.Id);
 
-        // [DF-1S] Reopen is no longer superuser-only: assets.edit + same company is enough.
+        // [DF-1R] Reopen is Superuser-only again (assets.edit alone is not enough).
         var regular = new AssetMaintenancesController(TestHelpers.BuildMediator(ctx, new FakeScope { Super = false }), ctx, new FakeCurrentUser(), new FakeScope { Super = false }, TestHelpers.CreateActionLogService(ctx));
         var result = await regular.Reopen(m.Id);
 
-        Assert.IsType<OkObjectResult>(result);
-        Assert.False((await ctx.AssetMaintenances.SingleAsync(x => x.Id == m.Id)).IsClosed);
-        Assert.Equal(1, await ctx.ActionLogs.CountAsync(l =>
-            l.ItemType == ItemType.AssetMaintenance && l.ItemId == m.Id && l.ActionType == ActionType.Reopen));
+        Assert.IsType<ForbidResult>(result);
+        Assert.True((await ctx.AssetMaintenances.SingleAsync(x => x.Id == m.Id)).IsClosed);
     }
 
     [Fact]

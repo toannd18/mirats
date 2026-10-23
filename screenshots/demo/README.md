@@ -16,6 +16,8 @@ Tài khoản dùng cho từng ảnh:
 | `07-leader-reports-repairs.png` | `demo-leader` | Bằng chứng DF-3: Dashboard → Báo cáo → Sửa chữa, không có request 403 |
 | `df2-403-campaign-alert.png` | `demo-leader` | Bằng chứng DF-2: 403 thật hiển thị Alert “không có quyền”, không phải empty state |
 | `df4-group-permission-labels.png` | `admin` | Bằng chứng DF-4: nhãn quyền tiếng Việt dùng chung, key lạ fallback |
+| `df2b-ktv-campaign-list.png` | `demo-tech` | Bằng chứng DF-2b: KTV thấy 3 đợt (khớp DB), API 200 |
+| `df2b-leader-no-permission.png` | `demo-leader` | Bằng chứng DF-2b: direct route hiển thị không có quyền, không phát sinh request danh sách/403 |
 | `08-admin.png` | `admin` | Quản trị danh mục, nhóm quyền và cấu hình |
 
 > **Lưu ý ảnh 03:** đợt `DOT-DEMO-Q1` ở trạng thái **Completed** do **seed script dùng token admin**

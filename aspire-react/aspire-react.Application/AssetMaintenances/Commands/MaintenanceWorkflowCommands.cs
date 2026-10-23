@@ -216,11 +216,12 @@ public class InspectMaintenanceCommandHandler : IRequestHandler<InspectMaintenan
 
 /// <summary>
 /// [Subtask D] POST api/v1/maintenances/{id}/reopen (extracted verbatim from
-/// AssetMaintenancesController.Reopen). [DF-1S] Reopen requires assets.edit (controller policy) and
-/// is company-scoped in the handler — same rights as Close/Update, not superuser-only. Guard order:
-/// NOT_FOUND → FORBIDDEN (other company; floater records allowed) → MAINTENANCE_NOT_CLOSED →
-/// unfreeze (IsClosed = false; ClosedAt/ClosedById KEPT - they record the most recent close, each
-/// close/reopen cycle is itself audited in ActionLog). ILoggableCommand only.
+/// AssetMaintenancesController.Reopen). [DF-1R] Reopen remains a Superuser-only operation that
+/// breaks the audit lock (consistent with delete rights) AND requires assets.edit at the controller.
+/// Guard order: superuser-gate FIRST (FORBIDDEN before lookup) → NOT_FOUND → company-scope
+/// defense-in-depth (floater allowed; unreachable for regular users because of the gate) →
+/// MAINTENANCE_NOT_CLOSED → unfreeze (IsClosed = false; ClosedAt/ClosedById KEPT - they record the
+/// most recent close, each close/reopen cycle is itself audited in ActionLog). ILoggableCommand only.
 /// </summary>
 public record ReopenMaintenanceCommand(Guid Id, Guid CurrentUserId)
     : IRequest<ReopenMaintenanceResult>, ILoggableCommand<ReopenMaintenanceResult>
@@ -256,6 +257,11 @@ public class ReopenMaintenanceCommandHandler : IRequestHandler<ReopenMaintenance
 
     public async Task<ReopenMaintenanceResult> Handle(ReopenMaintenanceCommand request, CancellationToken cancellationToken)
     {
+        // [DF-1R] Reopen breaks the audit lock — Superuser only (restored from pre-CP-A behavior),
+        // in addition to the controller's assets.edit policy.
+        if (!_companyScope.IsSuperUser())
+            return new ReopenMaintenanceResult(false, "Forbidden.", "FORBIDDEN");
+
         var m = await _context.AssetMaintenances
             .FirstOrDefaultAsync(x => x.Id == request.Id && x.DeletedAt == null, cancellationToken);
         if (m == null)
