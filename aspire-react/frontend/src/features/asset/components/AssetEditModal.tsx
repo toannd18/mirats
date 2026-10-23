@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
 import {
-  App, Button, Col, DatePicker, Divider, Form, Input, InputNumber, Modal,
+  App, Col, DatePicker, Divider, Form, Input, InputNumber,
   Row, Select, Space, Spin, Switch, Tooltip, Typography,
 } from 'antd';
-import { LockOutlined, SaveOutlined } from '@ant-design/icons';
+import { LockOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { assetService, type UpdateAssetPayload } from '../services/asset.service';
 import { fkForUpdate } from '../../../shared/utils/fk';
 import { ASSET_STATUS_LABELS, normalizeAssetStatus, type AssetDetailDto } from '../types/asset';
 import { usePermission } from '../../../hooks/usePermission';
-import { useIsMobile } from '../../../hooks/useIsMobile';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 import { uiColors } from '../../../theme/designTokens';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 const { Text } = Typography;
 
@@ -38,8 +39,7 @@ interface AssetEditModalProps {
  * Patch semantics (Task F): payload chỉ chứa field có giá trị — backend giữ nguyên field absent.
  */
 export default function AssetEditModal({ open, assetId, onClose, onSaved }: AssetEditModalProps) {
-  const { message, modal } = App.useApp();
-  const isMobile = useIsMobile();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   // ST6b — edit gated by backend policy assets.edit.
   const canEdit = usePermission('assets.edit');
@@ -120,24 +120,11 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
       void message.success('Cập nhật tài sản thành công');
       onSaved();
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      void message.error(e?.response?.data?.message || 'Lỗi cập nhật');
+      if (!applyServerFieldErrors(form, err)) {
+        void message.error(serverErrorMessage(err, 'Không thể cập nhật tài sản. Vui lòng thử lại.'));
+      }
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleClose = () => {
-    if (form.isFieldsTouched()) {
-      modal.confirm({
-        title: 'Dữ liệu chưa lưu',
-        content: 'Bạn có chắc muốn đóng? Các thay đổi chưa lưu sẽ bị mất.',
-        okText: 'Đóng',
-        cancelText: 'Tiếp tục sửa',
-        onOk: onClose,
-      });
-    } else {
-      onClose();
     }
   };
 
@@ -150,7 +137,7 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
   const lock = (label: React.ReactNode) => isConfirmed
     ? (
       <Space size={4}>
-        <Tooltip title="Field khóa sau khi xác nhận — chỉ Name và Notes được sửa">
+        <Tooltip title="Trường bị khóa sau khi xác nhận — chỉ Tên và Ghi chú được sửa">
           <LockOutlined style={{ color: uiColors.labelGray, fontSize: 12 }} />
         </Tooltip>
         <span>{label}</span>
@@ -159,23 +146,25 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
     : label;
 
   return (
-    <Modal
+    <ModalFormShell
       open={open}
       title="Chỉnh sửa tài sản"
-      onCancel={handleClose}
-      width={isMobile ? '95%' : 760}
-      destroyOnHidden
-      mask={{ closable: false }}
-      footer={[
-        <Button key="cancel" onClick={handleClose}>Hủy</Button>,
-        <Button key="submit" type="primary" htmlType="submit" form="asset-edit-modal"
-          loading={saving} icon={<SaveOutlined />} disabled={!canEdit}>Lưu</Button>,
-      ]}
-      styles={{ body: { maxHeight: '68vh', overflowY: 'auto', padding: '8px 24px' } }}
+      onCancel={onClose}
+      onOk={() => form.submit()}
+      okText="Lưu thay đổi"
+      okButtonProps={{ disabled: !canEdit }}
+      confirmLoading={saving}
+      size="lg"
+      maskClosable={false}
     >
       <Spin spinning={loading}>
-        <Form id="asset-edit-modal" form={form} layout="vertical" size="middle"
-          onFinish={(v) => void submit(v as Parameters<typeof submit>[0])}>
+        <Form
+          form={form}
+          layout="vertical"
+          size="middle"
+          initialValues={{ physical: true, requestable: false }}
+          onFinish={(v) => void submit(v as Parameters<typeof submit>[0])}
+        >
           {/* ── Thông tin tài sản (read-only identity) ── */}
           <Divider titlePlacement="start" plain style={{ marginTop: 0 }}>Thông tin tài sản</Divider>
           <Row gutter={[16, 8]}>
@@ -195,8 +184,8 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
           <Divider titlePlacement="start" plain style={{ marginTop: 16 }}>Chỉnh sửa</Divider>
           <Row gutter={[16, 8]}>
             <Col xs={24} sm={12}>
-              <Form.Item name="name" label="Tên tài sản *" rules={[{ required: true, message: 'Nhập tên tài sản' }]}>
-                <Input placeholder="Tên tài sản" />
+              <Form.Item name="name" label="Tên tài sản" rules={[{ required: true, message: 'Vui lòng nhập tên tài sản' }]}>
+                <Input placeholder="Nhập tên tài sản" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -210,8 +199,8 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item name="locationId" label={lock('Vị trí')}>
-                <Select allowClear showSearch placeholder="Chọn vị trí" options={locations} disabled={isConfirmed} filterOption={filterFn} />
+              <Form.Item name="locationId" label={lock('Địa điểm')}>
+                <Select allowClear showSearch placeholder="Chọn địa điểm" options={locations} disabled={isConfirmed} filterOption={filterFn} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -225,7 +214,7 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
               </Form.Item>
             </Col>
             <Col xs={24} sm={8}>
-              <Form.Item name="purchaseCost" label={lock('Giá mua (VND)')}>
+              <Form.Item name="purchaseCost" label={lock('Đơn giá (VND)')}>
                 <InputNumber min={0} style={{ width: '100%' }} placeholder="0" disabled={isConfirmed}
                   formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                   parser={(value) => (value?.replace(/,/g, '') ?? '') as unknown as 0} />
@@ -242,12 +231,12 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item name="orderNumber" label={lock('Order Number')}>
-                <Input placeholder="Số đơn hàng" disabled={isConfirmed} />
+              <Form.Item name="orderNumber" label={lock('Số đơn hàng')}>
+                <Input placeholder="Nhập số đơn hàng" disabled={isConfirmed} />
               </Form.Item>
             </Col>
             <Col xs={12} sm={6}>
-              <Form.Item name="physical" label={lock('Physical')} valuePropName="checked">
+              <Form.Item name="physical" label={lock('Tài sản vật lý')} valuePropName="checked">
                 <Switch disabled={isConfirmed} />
               </Form.Item>
             </Col>
@@ -264,6 +253,6 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
           </Row>
         </Form>
       </Spin>
-    </Modal>
+    </ModalFormShell>
   );
 }

@@ -1,25 +1,27 @@
 import { useState, useRef, type ReactNode } from 'react';
-import { Button, Space, Input, Tag, Modal, Form, Select, Switch, ColorPicker, Card, Divider, Typography, Popconfirm, App } from 'antd';
+import { Button, Space, Input, Tag, Form, Select, Switch, ColorPicker, Card, Divider, Typography, Popconfirm, App } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 const { Text } = Typography;
 
 // ST6b — permission gating (mirrors backend [Authorize(Policy=...)]).
 const CATEGORY_TYPE_LABELS: Record<string, string> = {
-  Asset: 'Asset',
-  Consumable: 'Consumable',
-  Accessory: 'Accessory',
-  Component: 'Component',
+  Asset: 'Tài sản',
+  Consumable: 'Vật tư tiêu hao',
+  Accessory: 'Phụ kiện',
+  Component: 'Linh kiện',
   License: 'Bản quyền',
-  1: 'Asset',
-  2: 'Consumable',
-  3: 'Accessory',
-  4: 'Component',
+  1: 'Tài sản',
+  2: 'Vật tư tiêu hao',
+  3: 'Phụ kiện',
+  4: 'Linh kiện',
   5: 'Bản quyền',
 };
 
@@ -84,8 +86,7 @@ export default function CategoryListPage() {
       message.success('Đã xóa danh mục');
       actionRef.current?.reload();
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      message.error(e?.response?.data?.message || 'Không thể xóa danh mục');
+      message.error(serverErrorMessage(err, 'Không thể xóa danh mục.'));
     }
   };
 
@@ -102,9 +103,10 @@ export default function CategoryListPage() {
       handleClose();
       actionRef.current?.reload();
     } catch (err: unknown) {
-      if ((err as { errorFields?: unknown }).errorFields) return; // validation error — không hiện message
-      const e = err as { response?: { data?: { message?: string } } };
-      message.error(e?.response?.data?.message || 'Lỗi lưu danh mục');
+      if ((err as { errorFields?: unknown }).errorFields) return;
+      if (!applyServerFieldErrors(form, err)) {
+        message.error(serverErrorMessage(err, 'Không thể lưu danh mục. Vui lòng thử lại.'));
+      }
     }
   };
 
@@ -133,12 +135,13 @@ export default function CategoryListPage() {
 
   // Modal tạo/sửa — định nghĩa MỘT lần, render chung cho cả mobile (ProList) và desktop (ProTable).
   const formModal = (
-    <Modal
+    <ModalFormShell
       open={open}
-      title={editingId ? 'Sửa danh mục' : 'Tạo danh mục mới'}
-      onOk={form.submit}
+      title={editingId ? 'Sửa danh mục' : 'Tạo danh mục'}
+      onOk={() => form.submit()}
       onCancel={handleClose}
-      destroyOnHidden
+      okText={editingId ? 'Lưu thay đổi' : 'Tạo danh mục'}
+      size="sm"
     >
       <Form
         form={form}
@@ -146,8 +149,8 @@ export default function CategoryListPage() {
         onFinish={save}
         initialValues={{ tagColor: '#1890ff', categoryType: 'Asset', useDefaultEula: true }}
       >
-        <Form.Item label="Tên" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
-          <Input placeholder="Tên danh mục" />
+        <Form.Item label="Tên danh mục" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên danh mục' }]}>
+          <Input placeholder="Nhập tên danh mục" />
         </Form.Item>
 
         <Form.Item
@@ -158,7 +161,7 @@ export default function CategoryListPage() {
           <ColorPicker format="hex" showText />
         </Form.Item>
 
-        <Form.Item label="Loại" name="categoryType" rules={[{ required: true }]}>
+        <Form.Item label="Loại" name="categoryType" rules={[{ required: true, message: 'Vui lòng chọn loại danh mục' }]}>
           <Select disabled={!!editingId}>
             {Object.entries(CATEGORY_TYPE_LABELS).filter(([k]) => !/^\d+$/.test(k)).map(([key, label]) => (
               <Select.Option key={key} value={key}>{label}</Select.Option>
@@ -182,7 +185,7 @@ export default function CategoryListPage() {
           <Input.TextArea rows={2} placeholder="Ghi chú thêm về danh mục" />
         </Form.Item>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 
   const columns: ProColumns<CategoryRow>[] = [

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Button, Tag, Space, Modal, InputNumber, App,
+  Button, Tag, Space, InputNumber, App,
   Typography, Divider, Card, Empty, Tooltip,
 } from 'antd';
 import type { MenuProps } from 'antd';
@@ -23,6 +23,7 @@ import AccessoryCheckoutModal from '../components/AccessoryCheckoutModal';
 import AccessoryFormModal from '../components/AccessoryFormModal';
 import { statusColors, uiColors, cardBadgeGradients } from '../../../theme/designTokens';
 import ListRowActions from '../../../shared/components/list/ListRowActions';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 import type { ListPrimaryAction } from '../../../shared/components/list/ListRowActions';
 import { EllipsisText, NowrapText } from '../../../shared/components/list/ListText';
 import { useListColumnsState } from '../../../shared/hooks/useListColumnsState';
@@ -723,7 +724,7 @@ const AccessoryListPage: React.FC = () => {
       />
 
       {/* Checkin Modal */}
-      <Modal
+      <ModalFormShell
         title={
           <Space>
             <RollbackOutlined />
@@ -733,8 +734,7 @@ const AccessoryListPage: React.FC = () => {
         open={checkinModalOpen}
         onCancel={() => { setCheckinModalOpen(false); setCheckinCheckouts([]); }}
         footer={null}
-        width={640}
-        destroyOnHidden
+        size="md"
       >
         {checkinLoading ? (
           <div style={{ textAlign: 'center', padding: 24 }}>
@@ -751,7 +751,7 @@ const AccessoryListPage: React.FC = () => {
             ))}
           </div>
         )}
-      </Modal>
+      </ModalFormShell>
 
       {/* Form Modal (Tạo mới/Sửa) — mở TẠI CHỖ bằng state cục bộ. Deep-link
           (/accessories/new, /accessories/:id) also only set state, never redirect. */}

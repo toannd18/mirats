@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, App, Button, Card, Descriptions, Drawer, Empty, Input, InputNumber, Modal,
+  Alert, App, Button, Card, Descriptions, Drawer, Empty, Input, InputNumber,
   Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
 import { ArrowLeftOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, InboxOutlined, RollbackOutlined, SendOutlined } from '@ant-design/icons';
@@ -16,6 +16,7 @@ import { formatDate, formatDateTime, formatNumber } from '../../../utils/format'
 import ComponentFormModal from '../components/ComponentFormModal';
 import ListRowActions from '../../../shared/components/list/ListRowActions';
 import { statusColors } from '../../../theme/designTokens';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Title, Text } = Typography;
 
@@ -470,8 +471,8 @@ function StockInModal({ open, onClose, onOk }: StockInModalProps) {
   };
 
   return (
-    <Modal title="Nhập kho serial mới" open={open} onCancel={onClose} onOk={submit}
-      okText="Nhập kho" cancelText="Hủy" confirmLoading={submitting} destroyOnHidden width={560}>
+    <ModalFormShell title="Nhập kho serial mới" open={open} onCancel={onClose} onOk={submit}
+      okText="Nhập kho" confirmLoading={submitting} size="sm">
       <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
         Mỗi dòng một serial — có thể paste nhiều dòng cùng lúc.
       </Text>
@@ -482,7 +483,7 @@ function StockInModal({ open, onClose, onOk }: StockInModalProps) {
         {hasDuplicate && <Tag color="red">Có serial trùng</Tag>}
       </Space>
       <Input style={{ marginTop: 12 }} placeholder="Ghi chú (không bắt buộc)" value={note} onChange={e => setNote(e.target.value)} />
-    </Modal>
+    </ModalFormShell>
   );
 }
 
@@ -529,8 +530,8 @@ function CheckoutModal({ open, onClose, trackingType, inStockUnits, assets, comp
   };
 
   return (
-    <Modal title="Cấp phát linh kiện" open={open} onCancel={onClose} onOk={submit}
-      okText="Cấp phát" cancelText="Hủy" confirmLoading={submitting} destroyOnHidden width={520}>
+    <ModalFormShell title="Cấp phát linh kiện" open={open} onCancel={onClose} onOk={submit}
+      okText="Cấp phát" confirmLoading={submitting} size="sm">
       {!componentCompanyId && (
         <Alert type="warning" style={{ marginBottom: 12 }}
           title="Linh kiện chưa xác định công ty — không thể cấp phát. Hãy bổ sung công ty trước (chỉ hiển thị trong form Sửa)." />
@@ -558,7 +559,7 @@ function CheckoutModal({ open, onClose, trackingType, inStockUnits, assets, comp
         </>
       )}
       <Input style={{ marginTop: 12 }} placeholder="Ghi chú (không bắt buộc)" value={note} onChange={e => setNote(e.target.value)} />
-    </Modal>
+    </ModalFormShell>
   );
 }
 
@@ -605,8 +606,8 @@ function CheckinModal({ open, onClose, trackingType, allocatedUnits, assets, onO
   };
 
   return (
-    <Modal title="Thu hồi linh kiện" open={open} onCancel={onClose} onOk={submit}
-      okText="Thu hồi" cancelText="Hủy" confirmLoading={submitting} destroyOnHidden width={520}>
+    <ModalFormShell title="Thu hồi linh kiện" open={open} onCancel={onClose} onOk={submit}
+      okText="Thu hồi" confirmLoading={submitting} size="sm">
       {trackingType === 'Bulk' ? (
         <>
           <Text strong style={{ display: 'block', marginBottom: 8 }}>Tài sản trả về *</Text>
@@ -626,7 +627,7 @@ function CheckinModal({ open, onClose, trackingType, allocatedUnits, assets, onO
         </>
       )}
       <Input style={{ marginTop: 12 }} placeholder="Ghi chú (không bắt buộc)" value={note} onChange={e => setNote(e.target.value)} />
-    </Modal>
+    </ModalFormShell>
   );
 }
 

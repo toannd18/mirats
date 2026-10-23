@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Table, Button, Modal, Form, Input, App, Space, Card, Tag, Typography, Empty, Divider } from 'antd';
+import { Table, Button, Form, Input, App, Space, Card, Tag, Typography, Empty, Divider } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
@@ -14,6 +14,8 @@ import ListRowActions from '../../../shared/components/list/ListRowActions';
 import type { ListPrimaryAction } from '../../../shared/components/list/ListRowActions';
 import { NowrapText, EllipsisText } from '../../../shared/components/list/ListText';
 import { useListColumnsState } from '../../../shared/hooks/useListColumnsState';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 const { Text } = Typography;
 
@@ -116,7 +118,9 @@ export default function SystemInfoListPage() {
     } catch (err: unknown) {
       const e = err as { errorFields?: unknown; response?: { data?: { message?: string } } };
       if (e?.errorFields) return;
-      message.error(e?.response?.data?.message || 'Lỗi lưu');
+      if (!applyServerFieldErrors(form, err)) {
+        message.error(serverErrorMessage(err, 'Không thể lưu hệ thống. Vui lòng thử lại.'));
+      }
     }
   };
 
@@ -171,7 +175,9 @@ export default function SystemInfoListPage() {
     } catch (err: unknown) {
       const e = err as { errorFields?: unknown; response?: { data?: { message?: string } } };
       if (e?.errorFields) return;
-      message.error(e?.response?.data?.message || 'Lỗi lưu vị trí');
+      if (!applyServerFieldErrors(posForm, err)) {
+        message.error(serverErrorMessage(err, 'Không thể lưu vị trí. Vui lòng thử lại.'));
+      }
     }
   };
 
@@ -323,7 +329,14 @@ export default function SystemInfoListPage() {
 
   // Modals — defined ONCE, rendered by both mobile and desktop branches.
   const systemModal = (
-    <Modal open={open} title={editingId ? 'Sửa hệ thống' : 'Thêm hệ thống'} onOk={form.submit} onCancel={handleCloseSys} destroyOnHidden width={520}>
+    <ModalFormShell
+      open={open}
+      title={editingId ? 'Sửa hệ thống' : 'Thêm hệ thống'}
+      onOk={() => form.submit()}
+      onCancel={handleCloseSys}
+      okText={editingId ? 'Lưu thay đổi' : 'Tạo hệ thống'}
+      size="sm"
+    >
       <Form form={form} layout="vertical" onFinish={saveSys}>
         <Form.Item label="Mã hệ thống" name="code"
           rules={[
@@ -344,11 +357,18 @@ export default function SystemInfoListPage() {
           <Input.TextArea rows={2} />
         </Form.Item>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 
   const positionModal = (
-    <Modal open={posOpen} title={posEditingId ? 'Sửa vị trí' : 'Thêm vị trí'} onOk={posForm.submit} onCancel={handleClosePos} destroyOnHidden width={520}>
+    <ModalFormShell
+      open={posOpen}
+      title={posEditingId ? 'Sửa vị trí' : 'Thêm vị trí'}
+      onOk={() => posForm.submit()}
+      onCancel={handleClosePos}
+      okText={posEditingId ? 'Lưu thay đổi' : 'Tạo vị trí'}
+      size="sm"
+    >
       <Form form={posForm} layout="vertical" onFinish={savePos}>
         <Form.Item label="Mã vị trí" name="code"
           rules={[
@@ -366,7 +386,7 @@ export default function SystemInfoListPage() {
           <Input.TextArea rows={2} />
         </Form.Item>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 
   // ─── Mobile: ProList Card (filters collapsed by default, no Mô tả in the card) ───

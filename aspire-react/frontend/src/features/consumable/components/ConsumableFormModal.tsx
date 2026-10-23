@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert, App, Button, Col, DatePicker, Divider, Form, Input, InputNumber, Modal,
+  Alert, App, Button, Col, DatePicker, Divider, Form, Input, InputNumber,
   Row, Select, Space, Spin,
 } from 'antd';
-import { LockOutlined, SaveOutlined } from '@ant-design/icons';
+import { LockOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { consumablesApi } from '../services/consumables.service';
-import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
 import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 // ==================== Types ====================
 
@@ -38,8 +39,7 @@ interface OptionItem { label: string; value: string; }
  *   fetch /checkouts, non-empty → disable field, giữ nguyên giá trị khi submit).
  */
 export default function ConsumableFormModal({ open, consumableId, onClose, onSaved }: ConsumableFormModalProps) {
-  const { message, modal } = App.useApp();
-  const isMobile = useIsMobile();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const isEdit = !!consumableId;
 
@@ -126,24 +126,11 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
       }
       onSaved();
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      void message.error(e?.response?.data?.message ?? 'Lỗi lưu vật tư');
+      if (!applyServerFieldErrors(form, err)) {
+        void message.error(serverErrorMessage(err, 'Không thể lưu vật tư. Vui lòng thử lại.'));
+      }
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleClose = () => {
-    if (form.isFieldsTouched()) {
-      modal.confirm({
-        title: 'Dữ liệu chưa lưu',
-        content: 'Bạn có chắc muốn đóng? Các thay đổi chưa lưu sẽ bị mất.',
-        okText: 'Đóng',
-        cancelText: 'Tiếp tục sửa',
-        onOk: onClose,
-      });
-    } else {
-      onClose();
     }
   };
 
@@ -151,24 +138,23 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
     typeof opt?.label === 'string' ? opt.label.toLowerCase().includes(inp.toLowerCase()) : false;
 
   return (
-    <Modal
+    <ModalFormShell
       open={open}
-      title={isEdit ? 'Sửa vật tư tiêu hao' : 'Tạo vật tư tiêu hao mới'}
-      onCancel={handleClose}
-      width={isMobile ? '95%' : 720}
-      destroyOnHidden
-      mask={{ closable: false }}
-      footer={[
-        <Button key="cancel" onClick={handleClose}>Hủy</Button>,
-        <Button key="submit" type="primary" htmlType="submit" form="consumable-form-modal"
-          loading={saving} icon={<SaveOutlined />}>
-          {isEdit ? 'Cập nhật' : 'Tạo mới'}
-        </Button>,
-      ]}
-      styles={{ body: { maxHeight: '68vh', overflowY: 'auto', padding: '8px 24px' } }}
+      title={isEdit ? 'Sửa vật tư tiêu hao' : 'Tạo vật tư tiêu hao'}
+      onCancel={onClose}
+      onOk={() => form.submit()}
+      okText={isEdit ? 'Lưu thay đổi' : 'Tạo vật tư'}
+      confirmLoading={saving}
+      size="md"
+      maskClosable={false}
     >
       <Spin spinning={loading}>
-        <Form id="consumable-form-modal" form={form} layout="vertical" onFinish={(v) => void submit(v)}>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ qty: 1, minAmt: 0 }}
+          onFinish={(v) => void submit(v)}
+        >
           {confirmedLocked && (
             <Alert
               type="warning"
@@ -181,13 +167,13 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
           <Divider titlePlacement="start" plain style={{ marginTop: 0 }}>Thông tin cơ bản</Divider>
           <Row gutter={[16, 8]}>
             <Col xs={24} sm={12}>
-              <Form.Item label="Tên vật tư" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
-                <Input placeholder="Tên vật tư" disabled={confirmedLocked} />
+              <Form.Item label="Tên vật tư" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên vật tư' }]}>
+                <Input placeholder="Nhập tên vật tư" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Item No." name="itemNo">
-                <Input placeholder="Mã vật tư" disabled={confirmedLocked} />
+              <Form.Item label="Mã hàng" name="itemNo">
+                <Input placeholder="Nhập mã hàng" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -216,7 +202,7 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
           <Row gutter={[16, 8]}>
             <Col xs={24} sm={12}>
               <Form.Item label="Số lượng" name="qty" rules={[{ required: true, message: 'Vui lòng nhập số lượng' }]}>
-                <InputNumber min={0} style={{ width: '100%' }} placeholder="Số lượng" disabled={confirmedLocked} />
+                <InputNumber min={0} style={{ width: '100%' }} placeholder="Nhập số lượng" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -250,17 +236,17 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Order Number" name="orderNumber">
-                <Input placeholder="Số đơn hàng" disabled={confirmedLocked} />
+              <Form.Item label="Số đơn hàng" name="orderNumber">
+                <Input placeholder="Nhập số đơn hàng" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Purchase Date" name="purchaseDate">
-                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" placeholder="Chọn ngày" disabled={confirmedLocked} />
+              <Form.Item label="Ngày mua" name="purchaseDate">
+                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" placeholder="Chọn ngày mua" disabled={confirmedLocked} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Unit Cost" name="purchaseCost">
+              <Form.Item label="Đơn giá" name="purchaseCost">
                 <Space.Compact block>
                   <InputNumber min={0} style={{ width: '100%' }} placeholder="Đơn giá" disabled={confirmedLocked} />
                   <Button style={{ width: 56 }}>VND</Button>
@@ -276,7 +262,7 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
           </Form.Item>
         </Form>
       </Spin>
-    </Modal>
+    </ModalFormShell>
   );
 }
 

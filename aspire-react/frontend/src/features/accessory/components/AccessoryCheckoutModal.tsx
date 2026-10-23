@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
-  Modal, Segmented, Select, InputNumber, Input, Tag, Typography,
+  Segmented, Select, InputNumber, Input, Tag, Typography,
   App, Space, Alert,
 } from 'antd';
 import {
@@ -12,6 +12,7 @@ import apiClient from '../../../services/api-client';
 import type { AccessoryDto } from '../services/accessories.service';
 import { accessoriesApi } from '../services/accessories.service';
 import { formatNumber } from '../../../utils/format';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Text, Title } = Typography;
 
@@ -203,17 +204,15 @@ const AccessoryCheckoutModal: React.FC<AccessoryCheckoutModalProps> = ({
   // ──── Render ────
 
   return (
-    <Modal
+    <ModalFormShell
       title="Cấp phát phụ kiện"
       open={open}
       onOk={handleSubmit}
       onCancel={onClose}
       okText="Cấp phát"
-      cancelText="Hủy"
       confirmLoading={submitting}
       okButtonProps={{ disabled: !targetId || quantity < 1 }}
-      destroyOnHidden
-      width={520}
+      size="sm"
     >
       {/* Accessory info */}
       <div style={{ marginBottom: 16 }}>
@@ -349,7 +348,7 @@ const AccessoryCheckoutModal: React.FC<AccessoryCheckoutModalProps> = ({
           placeholder="Nhập ghi chú cho lần cấp phát này (không bắt buộc)"
         />
       </div>
-    </Modal>
+    </ModalFormShell>
   );
 };
 

@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
-  App, Button, Col, DatePicker, Divider, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Switch, Tag, Tooltip,
+  App, Button, Col, DatePicker, Divider, Form, Input, InputNumber, Row, Select, Space, Spin, Switch, Tag, Tooltip,
 } from 'antd';
 import { LockOutlined, PlusOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { licensesApi, type CreateLicensePayload, type LicenseDetailDto } from '../services/licenses.service';
 import { isSuperUser } from '../../../features/auth/services/auth';
-import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
 import { fkForUpdate } from '../../../shared/utils/fk';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 // CategoryType.License = 5 (must match Domain/Enums/CategoryType.cs)
 const LICENSE_CATEGORY_TYPE = 5;
@@ -32,8 +33,7 @@ function LockedFieldTag({ value }: { value: string }) {
 }
 
 export default function LicenseFormModal({ open, licenseId, onClose, onSaved }: LicenseFormModalProps) {
-  const { message, modal } = App.useApp();
-  const isMobile = useIsMobile();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const isEdit = !!licenseId;
   const superUser = isSuperUser();
@@ -175,49 +175,42 @@ export default function LicenseFormModal({ open, licenseId, onClose, onSaved }: 
       }
       onSaved();
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string; error_code?: string } } };
-      message.error(e?.response?.data?.message || 'Lỗi lưu dữ liệu');
+      if (!applyServerFieldErrors(form, err)) {
+        message.error(serverErrorMessage(err, 'Không thể lưu bản quyền. Vui lòng thử lại.'));
+      }
     } finally {
       setSaving(false);
     }
   };
 
-  const handleClose = () => {
-    if (form.isFieldsTouched()) {
-      modal.confirm({
-        title: 'Dữ liệu chưa lưu',
-        content: 'Bạn có chắc muốn đóng? Các thay đổi chưa lưu sẽ bị mất.',
-        okText: 'Đóng',
-        cancelText: 'Tiếp tục sửa',
-        onOk: onClose,
-      });
-    } else {
-      onClose();
-    }
-  };
   return (
-    <Modal
+    <ModalFormShell
       open={open}
-      title={isEdit ? 'Sửa bản quyền' : 'Tạo bản quyền mới'}
-      onCancel={handleClose}
+      title={isEdit ? 'Sửa bản quyền' : 'Tạo bản quyền'}
+      onCancel={onClose}
       onOk={() => form.submit()}
+      okText={isEdit ? 'Lưu thay đổi' : 'Tạo bản quyền'}
       confirmLoading={saving}
-      width={isMobile ? '95%' : 760}
-      destroyOnHidden
+      size="md"
     >
       <Spin spinning={loading}>
-        <Form form={form} layout="vertical" onFinish={(v) => void submit(v as Record<string, unknown>)}>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ reassignable: true, seats: 1, minSeats: 0 }}
+          onFinish={(v) => void submit(v as Record<string, unknown>)}
+        >
           {/* ── Nhóm 1: Thông tin chung ── */}
           <Divider titlePlacement="start" plain>Thông tin chung</Divider>
           <Row gutter={[16, 8]}>
             <Col xs={24} sm={12}>
-              <Form.Item label="Tên" name="name" rules={[{ required: true, message: 'Nhập tên' }]}>
-                <Input placeholder="VD: Microsoft Office 2024 Pro" />
+              <Form.Item label="Tên bản quyền" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên bản quyền' }]}>
+                <Input placeholder="Ví dụ: Microsoft Office 2024 Pro" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Product Key / Serial" name="serial">
-                <Input placeholder="XXXXX-XXXXX-XXXXX" />
+              <Form.Item label="Khóa bản quyền / Serial" name="serial">
+                <Input placeholder="Nhập khóa bản quyền hoặc serial" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -228,7 +221,7 @@ export default function LicenseFormModal({ open, licenseId, onClose, onSaved }: 
                   </Form.Item>
                 )
                 : (
-                  <Form.Item label="Danh mục" name="categoryId" rules={[{ required: true, message: 'Chọn danh mục' }]}>
+                  <Form.Item label="Danh mục" name="categoryId" rules={[{ required: true, message: 'Vui lòng chọn danh mục' }]}>
                     <Select showSearch placeholder="Chọn danh mục (loại Bản quyền)" options={categoryOptions}
                       filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
                       notFoundContent={
@@ -251,7 +244,7 @@ export default function LicenseFormModal({ open, licenseId, onClose, onSaved }: 
                   </Form.Item>
                 )
                 : superUser && (
-                  <Form.Item label="Công ty" name="companyId" rules={[{ required: true, message: 'Chọn công ty' }]}>
+                  <Form.Item label="Công ty" name="companyId" rules={[{ required: true, message: 'Vui lòng chọn công ty' }]}>
                     <CompanyTreeSelect allowQuickAdd />
                   </Form.Item>
                 )}
@@ -262,7 +255,7 @@ export default function LicenseFormModal({ open, licenseId, onClose, onSaved }: 
           <Divider titlePlacement="start" plain>Số chỗ</Divider>
           <Row gutter={[16, 8]}>
             <Col xs={24} sm={8}>
-              <Form.Item label="Tổng số ghế" name="seats" rules={[{ required: true, message: 'Nhập số ghế' }]}>
+              <Form.Item label="Tổng số ghế" name="seats" rules={[{ required: true, message: 'Vui lòng nhập số ghế' }]}>
                 <InputNumber min={1} precision={0} style={{ width: '100%' }} placeholder="VD: 5" />
               </Form.Item>
             </Col>
@@ -343,7 +336,7 @@ export default function LicenseFormModal({ open, licenseId, onClose, onSaved }: 
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Giá mua" name="purchaseCost">
+              <Form.Item label="Đơn giá" name="purchaseCost">
                 <InputNumber min={0} precision={2} style={{ width: '100%' }} placeholder="0" />
               </Form.Item>
             </Col>
@@ -356,6 +349,6 @@ export default function LicenseFormModal({ open, licenseId, onClose, onSaved }: 
           </Form.Item>
         </Form>
       </Spin>
-    </Modal>
+    </ModalFormShell>
   );
 }

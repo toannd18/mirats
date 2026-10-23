@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import {
-  App, Button, Card, Descriptions, Divider, Empty, Modal, Space, Tag, Tooltip, Typography,
+  App, Button, Card, Descriptions, Divider, Empty, Space, Tag, Tooltip, Typography,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -22,6 +22,7 @@ import type { ListPrimaryAction } from '../../../shared/components/list/ListRowA
 import { EllipsisText, NowrapText } from '../../../shared/components/list/ListText';
 import { useListColumnsState } from '../../../shared/hooks/useListColumnsState';
 import { statusColors, uiColors, cardBadgeGradients } from '../../../theme/designTokens';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { formatDate, formatDateTime, formatMoney } from '../../../utils/format';
 
 const { Text, Title } = Typography;
@@ -830,12 +831,12 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
       )}
 
       {/* ─── Detail modal (snapshot block) ─── */}
-      <Modal
+      <ModalFormShell
         title="Chi tiết bảo trì"
         open={detailOpen}
         onCancel={() => setDetailOpen(false)}
         footer={null}
-        width={640}
+        size="md"
       >
         {detail && (
           <>
@@ -945,7 +946,7 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
             </Descriptions>
           </>
         )}
-      </Modal>
+      </ModalFormShell>
 
       {/* ─── Task H: modal "Hoàn thành bảo trì" — mở tại chỗ, list tự reload sau khi lưu ─── */}
       <MaintenanceCompleteModal

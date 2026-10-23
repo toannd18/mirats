@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   App, Badge, Button, DatePicker, Descriptions, Divider, Form, Input, InputNumber,
-  Modal, Popconfirm, Select, Space, Spin, Switch, Table, Tag, Tooltip,
+  Popconfirm, Select, Space, Spin, Switch, Table, Tag, Tooltip,
 } from 'antd';
 import { PlusOutlined, CheckOutlined, CloseOutlined, EditOutlined, LockOutlined, UnlockOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
@@ -14,6 +14,7 @@ import {
   MAINTENANCE_TYPE_COLORS, MAINTENANCE_TYPE_OPTIONS,
 } from '../../maintenance/components/MaintenanceTable';
 import { formatDate, formatDateTime, formatMoney } from '../../../utils/format';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 // Compares context by ID (not display name) — the Snapshot field gets an orange "Đã thay đổi" marker
 // when the LIVE context differs from what was captured at maintenance-creation time.
@@ -356,16 +357,14 @@ export default function AssetMaintenanceSection({ assetId }: { assetId: string }
       />
 
       {/* ── Form Modal (create/edit) ── */}
-      <Modal
+      <ModalFormShell
         open={formOpen}
         title={editing ? 'Sửa bảo trì' : 'Thêm bảo trì'}
         onCancel={() => setFormOpen(false)}
-        onOk={form.submit}
+        onOk={() => form.submit()}
         confirmLoading={false}
-        destroyOnHidden
-        width={600}
-        okText={editing ? 'Cập nhật' : 'Tạo mới'}
-        cancelText="Hủy"
+        okText={editing ? 'Lưu thay đổi' : 'Tạo phiếu bảo trì'}
+        size="md"
       >
         <Form form={form} layout="vertical" onFinish={(vals) => void submit(vals)}>
           <Form.Item label="Loại" name="type" rules={[{ required: true }]}>
@@ -421,10 +420,10 @@ export default function AssetMaintenanceSection({ assetId }: { assetId: string }
             />
           </Form.Item>
         </Form>
-      </Modal>
+      </ModalFormShell>
 
       {/* ── Detail Modal (with context snapshot) ── */}
-      <Modal open={!!detail} title={detail?.title} onCancel={() => setDetail(null)} footer={null} width={640}>
+      <ModalFormShell open={!!detail} title={detail?.title} onCancel={() => setDetail(null)} footer={null} size="md">
         {detail && (
           <>
             <Descriptions bordered size="small" column={2}>
@@ -513,7 +512,7 @@ export default function AssetMaintenanceSection({ assetId }: { assetId: string }
             </Descriptions>
           </>
         )}
-      </Modal>
+      </ModalFormShell>
     </div>
   );
 }

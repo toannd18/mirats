@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback } from 'react';
 import {
-  Button, Space, Tag, Tooltip, App, Card, Divider, Input, Typography, Modal, Empty, Avatar,
+  Button, Space, Tag, Tooltip, App, Card, Divider, Input, Typography, Empty, Avatar,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -21,6 +21,7 @@ import type { ListPrimaryAction } from '../../../shared/components/list/ListRowA
 import { EllipsisText, NowrapText } from '../../../shared/components/list/ListText';
 import { useListColumnsState } from '../../../shared/hooks/useListColumnsState';
 import { formatDate } from '../../../utils/format';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Text, Title } = Typography;
 
@@ -575,14 +576,14 @@ const UserListPage: React.FC = () => {
 
       {/* [AUTH Phase 4] Admin reset-password modal — render cho CẢ desktop và mobile
           (trước đây nằm trong nhánh desktop nên mobile không mở được). */}
-      <Modal
+      <ModalFormShell
         title={`Đặt lại mật khẩu — ${resetUser?.username ?? ''}`}
         open={resetOpen}
         onOk={() => void handleResetSubmit()}
         onCancel={() => { setResetOpen(false); setResetUser(null); }}
         confirmLoading={resetSubmitting}
         okText="Đặt lại mật khẩu"
-        destroyOnHidden
+        size="sm"
       >
         <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
           Nhập mật khẩu tạm thời (≥ 8 ký tự) để giao cho người dùng. Họ sẽ bị bắt buộc đổi mật
@@ -594,7 +595,7 @@ const UserListPage: React.FC = () => {
           onChange={(e) => setResetPassword(e.target.value)}
           autoComplete="new-password"
         />
-      </Modal>
+      </ModalFormShell>
     </>
   );
 };

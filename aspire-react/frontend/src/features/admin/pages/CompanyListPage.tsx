@@ -1,10 +1,11 @@
 import { useState, useRef, type ReactNode } from 'react';
-import { Button, Space, Modal, Form, Input, TreeSelect, Card, Divider, Tag, Tooltip, Typography, Popconfirm, App } from 'antd';
+import { Button, Space, Form, Input, TreeSelect, Card, Divider, Tag, Tooltip, Typography, Popconfirm, App } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 
 const { Text } = Typography;
@@ -175,12 +176,13 @@ export default function CompanyListPage() {
 
   // Modal tạo/sửa — định nghĩa MỘT lần, render chung cho cả mobile và desktop.
   const formModal = (
-    <Modal
+    <ModalFormShell
       open={open}
       title={editingId ? 'Sửa công ty' : 'Tạo công ty' + (selectedParentId ? ' con' : '')}
-      onOk={form.submit}
+      onOk={() => form.submit()}
       onCancel={handleClose}
-      destroyOnHidden
+      okText={editingId ? 'Lưu thay đổi' : 'Tạo công ty'}
+      size="md"
     >
       <Form form={form} layout="vertical" onFinish={save}>
         <Form.Item label="Tên công ty" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
@@ -203,7 +205,7 @@ export default function CompanyListPage() {
           />
         </Form.Item>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 
   const columns: ProColumns<CompanyNode>[] = [

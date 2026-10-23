@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Alert, App, Button, Card, Col, DatePicker, Descriptions, Divider, Form, Input, Modal, Row, Select, Space, Spin, Tag, Typography,
+  Alert, App, Button, Card, Col, DatePicker, Descriptions, Divider, Form, Input, Row, Select, Space, Spin, Tag, Typography,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs, { Dayjs } from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { formatDate } from '../../../utils/format';
 import ListRowActions, { type ListPrimaryAction } from '../../../shared/components/list/ListRowActions';
@@ -411,15 +412,14 @@ export default function MaintenanceCampaignListPage() {
 
   // Modal tạo đợt — định nghĩa MỘT lần, render chung cho cả mobile Card và desktop Table (ST7b).
   const createModal = (
-    <Modal
+    <ModalFormShell
       open={createOpen}
       title="Tạo đợt bảo dưỡng"
-      onOk={form.submit}
+      onOk={() => form.submit()}
       onCancel={() => setCreateOpen(false)}
       confirmLoading={submitting}
-      destroyOnHidden
-      width={isMobile ? '95%' : 640}
-      okText="Tạo"
+      okText="Tạo đợt bảo dưỡng"
+      size="md"
     >
       <Form form={form} layout="vertical" onFinish={submitCreate}>
         <Form.Item
@@ -504,7 +504,7 @@ export default function MaintenanceCampaignListPage() {
           />
         </Form.Item>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 
   // [FE-R2] Mobile: ProList Card thay Table — cùng fetch + cùng ListRowActions (ST7b pattern).

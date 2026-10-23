@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Modal, Select, Input, Typography, App, Descriptions, Space } from 'antd';
+import { Select, Input, Typography, App, Descriptions, Space } from 'antd';
 import { RollbackOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { assetService } from '../services/asset.service';
 import type { AssetDto } from '../types/asset';
 import { uiColors } from '../../../theme/designTokens';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Text } = Typography;
 
@@ -45,9 +46,9 @@ const AssetRecallModal: React.FC<AssetRecallModalProps> = ({ open, asset, onClos
   };
 
   return (
-    <Modal title={<Space><RollbackOutlined style={{ color: uiColors.warningAmber }} /><span>Thu hồi tài sản</span></Space>}
-      open={open} onCancel={onClose} okText="Xác nhận thu hồi" cancelText="Hủy"
-      okButtonProps={{ disabled: !locationId }} onOk={handleSubmit} confirmLoading={submitting} destroyOnHidden width={560}>
+    <ModalFormShell title={<Space><RollbackOutlined style={{ color: uiColors.warningAmber }} /><span>Thu hồi tài sản</span></Space>}
+      open={open} onCancel={onClose} okText="Xác nhận thu hồi"
+      okButtonProps={{ disabled: !locationId }} onOk={handleSubmit} confirmLoading={submitting} size="sm">
       {asset && (
         <Descriptions bordered size="small" column={1} style={{ marginBottom: 16 }}>
           <Descriptions.Item label="Mã tài sản"><Text strong>{asset.assetTag}</Text></Descriptions.Item>
@@ -67,7 +68,7 @@ const AssetRecallModal: React.FC<AssetRecallModalProps> = ({ open, asset, onClos
         <Text strong style={{ display: 'block', marginBottom: 8 }}>Ghi chú:</Text>
         <Input.TextArea rows={3} maxLength={500} showCount value={note} onChange={e => setNote(e.target.value)} placeholder="Ghi chú thu hồi (không bắt buộc)" />
       </div>
-    </Modal>
+    </ModalFormShell>
   );
 };
 

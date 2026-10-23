@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
 import {
-  App, Button, Card, Divider, Form, Input, Modal, Popconfirm, Select, Space, Switch, Tag, Tooltip, Typography,
+  App, Button, Card, Divider, Form, Input, Popconfirm, Select, Space, Switch, Tag, Tooltip, Typography,
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ExperimentOutlined, ClusterOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
@@ -13,6 +13,7 @@ import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 import type { CompanyNode } from '../../../components/common/CompanyTreeSelect';
 // [FE-R3] Màu UI mới đi qua token dùng chung (T-TOKEN1) — không hard-code hex trong page.
 import { textColors, uiColors } from '../../../theme/designTokens';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Text } = Typography;
 
@@ -209,13 +210,13 @@ export default function MaintenanceTemplateListPage() {
 
   // Modal tạo/sửa — định nghĩa MỘT lần, render chung cho cả mobile Card và desktop Table (ST7b).
   const formModal = (
-    <Modal
+    <ModalFormShell
       open={open}
       title={editingId ? 'Sửa mẫu bảo dưỡng' : 'Tạo mẫu bảo dưỡng'}
-      onOk={form.submit}
+      onOk={() => form.submit()}
       onCancel={handleClose}
-      destroyOnHidden
-      width={isMobile ? '95%' : 520}
+      okText={editingId ? 'Lưu thay đổi' : 'Tạo mẫu bảo dưỡng'}
+      size="sm"
     >
       <Form form={form} layout="vertical" onFinish={save}>
         <Form.Item
@@ -258,7 +259,7 @@ export default function MaintenanceTemplateListPage() {
           </Form.Item>
         )}
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 
   // [FE-R2] Mobile: ProList Card thay Table — cùng fetch + cùng renderActions (ST7b pattern).

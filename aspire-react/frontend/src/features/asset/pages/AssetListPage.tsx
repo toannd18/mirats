@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import {
   Tag, App, Button, Space, Card, Typography, Empty,
-  Modal, Alert, Descriptions, Form, Input, InputNumber, Select, DatePicker, Row, Col, Dropdown, Tooltip,
+  Alert, Descriptions, Form, Input, InputNumber, Select, DatePicker, Row, Col, Dropdown, Tooltip,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -31,6 +31,8 @@ import {
 } from '../types/asset';
 import { statusColors } from '../../../theme/designTokens';
 import { formatDate, formatMoney } from '../../../utils/format';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { serverErrorMessage } from '../../../shared/utils/formErrors';
 
 const { Text, Title } = Typography;
 
@@ -606,30 +608,31 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
       setFormData(null);
       onSuccess();
     } catch (err: unknown) {
-      void message.error((err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Lỗi tạo tài sản');
+      void message.error(serverErrorMessage(err, 'Không thể tạo tài sản. Vui lòng thử lại.'));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Modal
+    <ModalFormShell
       title="Xác nhận tạo tài sản"
       open={open}
-      onCancel={onClose}
-      width={680}
-      footer={[
-        <Button key="back" onClick={() => setStep('form')}>Quay lại</Button>,
-        <Button key="submit" type="primary" loading={submitting} onClick={handleCreate}>Xác nhận tạo</Button>,
-      ]}
+      onCancel={() => setStep('form')}
+      onOk={() => void handleCreate()}
+      cancelText="Quay lại"
+      okText="Xác nhận tạo"
+      confirmLoading={submitting}
+      size="md"
+      maskClosable={false}
     >
       <Card size="small" title="Thông tin tài sản" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px' } }}>
         <Descriptions bordered size="small" column={2}>
           <Descriptions.Item label="Mã tài sản">{formData?.assetTag ? String(formData.assetTag) : '-'}</Descriptions.Item>
           <Descriptions.Item label="Tên tài sản">{formData?.name ? String(formData.name) : '-'}</Descriptions.Item>
-          <Descriptions.Item label="Số serial">{formData?.serial ? String(formData.serial) : '-'}</Descriptions.Item>
+          <Descriptions.Item label="Serial">{formData?.serial ? String(formData.serial) : '-'}</Descriptions.Item>
           <Descriptions.Item label="Model">{resolveName(lookups.models, formData?.modelId)}</Descriptions.Item>
-          <Descriptions.Item label="Vị trí">{resolveName(lookups.locations, formData?.locationId)}</Descriptions.Item>
+          <Descriptions.Item label="Địa điểm">{resolveName(lookups.locations, formData?.locationId)}</Descriptions.Item>
           <Descriptions.Item label="Nhà cung cấp">{resolveName(lookups.suppliers, formData?.supplierId)}</Descriptions.Item>
           <Descriptions.Item label="Công ty" span={2}>{resolveName(lookups.companies, formData?.companyId)}</Descriptions.Item>
         </Descriptions>
@@ -637,9 +640,9 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
 
       <Card size="small" title="Thông tin mua sắm" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px' } }}>
         <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="Giá mua">{formatMoney(formData?.purchaseCost)}</Descriptions.Item>
+          <Descriptions.Item label="Đơn giá">{formatMoney(formData?.purchaseCost)}</Descriptions.Item>
           <Descriptions.Item label="Ngày mua">{formatDate(formData?.purchaseDate as string | null | undefined)}</Descriptions.Item>
-          <Descriptions.Item label="Thời hạn bảo hành">{typeof formData?.warrantyMonths === 'number' ? `${formData.warrantyMonths} tháng` : '-'}</Descriptions.Item>
+          <Descriptions.Item label="Bảo hành (tháng)">{typeof formData?.warrantyMonths === 'number' ? `${formData.warrantyMonths} tháng` : '-'}</Descriptions.Item>
           <Descriptions.Item label="Số đơn hàng">{formData?.orderNumber ? String(formData.orderNumber) : '-'}</Descriptions.Item>
         </Descriptions>
       </Card>
@@ -654,7 +657,7 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
           <span>Sau khi tạo, chỉ Tên và Ghi chú có thể được chỉnh sửa. Các thông tin khác không thể thay đổi và tài sản không thể xóa.</span>
         </Space>
       } />
-    </Modal>
+    </ModalFormShell>
   );
 }
 
@@ -673,37 +676,49 @@ function AssetCreateFormModal({ open, onClose, onSubmit, lookups }: {
   const locationOpts = lookups.locations.map(l => ({ value: l.id, label: l.name }));
   const supplierOpts = lookups.suppliers.map(s => ({ value: s.id, label: s.name }));
   return (
-    <Modal title="Tạo tài sản mới" open={open} onCancel={onClose} width={760} footer={null} destroyOnHidden>
-      <Form form={form} layout="vertical" size="middle" onFinish={onSubmit}>
+    <ModalFormShell
+      title="Tạo tài sản"
+      open={open}
+      onCancel={onClose}
+      onOk={() => form.submit()}
+      okText="Tiếp tục"
+      size="lg"
+      maskClosable={false}
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        size="middle"
+        onFinish={onSubmit}
+      >
         <Card size="small" title="Thông tin chung" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px 16px 4px' } }}>
           <Row gutter={[16, 0]}>
             <Col xs={24} md={12} lg={6}><Form.Item name="assetTag" label="Mã tài sản"><Input placeholder="Để trống để tự sinh mã" /></Form.Item></Col>
-            <Col xs={24} md={12} lg={12}><Form.Item name="name" label="Tên tài sản" rules={[{ required: true }]}><Input placeholder="Tên tài sản" /></Form.Item></Col>
-            <Col xs={24} md={12} lg={6}><Form.Item name="serial" label="Số serial"><Input placeholder="Số serial" /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="name" label="Tên tài sản" rules={[{ required: true, message: 'Vui lòng nhập tên tài sản' }]}><Input placeholder="Nhập tên tài sản" /></Form.Item></Col>
+            <Col xs={24} md={12} lg={6}><Form.Item name="serial" label="Serial"><Input placeholder="Nhập serial" /></Form.Item></Col>
           </Row>
         </Card>
         <Card size="small" title="Phân loại" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px 16px 4px' } }}>
           <Row gutter={[16, 0]}>
             <Col xs={24} md={12} lg={12}><Form.Item name="modelId" label="Model"><Select showSearch allowClear options={modelOpts} filterOption={filterFn} /></Form.Item></Col>
-            <Col xs={24} md={12} lg={12}><Form.Item name="locationId" label="Vị trí"><Select showSearch allowClear options={locationOpts} filterOption={filterFn} /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="locationId" label="Địa điểm"><Select showSearch allowClear options={locationOpts} filterOption={filterFn} placeholder="Chọn địa điểm" /></Form.Item></Col>
             <Col xs={24} md={12} lg={12}><Form.Item name="supplierId" label="Nhà cung cấp"><Select showSearch allowClear options={supplierOpts} filterOption={filterFn} /></Form.Item></Col>
             <Col xs={24} md={12} lg={12}><Form.Item name="companyId" label="Công ty"><CompanyTreeSelect /></Form.Item></Col>
           </Row>
         </Card>
         <Card size="small" title="Tài chính" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px 16px 4px' } }}>
           <Row gutter={[16, 0]}>
-            <Col xs={24} md={12} lg={12}><Form.Item name="purchaseCost" label="Giá mua"><Space.Compact block><InputNumber min={0} style={{ width: '100%' }} formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => (v?.replace(/,/g, '') ?? '') as unknown as 0} /><Button style={{ width: 56 }}>VND</Button></Space.Compact></Form.Item></Col>
-            <Col xs={24} md={12} lg={12}><Form.Item name="purchaseDate" label="Ngày mua"><DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" /></Form.Item></Col>
-            <Col xs={24} md={12} lg={12}><Form.Item name="warrantyMonths" label="Thời hạn bảo hành"><InputNumber min={0} max={120} style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} md={12} lg={12}><Form.Item name="orderNumber" label="Số đơn hàng"><Input /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="purchaseCost" label="Đơn giá"><Space.Compact block><InputNumber min={0} style={{ width: '100%' }} placeholder="Nhập đơn giá" formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => (v?.replace(/,/g, '') ?? '') as unknown as 0} /><Button style={{ width: 56 }}>VND</Button></Space.Compact></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="purchaseDate" label="Ngày mua"><DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="Chọn ngày mua" /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="warrantyMonths" label="Bảo hành (tháng)"><InputNumber min={0} max={120} style={{ width: '100%' }} placeholder="Số tháng bảo hành" /></Form.Item></Col>
+            <Col xs={24} md={12} lg={12}><Form.Item name="orderNumber" label="Số đơn hàng"><Input placeholder="Nhập số đơn hàng" /></Form.Item></Col>
           </Row>
         </Card>
         <Card size="small" title="Ghi chú" style={{ borderRadius: 10, marginBottom: 24 }} styles={{ body: { padding: '16px 16px 4px' } }}>
-          <Form.Item name="notes" label="Ghi chú"><Input.TextArea rows={3} maxLength={1000} showCount /></Form.Item>
+          <Form.Item name="notes" label="Ghi chú"><Input.TextArea rows={3} maxLength={1000} showCount placeholder="Ghi chú thêm" /></Form.Item>
         </Card>
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}><Button onClick={onClose}>Hủy</Button><Button type="primary" htmlType="submit">Tiếp tục</Button></div>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 }
 

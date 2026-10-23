@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
-  App, Col, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Switch,
+  App, Col, DatePicker, Form, Input, InputNumber, Row, Select, Switch,
 } from 'antd';
 import { fkForUpdate } from '../../../shared/utils/fk';
 import dayjs, { type Dayjs } from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { assetService, type AssetMaintenanceDto } from '../../asset/services/asset.service';
-import { useIsMobile } from '../../../hooks/useIsMobile';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 interface MaintenanceCompleteModalProps {
   /** The in-progress maintenance being completed. `null` = modal closed. */
@@ -29,7 +30,6 @@ interface MaintenanceCompleteModalProps {
  */
 export default function MaintenanceCompleteModal({ record, onClose, onSaved }: MaintenanceCompleteModalProps) {
   const { message } = App.useApp();
-  const isMobile = useIsMobile();
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [suppliers, setSuppliers] = useState<{ label: string; value: string }[]>([]);
@@ -66,30 +66,30 @@ export default function MaintenanceCompleteModal({ record, onClose, onSaved }: M
         cost: typeof vals.cost === 'number' ? vals.cost : null,
         // [FIX-GUID-EMPTY phần 2] Ô nhà cung cấp bị xóa ⇒ EMPTY_GUID (backend xóa liên kết).
         supplierId: fkForUpdate(vals.supplierId),
-        isWarranty: Boolean(vals.isWarranty),
+        isWarranty: vals.isWarranty === undefined ? null : Boolean(vals.isWarranty),
         notes: (vals.notes as string | undefined)?.trim() || null,
       };
       await assetService.updateMaintenance(record.id, payload);
       message.success('Đã cập nhật ngày hoàn thành bảo trì');
       onSaved();
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      message.error(e?.response?.data?.message || 'Không thể lưu bảo trì');
+      if (!applyServerFieldErrors(form, err)) {
+        message.error(serverErrorMessage(err, 'Không thể lưu bảo trì. Vui lòng thử lại.'));
+      }
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Modal
+    <ModalFormShell
       title="Hoàn thành bảo trì"
       open={!!record}
       onCancel={onClose}
       onOk={() => form.submit()}
       confirmLoading={submitting}
-      width={isMobile ? '95%' : 560}
-      okText="Lưu"
-      cancelText="Hủy"
+      okText="Lưu thay đổi"
+      size="sm"
     >
       <Form
         form={form}
@@ -99,7 +99,7 @@ export default function MaintenanceCompleteModal({ record, onClose, onSaved }: M
         <Form.Item
           name="completionDate"
           label="Ngày hoàn thành"
-          rules={[{ required: true, message: 'Chọn ngày hoàn thành' }]}
+          rules={[{ required: true, message: 'Vui lòng chọn ngày hoàn thành' }]}
         >
           <DatePicker
             style={{ width: '100%' }}
@@ -127,6 +127,6 @@ export default function MaintenanceCompleteModal({ record, onClose, onSaved }: M
           <Input.TextArea rows={3} placeholder="Kết quả xử lý, nội dung đã thực hiện..." />
         </Form.Item>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 }

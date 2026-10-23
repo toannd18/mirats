@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, App, Button, DatePicker, Form, Input, Modal, Select, Skeleton, Tag, Typography, theme } from 'antd';
+import { Alert, App, Button, DatePicker, Form, Input, Select, Skeleton, Tag, Typography, theme } from 'antd';
 import { DiffOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { assetService } from '../services/asset.service';
 import { formatDateTimeShort } from '../../../utils/format';
 import type { AssetInstallationDetail } from '../types/timeline';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Text } = Typography;
 
@@ -151,12 +152,11 @@ export default function AssetInstallationCorrectionModal({ open, assetId, entryI
   }, [detail, form, isOpenEntry, assetId, onSuccess, message]);
 
   return (
-    <Modal
+    <ModalFormShell
       open={open}
       title={<span><DiffOutlined /> Đính chính lý lịch lắp đặt</span>}
       onCancel={onClose}
-      destroyOnHidden
-      width={560}
+      size="sm"
       footer={[
         <Button key="cancel" onClick={onClose} disabled={submitting}>Hủy</Button>,
         <Button key="ok" type="primary" loading={submitting} disabled={loading || detail == null} onClick={() => void handleSubmit()}>
@@ -257,6 +257,6 @@ export default function AssetInstallationCorrectionModal({ open, assetId, entryI
           </Form>
         </>
       )}
-    </Modal>
+    </ModalFormShell>
   );
 }

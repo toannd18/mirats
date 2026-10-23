@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
-  App, Button, Col, DatePicker, Divider, Form, Input, InputNumber, Modal,
+  App, Button, Col, DatePicker, Divider, Form, Input, InputNumber,
   Row, Select, Space, Spin,
 } from 'antd';
-import { LockOutlined, SaveOutlined } from '@ant-design/icons';
+import { LockOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { accessoriesApi } from '../services/accessories.service';
-import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
 import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 interface AccessoryFormModalProps {
   open: boolean;
@@ -36,8 +37,7 @@ interface OptionItem { label: string; value: string; }
  *   fetch /checkouts, non-empty → disable field, giữ nguyên giá trị khi submit).
  */
 export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved }: AccessoryFormModalProps) {
-  const { message, modal } = App.useApp();
-  const isMobile = useIsMobile();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const isEdit = !!accessoryId;
 
@@ -119,24 +119,11 @@ export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved
       }
       onSaved();
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      void message.error(e?.response?.data?.message ?? 'Lỗi lưu phụ kiện');
+      if (!applyServerFieldErrors(form, err)) {
+        void message.error(serverErrorMessage(err, 'Không thể lưu phụ kiện. Vui lòng thử lại.'));
+      }
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleClose = () => {
-    if (form.isFieldsTouched()) {
-      modal.confirm({
-        title: 'Dữ liệu chưa lưu',
-        content: 'Bạn có chắc muốn đóng? Các thay đổi chưa lưu sẽ bị mất.',
-        okText: 'Đóng',
-        cancelText: 'Tiếp tục sửa',
-        onOk: onClose,
-      });
-    } else {
-      onClose();
     }
   };
 
@@ -144,35 +131,34 @@ export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved
     typeof opt?.label === 'string' ? opt.label.toLowerCase().includes(inp.toLowerCase()) : false;
 
   return (
-    <Modal
+    <ModalFormShell
       open={open}
-      title={isEdit ? 'Sửa phụ kiện' : 'Tạo phụ kiện mới'}
-      onCancel={handleClose}
-      width={isMobile ? '95%' : 720}
-      destroyOnHidden
-      mask={{ closable: false }}
-      footer={[
-        <Button key="cancel" onClick={handleClose}>Hủy</Button>,
-        <Button key="submit" type="primary" htmlType="submit" form="accessory-form-modal"
-          loading={saving} icon={<SaveOutlined />}>
-          {isEdit ? 'Cập nhật' : 'Tạo mới'}
-        </Button>,
-      ]}
-      styles={{ body: { maxHeight: '68vh', overflowY: 'auto', padding: '8px 24px' } }}
+      title={isEdit ? 'Sửa phụ kiện' : 'Tạo phụ kiện'}
+      onCancel={onClose}
+      onOk={() => form.submit()}
+      okText={isEdit ? 'Lưu thay đổi' : 'Tạo phụ kiện'}
+      confirmLoading={saving}
+      size="md"
+      maskClosable={false}
     >
       <Spin spinning={loading}>
-        <Form id="accessory-form-modal" form={form} layout="vertical" onFinish={(v) => void submit(v)}>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ qty: 1, minAmt: 0 }}
+          onFinish={(v) => void submit(v)}
+        >
           {/* ── Thông tin chung ── */}
           <Divider titlePlacement="start" plain style={{ marginTop: 0 }}>Thông tin chung</Divider>
           <Row gutter={[16, 8]}>
             <Col xs={24} sm={12}>
-              <Form.Item label="Tên phụ kiện" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
+              <Form.Item label="Tên phụ kiện" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên phụ kiện' }]}>
                 <Input placeholder="Nhập tên phụ kiện" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Item No." name="itemNo">
-                <Input placeholder="Mã phụ kiện (tự động hoặc thủ công)" />
+              <Form.Item label="Mã hàng" name="itemNo">
+                <Input placeholder="Nhập mã hàng" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -187,8 +173,8 @@ export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Order Number" name="orderNumber">
-                <Input placeholder="Số đơn hàng" />
+              <Form.Item label="Số đơn hàng" name="orderNumber">
+                <Input placeholder="Nhập số đơn hàng" />
               </Form.Item>
             </Col>
           </Row>
@@ -242,8 +228,8 @@ export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Vị trí" name="locationId">
-                <Select showSearch allowClear placeholder="Chọn vị trí lưu trữ" options={locationOptions} filterOption={filterFn} />
+              <Form.Item label="Địa điểm" name="locationId">
+                <Select showSearch allowClear placeholder="Chọn địa điểm lưu trữ" options={locationOptions} filterOption={filterFn} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -265,6 +251,6 @@ export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved
           </Form.Item>
         </Form>
       </Spin>
-    </Modal>
+    </ModalFormShell>
   );
 }

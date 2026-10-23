@@ -124,7 +124,7 @@ export interface UpdateMaintenancePayload {
   supplierId?: string | null;
   completionDate?: string | null;
   cost?: number | null;
-  isWarranty?: boolean;
+  isWarranty?: boolean | null;
   assigneeUserIds?: string[];
 }
 

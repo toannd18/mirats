@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
-import { Button, Space, Modal, Form, Input, TreeSelect, Select, Card, Divider, Tag, Tooltip, Typography, Popconfirm, App } from 'antd';
+import { Button, Space, Form, Input, TreeSelect, Select, Card, Divider, Tag, Tooltip, Typography, Popconfirm, App } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
@@ -210,13 +211,13 @@ export default function LocationListPage() {
 
   // Modal tạo/sửa — định nghĩa MỘT lần, render chung cho cả mobile và desktop.
   const formModal = (
-    <Modal
+    <ModalFormShell
       open={open}
       title={editingId ? 'Sửa địa điểm' : 'Tạo địa điểm' + (selectedParentId ? ' con' : '')}
-      onOk={form.submit}
+      onOk={() => form.submit()}
       onCancel={handleClose}
-      destroyOnHidden
-      width={520}
+      okText={editingId ? 'Lưu thay đổi' : 'Tạo địa điểm'}
+      size="sm"
     >
       <Form form={form} layout="vertical" onFinish={save}>
         <Form.Item label="Tên địa điểm" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
@@ -275,12 +276,12 @@ export default function LocationListPage() {
           <Form.Item label="Quốc gia" name="country" style={{ flex: 1 }}>
             <Input placeholder="Quốc gia" />
           </Form.Item>
-          <Form.Item label="Mã bưu điện" name="zip" style={{ flex: 1 }}>
-            <Input placeholder="ZIP" />
+          <Form.Item label="Mã bưu chính" name="zip" style={{ flex: 1 }}>
+            <Input placeholder="Nhập mã bưu chính" />
           </Form.Item>
         </Space>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 
   const columns: ProColumns<LocationDto>[] = [

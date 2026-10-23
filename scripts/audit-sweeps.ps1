@@ -353,6 +353,44 @@ foreach ($f in $allRepoCsFiles) {
 $script:stats['Sweep 8 (VN report date)'] = "$s8Count violation(s) / $($allRepoCsFiles.Count) .cs files"
 
 # ------------------------------------------------------------
+# Sweep 9 - form labels/placeholders/titles must not be English-only
+# ------------------------------------------------------------
+# [UI-3B] Visible form copy follows docs/GLOSSARY.md. This static probe scans string-literal
+# label/placeholder/action/title values in modal/form files and flags values that are purely
+# ASCII-English AND not an approved glossary/industry term (Email, Model, Serial, EOL, VND...).
+# Mixed Vietnamese + English ("Tên Model") is allowed because it is not English-only.
+$formEnglishTerms = @(
+    'email','model','serial','eol','vnd','vat','fax','qr','pdf','excel','csv','api','url','uri','id','pat','oem',
+    'ip','mac','ssd','hdd','ram','cpu','os','windows','microsoft','google','apple','sku','po','s/n','n/a','json',
+    'http','https','ldap','smtp','faq','sn','test','vip','lan','wan','gpu','usb','typec','barcode',
+    'trang','web'
+)
+$formAttrPattern = '(?m)(?:label|placeholder|okText|cancelText|checkedChildren|unCheckedChildren|title)\s*=\s*"([^"]+)"'
+$s9Count = 0
+foreach ($f in $frontFiles) {
+    $normPath = Normalize $f.FullName
+    if ($normPath -notmatch '/features/') { continue }
+    $content = Get-Content -LiteralPath $f.FullName -Raw
+    if ($content -notmatch '<Modal\b' -and $content -notmatch 'ModalFormShell') { continue }
+
+    foreach ($m in [regex]::Matches($content, $formAttrPattern)) {
+        $text = $m.Groups[1].Value.Trim()
+        if ($text.Length -lt 2) { continue }
+        if ($text -match '[^\x00-\x7F]') { continue }                  # contains Vietnamese
+        if ($text -match '^(VD|VS|S/N|SN-|https?://|\d+$)') { continue } # technical example
+        $words = [regex]::Matches($text, '[A-Za-z]+') | ForEach-Object { $_.Value.ToLowerInvariant() }
+        if ($words.Count -eq 0) { continue }
+        if ($text -match '\d' -and $text -notmatch '\s') { continue }   # code-like token
+        $unknown = @($words | Where-Object { $formEnglishTerms -notcontains $_ })
+        if ($unknown.Count -gt 0) {
+            Add-Violation 'S9' ("{0}: English-only form copy '{1}' (not in GLOSSARY allowlist)" -f $normPath, $text)
+            $s9Count++
+        }
+    }
+}
+$script:stats['Sweep 9 (Form copy VN)'] = "$s9Count violation(s) / $($frontFiles.Count) frontend files"
+
+# ------------------------------------------------------------
 # Report + exit code
 # ------------------------------------------------------------
 Write-Host ''
@@ -364,6 +402,7 @@ Write-Host (' {0,-34} {1}' -f 'Sweep 5 (Transactions):', $script:stats['Sweep 5 
 Write-Host (' {0,-34} {1}' -f 'Sweep 6 (Mojibake):', $script:stats['Sweep 6 (Mojibake)'])
 Write-Host (' {0,-34} {1}' -f 'Sweep 7 (Date helper):', $script:stats['Sweep 7 (Date helper)'])
 Write-Host (' {0,-34} {1}' -f 'Sweep 8 (VN report date):', $script:stats['Sweep 8 (VN report date)'])
+Write-Host (' {0,-34} {1}' -f 'Sweep 9 (Form copy VN):', $script:stats['Sweep 9 (Form copy VN)'])
 Write-Host '------------------------------------------------------------'
 Write-Host (' {0,-34} {1}' -f 'TOTAL:', "$($script:violations.Count) violation(s)")
 Write-Host ''

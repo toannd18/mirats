@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
-  Modal, Segmented, Select, Input, Typography,
+  Segmented, Select, Input, Typography,
   App, Descriptions, Alert,
 } from 'antd';
 import { UserOutlined, TeamOutlined, ClusterOutlined } from '@ant-design/icons';
@@ -8,6 +8,7 @@ import type { SegmentedValue } from 'antd/es/segmented';
 import apiClient from '../../../services/api-client';
 import { assetService } from '../services/asset.service';
 import type { AssetDto } from '../types/asset';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Text } = Typography;
 
@@ -112,9 +113,9 @@ const AssetAllocationModal: React.FC<AllocationModalProps> = ({ open, asset, onC
   };
 
   return (
-    <Modal title="Cấp phát tài sản" open={open} onCancel={onClose} okText="Cấp phát" cancelText="Hủy"
+    <ModalFormShell title="Cấp phát tài sản" open={open} onCancel={onClose} okText="Cấp phát"
       okButtonProps={{ disabled: !targetId || (targetType === 'SystemPosition' && !locationId) }}
-      onOk={handleSubmit} confirmLoading={submitting} destroyOnHidden width={560}>
+      onOk={handleSubmit} confirmLoading={submitting} size="sm">
       {asset && (
         <Descriptions bordered size="small" column={1} style={{ marginBottom: 16 }}>
           <Descriptions.Item label="Mã tài sản"><Text strong>{asset.assetTag}</Text></Descriptions.Item>
@@ -148,7 +149,7 @@ const AssetAllocationModal: React.FC<AllocationModalProps> = ({ open, asset, onC
         <Text strong style={{ display: 'block', marginBottom: 8 }}>Ghi chú:</Text>
         <Input.TextArea rows={3} maxLength={500} showCount value={note} onChange={e => setNote(e.target.value)} placeholder="Ghi chú cấp phát (không bắt buộc)" />
       </div>
-    </Modal>
+    </ModalFormShell>
   );
 };
 

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeftOutlined, CheckCircleOutlined, EditOutlined, KeyOutlined, StopOutlined,
 } from '@ant-design/icons';
-import { App, Button, Card, Descriptions, Empty, Input, Modal, Space, Spin, Tag, Typography } from 'antd';
+import { App, Button, Card, Descriptions, Empty, Input, Space, Spin, Tag, Typography } from 'antd';
 import apiClient from '../../../services/api-client';
 import { isSuperUser } from '../../auth/services/auth';
 import { adminResetPassword } from '../../auth/services/auth.service';
@@ -13,6 +13,7 @@ import LicenseUsageTable from '../../../shared/components/LicenseUsageTable';
 import ListRowActions from '../../../shared/components/list/ListRowActions';
 import UserFormModal from '../components/UserFormModal';
 import type { UserDto } from '../types/users';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Title } = Typography;
 
@@ -182,15 +183,14 @@ export default function UserDetailPage() {
         onCancel={() => setEditOpen(false)}
       />
 
-      <Modal
+      <ModalFormShell
         title="Đặt lại mật khẩu"
         open={resetOpen}
         onCancel={() => setResetOpen(false)}
         onOk={submitReset}
-        okText="Đặt lại"
-        cancelText="Hủy"
+        okText="Đặt lại mật khẩu"
         confirmLoading={resetSubmitting}
-        destroyOnHidden
+        size="sm"
       >
         <Input.Password
           placeholder="Mật khẩu mới (ít nhất 8 ký tự)"
@@ -198,7 +198,7 @@ export default function UserDetailPage() {
           onChange={(e) => setResetPassword(e.target.value)}
           onPressEnter={submitReset}
         />
-      </Modal>
+      </ModalFormShell>
     </div>
   );
 }

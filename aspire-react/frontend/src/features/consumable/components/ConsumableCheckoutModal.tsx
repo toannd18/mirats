@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
-  Modal, Select, InputNumber, Input, Tag, Typography, App,
+  Select, InputNumber, Input, Tag, Typography, App,
 } from 'antd';
 import apiClient from '../../../services/api-client';
 import { formatNumber } from '../../../utils/format';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Text, Title } = Typography;
 
@@ -112,8 +113,9 @@ const ConsumableCheckoutModal: React.FC<ConsumableCheckoutModalProps> = ({
   };
 
   return (
-    <Modal
+    <ModalFormShell
       title="Cấp phát vật tư"
+      size="sm"
       open={open}
       onOk={() => void handleOk()}
       onCancel={onClose}
@@ -198,7 +200,7 @@ const ConsumableCheckoutModal: React.FC<ConsumableCheckoutModalProps> = ({
           placeholder="Nhập ghi chú cho lần cấp phát này (không bắt buộc)"
         />
       </div>
-    </Modal>
+    </ModalFormShell>
   );
 };
 

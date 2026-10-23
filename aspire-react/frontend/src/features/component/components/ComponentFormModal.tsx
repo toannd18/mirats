@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert, App, Button, Card, Col, DatePicker, Divider, Form, Input, InputNumber, Modal,
+  Alert, App, Button, Card, Col, DatePicker, Divider, Form, Input, InputNumber,
   Radio, Row, Select, Space, Spin, Tag, Tooltip, Typography,
 } from 'antd';
-import { LockOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons';
+import { LockOutlined, PlusOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { componentsApi, type CreateComponentPayload, type ComponentDto, type TrackingType } from '../services/components.service';
-import { useIsMobile } from '../../../hooks/useIsMobile';
 import dayjs from 'dayjs';
 import { fkForUpdate } from '../../../shared/utils/fk';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 const { Text } = Typography;
 
@@ -39,8 +40,7 @@ function LockedFieldTag({ value, color }: { value: string; color?: string }) {
 }
 
 export default function ComponentFormModal({ open, componentId, onClose, onSaved }: ComponentFormModalProps) {
-  const { message, modal } = App.useApp();
-  const isMobile = useIsMobile();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const isEdit = !!componentId;
 
@@ -221,52 +221,38 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
       }
       onSaved();
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string; error_code?: string } } };
-      message.error(e?.response?.data?.message || 'Lỗi lưu dữ liệu');
+      if (!applyServerFieldErrors(form, err)) {
+        message.error(serverErrorMessage(err, 'Không thể lưu linh kiện. Vui lòng thử lại.'));
+      }
     } finally {
       setSaving(false);
     }
   };
 
-  const handleClose = () => {
-    if (form.isFieldsTouched()) {
-      modal.confirm({
-        title: 'Dữ liệu chưa lưu',
-        content: 'Bạn có chắc muốn đóng? Các thay đổi chưa lưu sẽ bị mất.',
-        okText: 'Đóng',
-        cancelText: 'Tiếp tục sửa',
-        onOk: onClose,
-      });
-    } else {
-      onClose();
-    }
-  };
-
   return (
-    <Modal
+    <ModalFormShell
       open={open}
-      title={isEdit ? 'Sửa linh kiện' : 'Tạo linh kiện mới'}
-      onCancel={handleClose}
-      width={isMobile ? '95%' : 720}
-      destroyOnHidden
-      mask={{ closable: false }}
-      footer={[
-        <Button key="cancel" onClick={handleClose}>Hủy</Button>,
-        <Button key="submit" type="primary" htmlType="submit" form="component-form-modal"
-          loading={saving} icon={<SaveOutlined />}>
-          {isEdit ? 'Cập nhật' : 'Tạo mới'}
-        </Button>,
-      ]}
-      styles={{ body: { maxHeight: '68vh', overflowY: 'auto', padding: '8px 24px' } }}
+      title={isEdit ? 'Sửa linh kiện' : 'Tạo linh kiện'}
+      onCancel={onClose}
+      onOk={() => form.submit()}
+      okText={isEdit ? 'Lưu thay đổi' : 'Tạo linh kiện'}
+      confirmLoading={saving}
+      size="lg"
+      maskClosable={false}
     >
       <Spin spinning={loading}>
-        <Form id="component-form-modal" form={form} layout="vertical" onFinish={submit}>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ trackingType: 'Bulk', qty: 1, minAmt: 0 }}
+          onFinish={submit}
+        >
           {/* ── Nhóm 1: Thông tin cơ bản ── */}
           <Divider titlePlacement="start" plain style={{ marginTop: 0 }}>Thông tin cơ bản</Divider>
           <Row gutter={[16, 8]}>
             <Col xs={24} sm={12}>
-              <Form.Item label="Tên" name="name" rules={[{ required: true, message: 'Nhập tên' }]}>
-                <Input placeholder="Tên linh kiện" />
+              <Form.Item label="Tên linh kiện" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên linh kiện' }]}>
+                <Input placeholder="Nhập tên linh kiện" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -276,7 +262,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
                     color={loadedComponent?.trackingType === 'Serial' ? 'blue' : undefined} />
                 </Form.Item>
               ) : (
-                <Form.Item label="Hình thức quản lý" name="trackingType" rules={[{ required: true, message: 'Chọn hình thức' }]}>
+                <Form.Item label="Hình thức quản lý" name="trackingType" rules={[{ required: true, message: 'Vui lòng chọn hình thức quản lý' }]}>
                   <Radio.Group optionType="button" buttonStyle="solid">
                     <Radio.Button value="Bulk">Theo số lượng</Radio.Button>
                     <Radio.Button value="Serial">Theo serial (từng cái)</Radio.Button>
@@ -293,7 +279,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
                     color={loadedComponent?.category ? undefined : 'warning'} />
                 </Form.Item>
               ) : (
-                <Form.Item label="Danh mục" name="categoryId" rules={[{ required: true, message: 'Chọn danh mục' }]}>
+                <Form.Item label="Danh mục" name="categoryId" rules={[{ required: true, message: 'Vui lòng chọn danh mục' }]}>
                   <Select showSearch placeholder="Chọn danh mục..." options={categoryOptions}
                     filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
                     popupRender={(menu) => (
@@ -312,8 +298,8 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
               )}
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Số serial (danh mục)" name="serial">
-                <Input disabled={isEdit} placeholder="Số serial mẫu (không bắt buộc)" />
+              <Form.Item label="Serial mẫu" name="serial">
+                <Input disabled={isEdit} placeholder="Nhập serial mẫu (không bắt buộc)" />
               </Form.Item>
             </Col>
           </Row>
@@ -324,13 +310,13 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
             <Row gutter={[16, 8]}>
               <Col xs={24} sm={12}>
                 {!isEdit && (
-                  <Form.Item label="Tổng số lượng" name="qty" rules={[{ required: true, message: 'Nhập số lượng' }]}>
+                  <Form.Item label="Tổng số lượng" name="qty" rules={[{ required: true, message: 'Vui lòng nhập số lượng' }]}>
                     <InputNumber min={1} style={{ width: '100%' }} />
                   </Form.Item>
                 )}
               </Col>
               <Col xs={24} sm={12}>
-                <Form.Item label="Ngưỡng cảnh báo (MinAmt)" name="minAmt">
+                <Form.Item label="Ngưỡng cảnh báo" name="minAmt">
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
@@ -338,7 +324,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
           ) : isEdit ? (
             <Row gutter={[16, 8]}>
               <Col xs={24} sm={12}>
-                <Form.Item label="Ngưỡng cảnh báo (MinAmt)" name="minAmt">
+                <Form.Item label="Ngưỡng cảnh báo" name="minAmt">
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
@@ -350,7 +336,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
           ) : (
             <Row gutter={[16, 8]}>
               <Col xs={24} sm={12}>
-                <Form.Item label="Ngưỡng cảnh báo (MinAmt)" name="minAmt">
+                <Form.Item label="Ngưỡng cảnh báo" name="minAmt">
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
@@ -382,14 +368,14 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
                     color={loadedComponent?.company ? 'blue' : 'warning'} />
                 </Form.Item>
               ) : (
-                <Form.Item label="Công ty" name="companyId" rules={[{ required: true, message: 'Chọn công ty' }]}>
+                <Form.Item label="Công ty" name="companyId" rules={[{ required: true, message: 'Vui lòng chọn công ty' }]}>
                   <CompanyTreeSelect allowQuickAdd />
                 </Form.Item>
               )}
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Vị trí lưu kho" name="locationId">
-                <Select showSearch allowClear placeholder="Chọn vị trí (không bắt buộc)" options={locationOptions}
+              <Form.Item label="Địa điểm lưu kho" name="locationId">
+                <Select showSearch allowClear placeholder="Chọn địa điểm (không bắt buộc)" options={locationOptions}
                   filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())} />
               </Form.Item>
             </Col>
@@ -450,7 +436,7 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item label="Giá mua (đơn vị)" name="purchaseCost">
+              <Form.Item label="Đơn giá" name="purchaseCost">
                 <InputNumber min={0} precision={2} style={{ width: '100%' }} placeholder="0" />
               </Form.Item>
             </Col>
@@ -462,6 +448,6 @@ export default function ComponentFormModal({ open, componentId, onClose, onSaved
           </Form.Item>
         </Form>
       </Spin>
-    </Modal>
+    </ModalFormShell>
   );
 }

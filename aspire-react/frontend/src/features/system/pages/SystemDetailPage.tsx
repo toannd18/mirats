@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  App, Button, Card, Descriptions, Empty, Form, Input, InputNumber, Modal, Result, Segmented, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography,
+  App, Button, Card, Descriptions, Empty, Form, Input, InputNumber, Result, Segmented, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
 import {
   ArrowLeftOutlined, CarOutlined, ClusterOutlined, EllipsisOutlined, ExperimentOutlined, GiftOutlined, HistoryOutlined, KeyOutlined, LaptopOutlined, PrinterOutlined, RollbackOutlined, ToolOutlined,
@@ -24,6 +24,7 @@ import { useIsMobile } from '../../../hooks/useIsMobile';
 import { EllipsisText, NowrapText } from '../../../shared/components/list/ListText';
 import ListRowActions from '../../../shared/components/list/ListRowActions';
 import { usePermission } from '../../../hooks/usePermission';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Title, Text } = Typography;
 
@@ -789,17 +790,14 @@ export default function SystemDetailPage() {
         />
       </Card>
 
-      <Modal
+      <ModalFormShell
         open={movementModalOpen}
         title={movementDirection === 'issue' ? 'Cấp vật tư' : 'Nhận lại vật tư'}
         onOk={() => void saveMovement()}
         confirmLoading={movementSaving}
         onCancel={() => setMovementModalOpen(false)}
         okText={movementDirection === 'issue' ? 'Cấp' : 'Nhận lại'}
-        cancelText="Hủy"
-        destroyOnHidden
-        forceRender
-        width={isMobile ? '95%' : 520}
+        size="sm"
       >
         <Form form={movementForm} layout="vertical">
           {movementDirection === 'issue' && (
@@ -871,7 +869,7 @@ export default function SystemDetailPage() {
             <Input.TextArea rows={3} maxLength={1000} showCount />
           </Form.Item>
         </Form>
-      </Modal>
+      </ModalFormShell>
     </div>
   );
 }

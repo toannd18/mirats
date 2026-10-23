@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import {
-  App, Button, Col, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Spin, Switch,
+  App, Button, Col, DatePicker, Form, Input, InputNumber, Row, Select, Spin, Switch,
 } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import type { ActionType } from '@ant-design/pro-components';
@@ -8,10 +8,10 @@ import dayjs from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { assetService, type CreateMaintenanceForAssetPayload } from '../../asset/services/asset.service';
 import { usePermission } from '../../../hooks/usePermission';
-import { useIsMobile } from '../../../hooks/useIsMobile';
 import MaintenanceTable, { MAINTENANCE_TYPE_OPTIONS } from '../components/MaintenanceTable';
 import { isSuperUser } from '../../../features/auth/services/auth';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 interface AssetOption {
   label: string;
@@ -21,7 +21,6 @@ interface AssetOption {
 
 export default function MaintenanceListPage() {
   const { message } = App.useApp();
-  const isMobile = useIsMobile();
   const actionRef = useRef<ActionType | undefined>(undefined);
   const superUser = isSuperUser();
   // ST6b — create maintenance requires assets.edit (backend POST maintenances).
@@ -146,13 +145,14 @@ export default function MaintenanceListPage() {
       />
 
       {/* ─── Create modal ─── */}
-      <Modal
-        title="Thêm bảo trì"
+      <ModalFormShell
+        title="Thêm phiếu bảo trì"
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         onOk={() => form.submit()}
         confirmLoading={submitting}
-        width={isMobile ? '95%' : 720}
+        okText="Tạo phiếu bảo trì"
+        size="md"
       >
         <Form form={form} layout="vertical" onFinish={(v) => void submitCreate(v as Record<string, unknown>)}>
           {superUser && (
@@ -235,7 +235,7 @@ export default function MaintenanceListPage() {
             </Col>
           </Row>
         </Form>
-      </Modal>
+      </ModalFormShell>
     </>
   );
 }

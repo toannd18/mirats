@@ -144,7 +144,10 @@ public class RepairReportTests
         Assert.Equal(3, october.Summary.CompletedCount);
         Assert.Equal(3.0m, october.Summary.MttrDays);
         Assert.Equal(100m, october.Summary.TotalCost);
+        // A completed ticket with cost left blank must still be counted as missing cost
+        // (it is NOT silently converted to 0 by the form/API).
         Assert.Equal(6, october.Summary.MissingCostCount);
+        Assert.Contains(october.Items, i => i.CompletionDate.HasValue && i.Cost is null);
         Assert.Equal(1, october.Summary.WarrantyCount);
         Assert.Equal(2, october.Summary.UnassignedCount);
         Assert.Equal(1, october.Summary.InvalidInstallationCount);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  App, Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Popconfirm,
+  App, Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Popconfirm,
   Row, Select, Space, Spin, Table, Tag, Typography,
 } from 'antd';
 import {
@@ -12,6 +12,7 @@ import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { formatDateTime } from '../../../utils/format';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 interface TemplateDetailDto {
   id: string;
@@ -515,14 +516,14 @@ export default function MaintenanceTemplateBuilderPage() {
       </Card>
 
       {/* Item modal */}
-      <Modal
+      <ModalFormShell
         open={itemOpen}
         title={itemEditing ? 'Sửa hạng mục' : 'Thêm hạng mục'}
-        onOk={itemForm.submit}
+        onOk={() => itemForm.submit()}
         onCancel={() => setItemOpen(false)}
+        okText={itemEditing ? 'Lưu thay đổi' : 'Tạo hạng mục'}
         confirmLoading={savingItem}
-        destroyOnHidden
-        width={isMobile ? '95%' : 560}
+        size="sm"
       >
         <Form form={itemForm} layout="vertical" onFinish={saveItem}>
           <Form.Item label="Tên hạng mục" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
@@ -563,17 +564,17 @@ export default function MaintenanceTemplateBuilderPage() {
             />
           </Form.Item>
         </Form>
-      </Modal>
+      </ModalFormShell>
 
       {/* Param modal */}
-      <Modal
+      <ModalFormShell
         open={paramOpen}
         title={paramEditing ? 'Sửa tiêu chuẩn' : 'Thêm tiêu chuẩn kỹ thuật'}
-        onOk={paramForm.submit}
+        onOk={() => paramForm.submit()}
         onCancel={() => setParamOpen(false)}
+        okText={paramEditing ? 'Lưu thay đổi' : 'Tạo tiêu chuẩn'}
         confirmLoading={savingParam}
-        destroyOnHidden
-        width={isMobile ? '95%' : 560}
+        size="sm"
       >
         <Form form={paramForm} layout="vertical" onFinish={saveParam}>
           <Form.Item label="Tên thông số" name="paramName" rules={[{ required: true, message: 'Vui lòng nhập' }]}>
@@ -625,22 +626,23 @@ export default function MaintenanceTemplateBuilderPage() {
             <Input placeholder="VD: ipmitool sensor" />
           </Form.Item>
         </Form>
-      </Modal>
+      </ModalFormShell>
 
       {/* New version modal */}
-      <Modal
+      <ModalFormShell
         open={newVerOpen}
         title="Tạo phiên bản mới (nháp)"
-        onOk={newVerForm.submit}
+        onOk={() => newVerForm.submit()}
         onCancel={() => setNewVerOpen(false)}
-        destroyOnHidden
+        okText="Tạo phiên bản"
+        size="sm"
       >
         <Form form={newVerForm} layout="vertical" onFinish={createVersion}>
           <Form.Item label="Hiệu lực từ" name="effectiveFrom" tooltip="Bỏ trống = lấy thời điểm công bố">
             <Input type="datetime-local" />
           </Form.Item>
         </Form>
-      </Modal>
+      </ModalFormShell>
     </div>
   );
 }

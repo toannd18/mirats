@@ -1,10 +1,11 @@
 import { useState, useRef, type ReactNode } from 'react';
-import { Button, Space, Modal, Form, Input, Select, Card, Divider, Tag, Typography, Popconfirm, App } from 'antd';
+import { Button, Space, Form, Input, Select, Card, Divider, Tag, Typography, Popconfirm, App } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, PhoneOutlined, MailOutlined, LinkOutlined, PrinterOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 
 const { Text } = Typography;
@@ -119,13 +120,13 @@ export default function SupplierListPage() {
 
   // Modal tạo/sửa — định nghĩa MỘT lần, render chung cho cả mobile và desktop.
   const formModal = (
-    <Modal
+    <ModalFormShell
       open={open}
       title={editingId ? 'Sửa nhà cung cấp' : 'Thêm nhà cung cấp'}
-      onOk={form.submit}
+      onOk={() => form.submit()}
       onCancel={handleClose}
-      destroyOnHidden
-      width={640}
+      okText={editingId ? 'Lưu thay đổi' : 'Tạo nhà cung cấp'}
+      size="md"
     >
       <Form form={form} layout="vertical" onFinish={save}>
         <Space size="middle" style={{ width: '100%' }}>
@@ -166,12 +167,12 @@ export default function SupplierListPage() {
           <Form.Item label="Email" name="contactEmail" style={{ flex: 1 }} rules={[{ type: 'email', message: 'Email không hợp lệ' }]}>
             <Input prefix={<MailOutlined />} />
           </Form.Item>
-          <Form.Item label="Website" name="url" style={{ flex: 1 }} rules={[{ type: 'url', message: 'URL không hợp lệ' }]}>
+          <Form.Item label="Trang web" name="url" style={{ flex: 1 }} rules={[{ type: 'url', message: 'URL không hợp lệ' }]}>
             <Input prefix={<LinkOutlined />} />
           </Form.Item>
         </Space>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 
   const columns: ProColumns<SupplierDto>[] = [

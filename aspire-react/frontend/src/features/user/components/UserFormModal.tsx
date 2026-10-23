@@ -1,12 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Modal, Form, Input, Select, Switch, Space, App,
+  Form, Input, Select, Switch, Space, App,
 } from 'antd';
 import type { SelectProps } from 'antd';
 import apiClient from '../../../services/api-client';
 import type { UserDto, ReferenceOption } from '../types/users';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 // ==================== Types ====================
 
@@ -171,18 +173,8 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
       }
       onSuccess();
     } catch (error: unknown) {
-      const err = error as {
-        response?: { status?: number; data?: { message?: string; errors?: Record<string, string[]> } };
-      };
-      if (err.response?.status === 409) {
-        void message.error(err.response?.data?.message || 'Tên đăng nhập hoặc email đã tồn tại');
-      } else if (err.response?.data?.errors) {
-        const first = Object.values(err.response.data.errors).flat()[0];
-        void message.error(first || 'Dữ liệu không hợp lệ');
-      } else if (err.response?.data?.message) {
-        void message.error(err.response.data.message);
-      } else {
-        void message.error('Đã xảy ra lỗi không mong muốn');
+      if (!applyServerFieldErrors(form, error)) {
+        void message.error(serverErrorMessage(error, 'Không thể lưu người dùng. Vui lòng thử lại.'));
       }
     } finally {
       setSubmitting(false);
@@ -197,31 +189,36 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
   // ==================== Render ====================
 
   return (
-    <Modal
+    <ModalFormShell
       title={isEditing ? 'Sửa người dùng' : 'Thêm người dùng'}
       open={open}
-      onOk={handleSubmit}
+      onOk={() => void handleSubmit()}
       onCancel={onCancel}
       confirmLoading={submitting}
-      width={isMobile ? '95%' : 640}
-      destroyOnHidden
-      centered
-      mask={{ closable: false }}
+      size="md"
+      maskClosable={false}
       okText={isEditing ? 'Lưu thay đổi' : 'Tạo người dùng'}
     >
-      <Form form={form} layout="vertical" size="middle" autoComplete="off" style={{ marginTop: 8 }}>
+      <Form
+        form={form}
+        layout="vertical"
+        size="middle"
+        autoComplete="off"
+        initialValues={{ isActive: true, isSuperUser: false, employeeNumber: '', jobTitle: '' }}
+        style={{ marginTop: 8 }}
+      >
         {/* Row 1: First Name + Last Name */}
         <div style={fieldFlex}>
           <Form.Item
             label="Họ" name="firstName"
-            rules={[{ required: true, message: 'Bắt buộc' }, { max: 100 }]}
+            rules={[{ required: true, message: 'Vui lòng nhập họ' }, { max: 100 }]}
             style={{ flex: 1 }}
           >
             <Input placeholder="Nhập họ" />
           </Form.Item>
           <Form.Item
             label="Tên" name="lastName"
-            rules={[{ required: true, message: 'Bắt buộc' }, { max: 100 }]}
+            rules={[{ required: true, message: 'Vui lòng nhập tên' }, { max: 100 }]}
             style={{ flex: 1 }}
           >
             <Input placeholder="Nhập tên" />
@@ -233,9 +230,9 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
           <Form.Item
             label="Tên đăng nhập" name="username"
             rules={[
-              { required: true, message: 'Bắt buộc' },
+              { required: true, message: 'Vui lòng nhập tên đăng nhập' },
               { max: 100 },
-              { pattern: /^\S+$/, message: 'Không được có khoảng trắng' },
+              { pattern: /^\S+$/, message: 'Tên đăng nhập không được có khoảng trắng' },
             ]}
             style={{ flex: 1 }}
           >
@@ -243,7 +240,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
           </Form.Item>
           <Form.Item
             label="Email" name="email"
-            rules={[{ required: true, message: 'Bắt buộc' }, { type: 'email' }, { max: 255 }]}
+            rules={[{ required: true, message: 'Vui lòng nhập email' }, { type: 'email', message: 'Email không hợp lệ' }, { max: 255 }]}
             style={{ flex: 1 }}
           >
             <Input placeholder="Địa chỉ email" />
@@ -273,8 +270,8 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
           <Form.Item
             label="Mật khẩu ban đầu" name="password"
             rules={[
-              { required: true, message: 'Bắt buộc' },
-              { min: 8, message: 'Tối thiểu 8 ký tự' },
+              { required: true, message: 'Vui lòng nhập mật khẩu ban đầu' },
+              { min: 8, message: 'Mật khẩu phải có ít nhất 8 ký tự' },
             ]}
             extra="Người dùng sẽ bị yêu cầu đổi mật khẩu này ở lần đăng nhập đầu tiên."
           >
@@ -340,7 +337,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
           </Form.Item>
         </Space>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 };
 

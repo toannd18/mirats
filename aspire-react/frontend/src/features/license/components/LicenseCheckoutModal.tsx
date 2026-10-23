@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { App, Input, Modal, Radio, Select, Spin } from 'antd';
+import { App, Input, Radio, Select, Spin } from 'antd';
 import apiClient from '../../../services/api-client';
 import { licensesApi, type LicenseSeatTargetType } from '../services/licenses.service';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 interface LicenseCheckoutModalProps {
   open: boolean;
@@ -92,14 +93,14 @@ export default function LicenseCheckoutModal({
   };
 
   return (
-    <Modal
+    <ModalFormShell
       open={open}
       title={`Cấp phát ghế${seatNumber ? ` #${seatNumber}` : ''} - ${licenseName}`}
       onCancel={onClose}
       onOk={() => void submit()}
       confirmLoading={submitting}
-      width={560}
-      destroyOnHidden
+      okText="Cấp phát"
+      size="sm"
     >
       <div style={{ marginBottom: 12 }}>
         <Radio.Group
@@ -131,6 +132,6 @@ export default function LicenseCheckoutModal({
         onChange={e => setNote(e.target.value)}
         style={{ marginTop: 12 }}
       />
-    </Modal>
+    </ModalFormShell>
   );
 }

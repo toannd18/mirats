@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Modal, Select, Input, Typography, App, Descriptions, Alert, Space } from 'antd';
+import { Select, Input, Typography, App, Descriptions, Alert, Space } from 'antd';
 import { InboxOutlined } from '@ant-design/icons';
 import apiClient from '../../../services/api-client';
 import { assetService } from '../services/asset.service';
 import type { AssetDto } from '../types/asset';
 import { uiColors } from '../../../theme/designTokens';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Text } = Typography;
 
@@ -45,9 +46,9 @@ const AssetArchiveModal: React.FC<AssetArchiveModalProps> = ({ open, asset, onCl
   };
 
   return (
-    <Modal title={<Space><InboxOutlined style={{ color: uiColors.warningAmber }} /><span>Lưu trữ / Thanh lý tài sản</span></Space>}
-      open={open} onCancel={onClose} okText="Xác nhận lưu trữ" cancelText="Hủy"
-      okButtonProps={{ disabled: !locationId, danger: true }} onOk={handleSubmit} confirmLoading={submitting} destroyOnHidden width={560}>
+    <ModalFormShell title={<Space><InboxOutlined style={{ color: uiColors.warningAmber }} /><span>Lưu trữ / Thanh lý tài sản</span></Space>}
+      open={open} onCancel={onClose} okText="Xác nhận lưu trữ"
+      okButtonProps={{ disabled: !locationId, danger: true }} onOk={handleSubmit} confirmLoading={submitting} size="sm">
       {asset && (
         <Descriptions bordered size="small" column={1} style={{ marginBottom: 16 }}>
           <Descriptions.Item label="Mã tài sản"><Text strong>{asset.assetTag}</Text></Descriptions.Item>
@@ -69,7 +70,7 @@ const AssetArchiveModal: React.FC<AssetArchiveModalProps> = ({ open, asset, onCl
         <Text strong style={{ display: 'block', marginBottom: 8 }}>Ghi chú lưu trữ:</Text>
         <Input.TextArea rows={3} maxLength={500} showCount value={note} onChange={e => setNote(e.target.value)} placeholder="Ghi chú lưu trữ (không bắt buộc)" />
       </div>
-    </Modal>
+    </ModalFormShell>
   );
 };
 

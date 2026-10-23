@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import {
-  Modal, InputNumber, Input, Space, Tag, Typography, App, Descriptions,
+  InputNumber, Input, Space, Tag, Typography, App, Descriptions,
 } from 'antd';
 import { RollbackOutlined, EnvironmentOutlined } from '@ant-design/icons';
 import { accessoriesApi, checkoutTypeToLabel } from '../services/accessories.service';
 import type { AccessoryCheckoutDto, CheckinRequest } from '../services/accessories.service';
 import { uiColors } from '../../../theme/designTokens';
 import { formatNumber } from '../../../utils/format';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 
 const { Text, Title } = Typography;
 
@@ -71,7 +72,7 @@ const AccessoryCheckinModal: React.FC<AccessoryCheckinModalProps> = ({
   };
 
   return (
-    <Modal
+    <ModalFormShell
       title={
         <Space>
           <RollbackOutlined style={{ color: uiColors.warningAmber }} />
@@ -82,11 +83,9 @@ const AccessoryCheckinModal: React.FC<AccessoryCheckinModalProps> = ({
       onOk={handleSubmit}
       onCancel={handleClose}
       okText="Xác nhận thu hồi"
-      cancelText="Hủy"
       confirmLoading={submitting}
       okButtonProps={{ disabled: returnQty < 1 || !checkout }}
-      destroyOnHidden
-      width={520}
+      size="sm"
     >
       {checkout && (
         <div style={{ marginBottom: 20 }}>
@@ -152,7 +151,7 @@ const AccessoryCheckinModal: React.FC<AccessoryCheckinModalProps> = ({
           placeholder="Ví dụ: Hỏng, mất, hoặc trả lại nguyên trạng..."
         />
       </div>
-    </Modal>
+    </ModalFormShell>
   );
 };
 

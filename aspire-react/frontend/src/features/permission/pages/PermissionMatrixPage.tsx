@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { App, Button, Modal, Select, Space, Tag, Tooltip, Typography } from 'antd';
+import { App, Button, Select, Space, Tag, Tooltip, Typography } from 'antd';
 import { SafetyOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import { groupsApi } from '../services/groups.service';
 import type { PermissionResourceGroup } from '../types/groups';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { serverErrorMessage } from '../../../shared/utils/formErrors';
 
 const { Text } = Typography;
 
@@ -67,8 +69,7 @@ export default function PermissionMatrixPage() {
       setAssignUser(null);
       actionRef.current?.reload();
     } catch (err) {
-      const e = err as { response?: { data?: { message?: string; errorCode?: string } } };
-      message.error(e?.response?.data?.message ?? 'Không thể cập nhật nhóm');
+      message.error(serverErrorMessage(err, 'Không thể cập nhật nhóm.'));
     } finally {
       setSaving(false);
     }
@@ -194,16 +195,14 @@ export default function PermissionMatrixPage() {
         scroll={{ x: 'max-content' }}
       />
 
-      <Modal
+      <ModalFormShell
         title={assignUser ? `Gán nhóm cho: ${[assignUser.firstName, assignUser.lastName].filter(Boolean).join(' ') || assignUser.username}` : 'Gán nhóm'}
         open={!!assignUser}
         onCancel={() => setAssignUser(null)}
         onOk={() => void handleAssignSave()}
         confirmLoading={saving}
-        okText="Lưu"
-        cancelText="Hủy"
-        destroyOnHidden
-        width={520}
+        okText="Lưu thay đổi"
+        size="sm"
       >
         <p style={{ marginBottom: 8 }}>
           Chọn các nhóm (permission group) cho người dùng. Thay đổi ảnh hưởng tức thì tới các quyền được cấp.
@@ -222,7 +221,7 @@ export default function PermissionMatrixPage() {
             <Text type="secondary"><ExclamationCircleOutlined style={{ marginInlineEnd: 4 }} />Chống tự khóa quyền: hệ thống chặn gỡ quyền quản trị cuối cùng của chính bạn.</Text>
           </Tooltip>
         </div>
-      </Modal>
+      </ModalFormShell>
     </>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
-import { Button, Space, Modal, Form, Input, InputNumber, Select, Switch, Card, Divider, Tag, Typography, Popconfirm, App } from 'antd';
+import { Button, Space, Form, Input, InputNumber, Select, Switch, Card, Divider, Tag, Typography, Popconfirm, App } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -7,6 +7,8 @@ import apiClient from '../../../services/api-client';
 import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 const { Text } = Typography;
 
@@ -103,8 +105,7 @@ export default function AssetModelListPage() {
       message.success('Đã xóa Model');
       actionRef.current?.reload();
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      message.error(e?.response?.data?.message || 'Không thể xóa Model');
+      message.error(serverErrorMessage(err, 'Không thể xóa Model.'));
     }
   };
 
@@ -125,8 +126,9 @@ export default function AssetModelListPage() {
       handleClose(); actionRef.current?.reload();
     } catch (err: unknown) {
       if ((err as { errorFields?: unknown }).errorFields) return;
-      const e = err as { response?: { data?: { message?: string } } };
-      message.error(e?.response?.data?.message || 'Lỗi lưu Model');
+      if (!applyServerFieldErrors(form, err)) {
+        message.error(serverErrorMessage(err, 'Không thể lưu Model. Vui lòng thử lại.'));
+      }
     }
   };
 
@@ -148,19 +150,23 @@ export default function AssetModelListPage() {
 
   // Modal tạo/sửa — định nghĩa MỘT lần, render chung cho cả mobile và desktop.
   const formModal = (
-    <Modal
-      open={open} title={editingId ? 'Sửa Model' : 'Thêm Model'}
-      onOk={form.submit} onCancel={handleClose} destroyOnHidden width={560}
+    <ModalFormShell
+      open={open}
+      title={editingId ? 'Sửa Model' : 'Thêm Model'}
+      onOk={() => form.submit()}
+      onCancel={handleClose}
+      okText={editingId ? 'Lưu thay đổi' : 'Tạo Model'}
+      size="sm"
     >
-      <Form form={form} layout="vertical" onFinish={save}>
-        <Form.Item label="Tên Model" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
-          <Input placeholder="Tên Model" />
+      <Form form={form} layout="vertical" initialValues={{ requestable: false }} onFinish={save}>
+        <Form.Item label="Tên Model" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên Model' }]}>
+          <Input placeholder="Nhập tên Model" />
         </Form.Item>
         <Form.Item label="Số Model" name="modelNumber">
-          <Input placeholder="Số hiệu Model" />
+          <Input placeholder="Nhập số hiệu Model" />
         </Form.Item>
         <Space size="middle" style={{ width: '100%' }}>
-          <Form.Item label="Danh mục" name="categoryId" rules={[{ required: true, message: 'Bắt buộc' }]} style={{ flex: 1 }}>
+          <Form.Item label="Danh mục" name="categoryId" rules={[{ required: true, message: 'Vui lòng chọn danh mục' }]} style={{ flex: 1 }}>
             <Select
               showSearch allowClear placeholder="Chọn danh mục"
               options={assetCategoryOptions}
@@ -174,7 +180,7 @@ export default function AssetModelListPage() {
               }}
             />
           </Form.Item>
-          <Form.Item label="Hãng SX" name="manufacturerId" rules={[{ required: true, message: 'Bắt buộc' }]} style={{ flex: 1 }}>
+          <Form.Item label="Hãng SX" name="manufacturerId" rules={[{ required: true, message: 'Vui lòng chọn hãng sản xuất' }]} style={{ flex: 1 }}>
             <Select showSearch allowClear placeholder="Chọn hãng" options={manufacturers}
               filterOption={(inp, opt) => (opt?.label as string)?.toLowerCase().includes(inp.toLowerCase())} />
           </Form.Item>
@@ -184,8 +190,8 @@ export default function AssetModelListPage() {
             <Select showSearch allowClear placeholder="Chọn khấu hao" options={depreciations}
               filterOption={(inp, opt) => (opt?.label as string)?.toLowerCase().includes(inp.toLowerCase())} />
           </Form.Item>
-          <Form.Item label="EOL (tháng)" name="eol" style={{ flex: 1 }}>
-            <InputNumber min={0} style={{ width: '100%' }} placeholder="Số tháng EOL" />
+          <Form.Item label="Hết vòng đời (EOL)" name="eol" style={{ flex: 1 }}>
+            <InputNumber min={0} style={{ width: '100%' }} placeholder="Số tháng hết vòng đời" />
           </Form.Item>
         </Space>
         <Form.Item label="Yêu cầu cấp phát" name="requestable" valuePropName="checked">
@@ -195,7 +201,7 @@ export default function AssetModelListPage() {
           <Input.TextArea rows={2} placeholder="Ghi chú về Model" />
         </Form.Item>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 
   const columns: ProColumns<AssetModelDto>[] = [
@@ -204,7 +210,7 @@ export default function AssetModelListPage() {
     { title: 'Hãng SX', key: 'manufacturer', render: (_, r) => r.manufacturer?.name || '-' },
     { title: 'Danh mục', key: 'category', render: (_, r) => r.category?.name || '-' },
     { title: 'Khấu hao', key: 'depreciation', render: (_, r) => r.depreciation ? `${r.depreciation.name} (${r.depreciation.months} tháng)` : '-' },
-    { title: 'EOL (tháng)', dataIndex: 'eol', key: 'eol', render: (_, r) => r.eol ?? '-' },
+    { title: 'Hết vòng đời (tháng)', dataIndex: 'eol', key: 'eol', render: (_, r) => r.eol ?? '-' },
     { title: 'Yêu cầu cấp phát', dataIndex: 'requestable', key: 'requestable', render: (_, r) => r.requestable ? <Tag color="green">Có</Tag> : <Tag>Không</Tag> },
     {
       title: 'Hành động', key: 'actions', valueType: 'option' as const, width: 140,
@@ -252,7 +258,7 @@ export default function AssetModelListPage() {
                 <Text style={{ fontSize: 13 }}>{record.category?.name || '-'}</Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>Khấu hao</Text>
                 <Text style={{ fontSize: 13 }}>{record.depreciation ? `${record.depreciation.name} (${record.depreciation.months} tháng)` : '-'}</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>EOL</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>Hết vòng đời</Text>
                 <Text style={{ fontSize: 13 }}>{record.eol ?? '-'}{record.eol != null ? ' tháng' : ''}</Text>
               </div>
               <Divider style={{ margin: '10px 0' }} />

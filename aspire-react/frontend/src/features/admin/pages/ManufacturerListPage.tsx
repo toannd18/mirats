@@ -1,10 +1,11 @@
 import { useState, useRef, type ReactNode } from 'react';
-import { Button, Space, Modal, Form, Input, Card, Divider, Tag, Typography, Popconfirm, App } from 'antd';
+import { Button, Space, Form, Input, Card, Divider, Tag, Typography, Popconfirm, App } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 
 const { Text } = Typography;
@@ -101,12 +102,13 @@ export default function ManufacturerListPage() {
 
   // Modal tạo/sửa — định nghĩa MỘT lần, render chung cho cả mobile và desktop.
   const formModal = (
-    <Modal
+    <ModalFormShell
       open={open}
       title={editingId ? 'Sửa nhà sản xuất' : 'Thêm nhà sản xuất'}
-      onOk={form.submit}
+      onOk={() => form.submit()}
       onCancel={handleClose}
-      destroyOnHidden
+      okText={editingId ? 'Lưu thay đổi' : 'Tạo nhà sản xuất'}
+      size="sm"
     >
       <Form form={form} layout="vertical" onFinish={save}>
         <Form.Item
@@ -127,31 +129,31 @@ export default function ManufacturerListPage() {
         <Form.Item label="Tên NSX" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
           <Input placeholder="Tên nhà sản xuất" />
         </Form.Item>
-        <Form.Item label="Website" name="url" rules={[{ type: 'url', message: 'URL không hợp lệ' }]}>
+        <Form.Item label="Trang web" name="url" rules={[{ type: 'url', message: 'URL không hợp lệ' }]}>
           <Input placeholder="https://example.com" />
         </Form.Item>
-        <Form.Item label="Support URL" name="supportUrl" rules={[{ type: 'url', message: 'URL không hợp lệ' }]}>
+        <Form.Item label="URL hỗ trợ" name="supportUrl" rules={[{ type: 'url', message: 'URL không hợp lệ' }]}>
           <Input placeholder="https://support.example.com" />
         </Form.Item>
-        <Form.Item label="Support Email" name="supportEmail" rules={[{ type: 'email', message: 'Email không hợp lệ' }]}>
-          <Input placeholder="support@example.com" />
+        <Form.Item label="Email hỗ trợ" name="supportEmail" rules={[{ type: 'email', message: 'Email không hợp lệ' }]}>
+          <Input placeholder="Nhập email hỗ trợ" />
         </Form.Item>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 
   const columns: ProColumns<ManufacturerDto>[] = [
     { title: 'Mã NSX', dataIndex: 'code', key: 'code', width: 100 },
     { title: 'Tên NSX', dataIndex: 'name', key: 'name' },
     {
-      title: 'Website', dataIndex: 'url', key: 'url',
+      title: 'Trang web', dataIndex: 'url', key: 'url',
       render: (_, r) => r.url ? <a href={r.url} target="_blank" rel="noreferrer">{r.url}</a> : '-',
     },
     {
-      title: 'Support URL', dataIndex: 'supportUrl', key: 'supportUrl',
+      title: 'URL hỗ trợ', dataIndex: 'supportUrl', key: 'supportUrl',
       render: (_, r) => r.supportUrl ? <a href={r.supportUrl} target="_blank" rel="noreferrer">{r.supportUrl}</a> : '-',
     },
-    { title: 'Support Email', dataIndex: 'supportEmail', key: 'supportEmail', render: (_, r) => r.supportEmail || '-' },
+    { title: 'Email hỗ trợ', dataIndex: 'supportEmail', key: 'supportEmail', render: (_, r) => r.supportEmail || '-' },
     {
       title: 'Hành động', key: 'actions', valueType: 'option' as const, width: 140,
       render: (_, record) => <Space size="small">{renderActions(record)}</Space>,
@@ -192,13 +194,13 @@ export default function ManufacturerListPage() {
                 {record.code && <Tag style={{ marginInlineEnd: 0 }}>{record.code}</Tag>}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', padding: '10px 12px', background: '#fafafa', borderRadius: 8 }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>Website</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>Trang web</Text>
                 <Text style={{ fontSize: 13 }}>
                   {record.url
                     ? <a href={record.url} target="_blank" rel="noreferrer" style={{ wordBreak: 'break-all' }}>{record.url}</a>
                     : '-'}
                 </Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>Support Email</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>Email hỗ trợ</Text>
                 <Text style={{ fontSize: 13 }}>{record.supportEmail || '-'}</Text>
               </div>
               <Divider style={{ margin: '10px 0' }} />

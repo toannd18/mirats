@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
-import { Button, Space, Modal, Form, Input, Select, Card, Divider, Tag, Typography, Popconfirm, App } from 'antd';
+import { Button, Space, Form, Input, Select, Card, Divider, Tag, Typography, Popconfirm, App } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, PhoneOutlined, PrinterOutlined } from '@ant-design/icons';
 import { ProList, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
 
@@ -111,7 +112,7 @@ export default function DepartmentListPage() {
 
   // Modal tạo/sửa — định nghĩa MỘT lần, render chung cho cả mobile và desktop.
   const formModal = (
-    <Modal open={open} title={editingId ? 'Sửa phòng ban' : 'Thêm phòng ban'} onOk={form.submit} onCancel={handleClose} destroyOnHidden width={520}>
+    <ModalFormShell open={open} title={editingId ? 'Sửa phòng ban' : 'Thêm phòng ban'} onOk={() => form.submit()} onCancel={handleClose} okText={editingId ? 'Lưu thay đổi' : 'Tạo phòng ban'} size="sm">
       <Form form={form} layout="vertical" onFinish={save}>
         <Form.Item label="Tên phòng ban" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
           <Input placeholder="Tên phòng ban" />
@@ -131,7 +132,7 @@ export default function DepartmentListPage() {
           </Form.Item>
         </Space>
       </Form>
-    </Modal>
+    </ModalFormShell>
   );
 
   const columns: ProColumns<DepartmentDto>[] = [

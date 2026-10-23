@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, App, Button, Checkbox, Collapse, Form, Input, Modal, Spin, Tag, Typography,
+  Alert, App, Checkbox, Collapse, Form, Input, Spin, Tag, Typography,
 } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
 import { groupsApi } from '../services/groups.service';
 import type { GroupDto, PermissionResourceGroup } from '../types/groups';
-import { useIsMobile } from '../../../hooks/useIsMobile';
+import ModalFormShell from '../../../shared/components/ModalFormShell';
+import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
 const { Text } = Typography;
 
@@ -28,7 +29,6 @@ interface GroupFormModalProps {
  */
 export default function GroupFormModal({ open, group, onClose, onSaved }: GroupFormModalProps) {
   const { message } = App.useApp();
-  const isMobile = useIsMobile();
   const [form] = Form.useForm();
   const isEdit = !!group;
 
@@ -113,11 +113,8 @@ export default function GroupFormModal({ open, group, onClose, onSaved }: GroupF
       message.success(isEdit ? 'Cập nhật nhóm thành công' : 'Tạo nhóm thành công');
       onSaved();
     } catch (err) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      if (msg) {
-        message.error(msg);
-      } else {
-        message.error('Lỗi lưu dữ liệu');
+      if (!applyServerFieldErrors(form, err)) {
+        message.error(serverErrorMessage(err, 'Không thể lưu nhóm. Vui lòng thử lại.'));
       }
     } finally {
       setSaving(false);
@@ -163,16 +160,14 @@ export default function GroupFormModal({ open, group, onClose, onSaved }: GroupF
   );
 
   return (
-    <Modal
-      title={isEdit ? `Sửa nhóm: ${group?.name}` : 'Tạo nhóm mới'}
+    <ModalFormShell
+      title={isEdit ? `Sửa nhóm: ${group?.name}` : 'Tạo nhóm'}
       open={open}
       onCancel={onClose}
-      width={isMobile ? '95%' : 780}
-      destroyOnHidden
-      footer={[
-        <Button key="cancel" onClick={onClose}>Hủy</Button>,
-        <Button key="save" type="primary" loading={saving} onClick={() => void handleSubmit()}>Lưu</Button>,
-      ]}
+      onOk={() => void handleSubmit()}
+      okText={isEdit ? 'Lưu thay đổi' : 'Tạo nhóm'}
+      confirmLoading={saving}
+      size="lg"
     >
       <Spin spinning={loading}>
         {isEdit && group?.isSystem && (
@@ -185,10 +180,10 @@ export default function GroupFormModal({ open, group, onClose, onSaved }: GroupF
           />
         )}
         <Form form={form} layout="vertical">
-          <Form.Item label="Tên nhóm" name="name" rules={[{ required: true, message: 'Nhập tên nhóm' }]}>
+          <Form.Item label="Tên nhóm" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên nhóm' }]}>
             <Input
               disabled={isEdit && !!group?.isSystem}
-              placeholder="VD: Kế toán, Kỹ thuật..."
+              placeholder="Ví dụ: Kế toán, Kỹ thuật..."
               maxLength={255}
               prefix={isEdit && group?.isSystem ? <LockOutlined /> : undefined}
             />
@@ -207,6 +202,6 @@ export default function GroupFormModal({ open, group, onClose, onSaved }: GroupF
           defaultActiveKey={catalog.slice(0, 3).map(g => g.resource)}
         />
       </Spin>
-    </Modal>
+    </ModalFormShell>
   );
 }
