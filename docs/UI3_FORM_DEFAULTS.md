@@ -16,7 +16,7 @@
 | Người dùng | `isActive = true`, `isSuperUser = false`, `employeeNumber = ""`, `jobTitle = ""` | Mật khẩu ban đầu bắt buộc khi tạo |
 | Danh mục | `tagColor = #1890ff`, `categoryType = Asset`, `useDefaultEula = true` | |
 | Model tài sản | `requestable = false` | Có thể tự đổi theo danh mục |
-| Hoàn thành bảo trì | `completionDate = null`, `cost = null`, `isWarranty = null`, `notes = null` | Không nhập chi phí ⇒ gửi `null`, báo cáo vẫn tính vào **Thiếu chi phí** |
+| Hoàn thành bảo trì | `completionDate = null`, `cost = null`, `isWarranty = null`, `notes = null` | Không nhập chi phí ⇒ gửi `null`, báo cáo vẫn tính vào **Thiếu chi phí**; switch bảo hành chỉ pre-check khi bản ghi hiện tại đang là `true` |
 | Hạng mục mẫu | `cycleMonths = 12` | Chu kỳ mặc định có nghĩa nghiệp vụ |
 | Các form còn lại | Không đặt default nghiệp vụ | Để trống cho người dùng nhập/chọn |
 

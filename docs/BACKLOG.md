@@ -1201,4 +1201,5 @@ Thứ tự thực hiện: **B2 → B3 → B4 → B5 → B6** (B7 sau B6, **B8 đ
 | P2-1 | Secret manager (Vault/Doppler/SM) + rotate `AUTH_SIGNING_KEY` có kế hoạch | Hiện secret nằm trong `.env` trên server |
 | P2-2 | PITR (WAL archiving) + backup immutable/offsite; diễn tập restore định kỳ | Bổ sung cho P0-1 |
 | P2-3 | Chuẩn bị scale ngang: migration lock, lockout phân tán, session store, zero-downtime deploy | Hiện single-instance |
+| P2-5 | **Tối ưu tìm kiếm toàn cục khi dữ liệu lớn: GIN `pg_trgm`** | Backlog UI-3C — thêm index GIN trigram cho các cột tìm (`assets.name`/`asset_tag`/`serial`, hệ thống, vật tư, linh kiện, phụ kiện, bản quyền, người dùng); `CREATE EXTENSION pg_trgm` cần quyền DB; đo lại trước/sau và chỉ bật khi dữ liệu đủ lớn. |
 | P2-4 | Lưu trữ/xuất ActionLog cho audit, tích hợp SIEM (Wazuh) | Phục vụ điều tra sự cố |

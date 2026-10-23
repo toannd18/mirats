@@ -50,7 +50,9 @@ export default function MaintenanceCompleteModal({ record, onClose, onSaved }: M
         completionDate: record.completionDate ? dayjs(record.completionDate) : undefined,
         cost: record.cost ?? undefined,
         supplierId: record.supplier?.id,
-        isWarranty: record.isWarranty,
+        // A false checkbox is not a meaningful default: leave undefined so untouched completion
+        // sends null and the backend keeps the existing value. Only a true flag is pre-selected.
+        isWarranty: record.isWarranty ? true : undefined,
         notes: record.notes ?? undefined,
       });
     }

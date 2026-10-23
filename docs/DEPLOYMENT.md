@@ -613,7 +613,30 @@ Yêu cầu **Docker Compose ≥ 2.24** (`!reset` để gỡ `ports`).
    lúc khởi động và bỏ qua mọi header proxy (fail-closed) — brute-force/audit
    sẽ thấy IP container proxy.
 
-### 11.4 Biến môi trường bắt buộc cho từng cấu hình
+### 11.4 Migration `unaccent` cho tìm kiếm toàn cục
+
+Migration `AddUnaccentExtension` chạy `CREATE EXTENSION IF NOT EXISTS unaccent;`. Database user dùng cho
+`Database.Migrate()` phải có quyền tạo extension (thường là owner database hoặc `superuser`).
+
+Nếu user DB không đủ quyền, migration sẽ dừng với lỗi permission. Khi đó tạo extension **một lần** bằng
+tài khoản có quyền, trước khi khởi động server:
+
+```sql
+-- Chạy bằng postgres/superuser trên đúng database production
+CREATE EXTENSION IF NOT EXISTS unaccent;
+```
+
+Kiểm tra:
+
+```sql
+SELECT extname FROM pg_extension WHERE extname = 'unaccent';
+```
+
+Sau khi extension đã tồn tại, migration `CREATE EXTENSION IF NOT EXISTS` là no-op và server khởi động
+bình thường. Không cấp quyền `superuser` thường trực cho user ứng dụng; chỉ dùng tài khoản quản trị để
+tạo extension rồi trả lại quyền tối thiểu.
+
+### 11.5 Biến môi trường bắt buộc cho từng cấu hình
 
 | Biến | (a) trực tiếp | (b) NPM | (c) + tunnel |
 |---|---|---|---|

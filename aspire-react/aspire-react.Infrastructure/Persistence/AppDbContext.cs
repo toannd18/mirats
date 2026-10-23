@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.Interfaces;
+using aspire_react.Server.Application.Search;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
@@ -839,6 +840,11 @@ public class AppDbContext : DbContext, IApplicationDbContext
             entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
             entity.HasIndex(e => new { e.CompanyId, e.Year }).IsUnique();
         });
+
+        // [UI-3C] Global search uses PostgreSQL unaccent() (created by AddUnaccentExtension).
+        modelBuilder.HasDbFunction(typeof(SearchDbFunctions).GetMethod(nameof(SearchDbFunctions.Unaccent))!)
+            .HasName("unaccent")
+            .HasSchema("public");
 
         // === Global Query Filters (FMCS Multi-tenant) ===
         ConfigureCompanyFilter<Asset>(modelBuilder);

@@ -22,6 +22,7 @@ import { useCurrentUser, clearCurrentUserCache } from './hooks/useCurrentUser';
 import apiClient from './services/api-client';
 import ProtectedRoute from './components/ProtectedRoute';
 import NotFoundPage from './components/NotFoundPage';
+import GlobalSearch from './shared/components/GlobalSearch';
 // [FE-R1] Code-splitting: every page component is lazy-loaded per route (React.lazy +
 // dynamic import → Vite emits one chunk per page, see vite build output). The layout
 // shell (AppLayout/ProtectedRoute) stays in the entry chunk so the sidebar/header do
@@ -449,6 +450,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             <Breadcrumb items={crumbSegs} style={{ marginRight: 'auto' }} />
           )}
           <div style={{ flex: 1 }} />
+          {authenticated && <GlobalSearch />}
           {authenticated ? (
             <Dropdown
               menu={{
