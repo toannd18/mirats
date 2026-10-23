@@ -15,7 +15,39 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const BASE = (process.env.DEMO_API_BASE || 'http://127.0.0.1:5442/api/v1').replace(/\/$/, '');
+
+// [DF-5] Never let demo fixtures touch a non-local environment by accident. Remote requires BOTH
+// an explicit --allow-remote flag and DEMO_SEED_CONFIRM=yes (two independent confirmations).
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+let seedHost = '';
+try {
+  seedHost = new URL(BASE).hostname.toLowerCase();
+} catch {
+  console.error(`[seed-demo] DEMO_API_BASE is not a valid URL: ${BASE}`);
+  process.exit(1);
+}
+const allowRemote = process.argv.includes('--allow-remote');
+if (!LOCAL_HOSTS.has(seedHost)) {
+  if (!allowRemote || process.env.DEMO_SEED_CONFIRM !== 'yes') {
+    console.error(
+      `[seed-demo] Refusing to seed non-local API base "${BASE}".\n` +
+      'This script creates demo companies, users and assets. To target a remote environment,\n' +
+      'pass --allow-remote AND set DEMO_SEED_CONFIRM=yes. Never run it against production.',
+    );
+    process.exit(1);
+  }
+  console.warn(`[seed-demo] WARNING: seeding REMOTE environment ${BASE} (explicitly confirmed).`);
+}
+
+// [DF-5] Admin password must come from the environment — no hard-coded fallback. Demo user
+// passwords may be overridden when a team shares a fixture environment.
 const ADMIN_PASSWORD = process.env.DEMO_ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) {
+  console.error('[seed-demo] DEMO_ADMIN_PASSWORD is required (there is no default password).');
+  process.exit(1);
+}
+const TECH_PASSWORD = process.env.DEMO_TECH_PASSWORD || 'DemoTech-2026!';
+const LEADER_PASSWORD = process.env.DEMO_LEADER_PASSWORD || 'DemoLeader-2026!';
 const COMPANY_CODE = 'DEMO-UNIT';
 const OUT = path.resolve('logs/demo-seed.json');
 
@@ -82,8 +114,15 @@ async function ensureCode(pathName, code, createBody) {
 }
 
 async function main() {
-  await login('admin', ADMIN_PASSWORD);
-  adminToken = token;
+  // [DF-6] A caller may supply a short-lived admin token to make a verification re-run free of
+  // auth-session side effects (auth_login_attempts / user_credentials). Normal use still logs in.
+  if (process.env.DEMO_ADMIN_TOKEN) {
+    token = process.env.DEMO_ADMIN_TOKEN;
+    adminToken = token;
+  } else {
+    await login('admin', ADMIN_PASSWORD);
+    adminToken = token;
+  }
 
   // 1 unit, 3 departments, 3 locations
   const company = await ensureCode('/companies', COMPANY_CODE, {
@@ -214,7 +253,15 @@ async function main() {
       warrantyMonths: 24, orderNumber: `PO-DEMO-${i + 1}`,
       notes: 'Thiết bị demo', physical: true, requestable: false,
     });
-    summary.assets.push(created.data);
+    // [DF-6] The create response may omit the computed status (or return the enum's numeric
+    // default). A fresh asset is Pending; normalise it so the history block below runs exactly
+    // once per asset instead of being skipped on run 1 and executed on run 2.
+    const asset = created?.data ?? created;
+    if (asset && (asset.status == null || asset.status === 0
+      || String(asset.status).toLowerCase() === 'pending')) {
+      asset.status = 'Pending';
+    }
+    summary.assets.push(asset);
   }
 
   // Install / check-in / transfer history for 22 assets.
@@ -252,6 +299,7 @@ async function main() {
   async function ensureUser(username, firstName, lastName, email, groupName, permissions) {
     const users = await list('/users');
     let user = users.find(u => u.username === username);
+    let createdNow = false;
     if (!user) {
       const created = await api('POST', '/users', {
         username, email, firstName, lastName, employeeNumber: null, jobTitle: null,
@@ -259,6 +307,7 @@ async function main() {
         companyId, departmentId: departments[0].id, locationId: labLocation.id,
       });
       user = created.data;
+      createdNow = true;
     }
     const groups = await list('/groups');
     let group = groups.find(g => g.name === groupName);
@@ -266,25 +315,45 @@ async function main() {
       const created = await api('POST', '/groups', { name: groupName, description: 'Nhóm demo' });
       group = created.data;
     }
-    await api('PUT', `/groups/${group.id}/permissions`, permissions.map(key => ({ permissionKey: key, value: 'Grant' })));
-    await api('PUT', `/users/${user.id}/groups`, { groupIds: [group.id] });
-    // Ensure demo password (idempotent on rerun).
-    try {
-      await login(username, 'DemoInitial-2026!');
-      await api('POST', '/auth/password', {
-        currentPassword: 'DemoInitial-2026!', newPassword: username === 'demo-tech' ? 'DemoTech-2026!' : 'DemoLeader-2026!',
-      });
-    } catch {
-      // Already changed on a previous run.
+    // [DF-6] PUT only when the grant set actually changes. Re-sending an identical permission
+    // payload wrote an ActionLog row on every seed run, so run2 never matched run1.
+    const desired = [...permissions].sort();
+    const current = (group.permissions ?? [])
+      .filter(p => p.value === 1 || p.value === 'Grant')
+      .map(p => p.permissionKey)
+      .sort();
+    if (JSON.stringify(current) !== JSON.stringify(desired)) {
+      await api('PUT', `/groups/${group.id}/permissions`, permissions.map(key => ({ permissionKey: key, value: 'Grant' })));
     }
-    // The login above replaced the global token with the demo user; restore the saved admin token.
+    const currentGroupIds = (user.groups ?? []).map(g => g.groupId).sort();
+    if (JSON.stringify(currentGroupIds) !== JSON.stringify([group.id])) {
+      await api('PUT', `/users/${user.id}/groups`, { groupIds: [group.id] });
+    }
+    // [DF-6] Only set the initial password on the run that created the account. Re-running the
+    // old "login with DemoInitial + change password" block added an auth_login_attempts row (and
+    // sometimes a credential row) on every seed, breaking run1 == run2.
+    if (createdNow) {
+      try {
+        await login(username, 'DemoInitial-2026!');
+        await api('POST', '/auth/password', {
+          currentPassword: 'DemoInitial-2026!',
+          newPassword: username === 'demo-tech' ? TECH_PASSWORD : LEADER_PASSWORD,
+        });
+      } catch (err) {
+        console.warn(`demo password ${username}: ${err.message}`);
+      }
+    }
+    // A login above would replace the global token with the demo user; restore the admin token.
     token = adminToken;
     return user.id;
   }
 
   const techId = await ensureUser('demo-tech', 'Ky thuat', 'Vien', 'demo-tech@example.invalid', 'Kỹ thuật viên', [
-    'assets.view', 'systems.view', 'assets.checkout', 'assets.checkin', 'assets.edit',
-    'maintenance.view', 'maintenance.campaigns', 'reports.view',
+    // [DF-6] Technician: inventory intake + audit + stock checkout, and maintenance execution.
+    // Deliberately no assets.correct, no license permissions and no reports.view.
+    'assets.view', 'assets.create', 'assets.edit', 'assets.checkout', 'assets.checkin', 'assets.audit',
+    'systems.view', 'consumables.checkout', 'components.checkout',
+    'maintenance.view', 'maintenance.campaigns',
   ]);
   const leaderId = await ensureUser('demo-leader', 'Lanh dao', 'Don vi', 'demo-leader@example.invalid', 'Lãnh đạo', [
     'assets.view', 'systems.view', 'reports.view', 'export',
@@ -424,7 +493,9 @@ async function main() {
         reviewerId: null, executorIds: [techId],
       })).data;
     }
-    if (complete) {
+    // [DF-6] Only complete once. Re-posting /complete on an already Completed campaign is an
+    // upsert-shaped no-op at best; skip it explicitly so a re-run cannot append audit noise.
+    if (complete && campaign.status !== 'Completed') {
       try { await api('POST', `/maintenance/campaigns/${campaign.id}/complete`, { forceIncomplete: true }); } catch { /* already complete */ }
     }
     summary.campaigns.push(campaign);

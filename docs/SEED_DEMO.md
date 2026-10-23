@@ -2,6 +2,10 @@
 
 > Mục đích: tạo dữ liệu mẫu sát nghiệp vụ để review toàn bộ UI. **Không dùng DB production**.
 > Mọi bản ghi được tạo **qua API thật** — không SQL, không ghi trực tiếp EF.
+>
+> ⚠️ **CẢNH BÁO:** script tạo công ty, người dùng và tài sản demo. **TUYỆT ĐỐI KHÔNG chạy trên
+> môi trường thật/production.** Script chỉ chấp nhận `localhost`/`127.0.0.1`; muốn trỏ nơi khác
+> phải có đồng thời cờ `--allow-remote` **và** biến `DEMO_SEED_CONFIRM=yes`.
 
 ## 1. Môi trường tạm
 
@@ -21,9 +25,16 @@ docker run -d --name tmp-demo-redis -p 56492:6379 redis:8.6
 ```powershell
 cd <repo-root>
 $env:DEMO_API_BASE = 'http://127.0.0.1:5442/api/v1'
-$env:DEMO_ADMIN_PASSWORD = '<mật khẩu admin đã đổi>'
+$env:DEMO_ADMIN_PASSWORD = '<mật khẩu admin đã đổi>'   # BẮT BUỘC — không có mật khẩu mặc định
 node scripts/seed-demo.mjs
 ```
+
+Có thể override mật khẩu hai tài khoản demo (mặc định như bảng dưới) bằng
+`DEMO_TECH_PASSWORD` và `DEMO_LEADER_PASSWORD`.
+
+Khi kiểm chứng idempotent (chạy seed 2 lần liên tiếp và đếm bảng), có thể truyền
+`DEMO_ADMIN_TOKEN=<access token ngắn hạn>` để bỏ qua bước login admin — tránh tăng
+`auth_login_attempts`/`user_credentials` ngoài dữ liệu nghiệp vụ.
 
 Script idempotent: chạy lại sẽ tìm theo mã/tên/tag và bỏ qua bản ghi đã có. Script ghi ID tóm tắt
 vào `logs/demo-seed.json` (không commit).
@@ -32,7 +43,7 @@ Sau khi seed:
 
 | Tài khoản | Mật khẩu | Quyền chính |
 |---|---|---|
-| `demo-tech` | `DemoTech-2026!` | Xem tài sản/hệ thống, cấp phát/thu hồi, tạo phiếu, nhập kết quả bảo dưỡng |
+| `demo-tech` | `DemoTech-2026!` | Xem/tạo/sửa tài sản, kiểm kê, cấp phát–thu hồi, cấp phát vật tư/linh kiện, nhập kết quả bảo dưỡng (không có báo cáo/bản quyền/đính chính) |
 | `demo-leader` | `DemoLeader-2026!` | Xem tài sản/hệ thống, xem báo cáo, export |
 | `admin` | mật khẩu admin hiện tại | Toàn quyền |
 
