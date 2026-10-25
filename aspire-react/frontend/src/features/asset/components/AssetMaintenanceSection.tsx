@@ -7,7 +7,7 @@ import { PlusOutlined, CheckOutlined, CloseOutlined, EditOutlined, LockOutlined,
 import apiClient from '../../../services/api-client';
 import { assetService, type AssetMaintenanceDto, type CreateMaintenancePayload } from '../services/asset.service';
 import { usePermission } from '../../../hooks/usePermission';
-import { isSuperUser } from '../../../features/auth/services/auth';
+import { getCurrentSub, isSuperUser } from '../../../features/auth/services/auth';
 import dayjs from 'dayjs';
 import {
   MAINTENANCE_STATUS_COLORS, MAINTENANCE_TYPE_LABELS, MAINTENANCE_TYPE_VALUE,
@@ -24,9 +24,14 @@ function contextChanged(snapshotId: string | null, currentId: string | null | un
 
 export default function AssetMaintenanceSection({ assetId }: { assetId: string }) {
   const { message, modal } = App.useApp();
-  const canDeleteMaintenance = usePermission('assets.edit');
-  // ST6b — Reopen is Superuser-only (backend Reopen checks IsSuperUser in body), NOT assets.edit.
+  // [DF-7] edit/complete = tickets; inspect/close = tickets.approve; delete/reopen = superuser.
+  const canEditMaintenance = usePermission('maintenance.tickets');
+  const canApproveMaintenance = usePermission('maintenance.tickets.approve');
   const superUser = isSuperUser();
+  const currentUserId = getCurrentSub();
+  const canDeleteMaintenance = superUser;
+  const canApproveRecord = (record: AssetMaintenanceDto) =>
+    canApproveMaintenance && (superUser || (!!currentUserId && record.createdById !== currentUserId));
   const [form] = Form.useForm();
 
   const [items, setItems] = useState<AssetMaintenanceDto[]>([]);
@@ -298,13 +303,13 @@ export default function AssetMaintenanceSection({ assetId }: { assetId: string }
                 <Button size="small" disabled icon={<EditOutlined />}>Sửa</Button>
               </Tooltip>
             )
-            : canDeleteMaintenance && <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>Sửa</Button>}
+            : canEditMaintenance && <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>Sửa</Button>}
           {!r.isClosed && r.completionDate && (
             r.inspectedById
               ? <Tag color="green" icon={<CheckOutlined />}>Đã kiểm tra</Tag>
-              : canDeleteMaintenance && <Button size="small" icon={<CheckOutlined />} onClick={() => void handleInspect(r)}>Đánh dấu đã kiểm tra</Button>
+              : canApproveRecord(r) && <Button size="small" icon={<CheckOutlined />} onClick={() => void handleInspect(r)}>Đánh dấu đã kiểm tra</Button>
           )}
-          {!r.isClosed && canDeleteMaintenance && (r.completionDate && r.inspectedById
+          {!r.isClosed && canApproveRecord(r) && (r.completionDate && r.inspectedById
             ? (
               <Popconfirm
                 title="Đóng bản ghi bảo trì này?"
@@ -338,7 +343,7 @@ export default function AssetMaintenanceSection({ assetId }: { assetId: string }
         <Badge count={inProgressCount} color={MAINTENANCE_STATUS_COLORS.in_progress} overflowCount={99}>
           <Tag color={MAINTENANCE_STATUS_COLORS.in_progress}>Đang thực hiện</Tag>
         </Badge>
-        {canDeleteMaintenance && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Thêm bảo trì</Button>}
+        {canEditMaintenance && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Thêm bảo trì</Button>}
       </Space>
       <Table
         rowKey="id"
@@ -453,7 +458,7 @@ export default function AssetMaintenanceSection({ assetId }: { assetId: string }
                 {detail.inspectedById
                   ? <span><CheckOutlined style={{ color: MAINTENANCE_STATUS_COLORS.completed }} /> {detail.inspectedByName || 'Đã kiểm tra'} lúc {formatDateTime(detail.inspectedAt)}</span>
                   : detail.completionDate
-                    ? <Button size="small" icon={<CheckOutlined />} onClick={() => void handleInspect(detail)}>Đánh dấu đã kiểm tra</Button>
+                    ? canApproveRecord(detail) && <Button size="small" icon={<CheckOutlined />} onClick={() => void handleInspect(detail)}>Đánh dấu đã kiểm tra</Button>
                     : (
                       <Tooltip title="Cần nhập Ngày hoàn thành trước khi kiểm tra bảo trì">
                         <Button size="small" disabled icon={<CheckOutlined />}>Đánh dấu đã kiểm tra</Button>

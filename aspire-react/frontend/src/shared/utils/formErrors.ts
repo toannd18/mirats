@@ -16,6 +16,8 @@ const ERROR_CODE_MESSAGES: Record<string, string> = {
   FIELD_LOCKED: 'Trường này không thể thay đổi sau khi bản ghi đã được sử dụng.',
   COMPANY_MISMATCH: 'Bạn chỉ được thao tác với dữ liệu thuộc công ty của mình.',
   COMPANY_REQUIRED: 'Vui lòng chọn công ty.',
+  FORBIDDEN: 'Bạn không có quyền thực hiện thao tác này.',
+  SELF_APPROVAL_FORBIDDEN: 'Bạn không thể tự nghiệm thu phiếu do mình tạo.',
   INVALID_COMPANY: 'Công ty không hợp lệ.',
   CATEGORY_REQUIRED: 'Vui lòng chọn danh mục.',
   INVALID_CATEGORY: 'Danh mục không hợp lệ.',

@@ -99,6 +99,10 @@ public class CloseMaintenanceCommandHandler : IRequestHandler<CloseMaintenanceCo
         if (userCompanyId.HasValue && m.CompanyId != userCompanyId.Value && m.CompanyId != Guid.Empty)
             return new CloseMaintenanceResult(false, "Forbidden.", "FORBIDDEN");
 
+        // [DF-7] Separation of duties: a non-superuser cannot approve/close their own ticket.
+        if (!_companyScope.IsSuperUser() && m.CreatedById == request.CurrentUserId)
+            return new CloseMaintenanceResult(false, "Bạn không thể tự nghiệm thu phiếu do mình tạo.", "SELF_APPROVAL_FORBIDDEN");
+
         if (m.IsClosed)
             return new CloseMaintenanceResult(false, "Bản ghi đã đóng.", "MAINTENANCE_ALREADY_CLOSED");
         if (m.CompletionDate == null)
@@ -186,6 +190,10 @@ public class InspectMaintenanceCommandHandler : IRequestHandler<InspectMaintenan
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
         if (userCompanyId.HasValue && m.CompanyId != userCompanyId.Value && m.CompanyId != Guid.Empty)
             return new InspectMaintenanceResult(false, "Forbidden.", "FORBIDDEN");
+
+        // [DF-7] Separation of duties: a non-superuser cannot inspect their own ticket.
+        if (!_companyScope.IsSuperUser() && m.CreatedById == request.CurrentUserId)
+            return new InspectMaintenanceResult(false, "Bạn không thể tự nghiệm thu phiếu do mình tạo.", "SELF_APPROVAL_FORBIDDEN");
 
         if (m.IsClosed)
             return new InspectMaintenanceResult(false, "Bản ghi đã đóng, không thể kiểm tra.", "MAINTENANCE_CLOSED");

@@ -113,7 +113,8 @@ public class AssetsController : ControllerBase
         });
         if (!result.Success)
         {
-            if (result.ErrorCode == "FORBIDDEN") return Forbid();
+            if (result.ErrorCode == "FORBIDDEN")
+                return StatusCode(StatusCodes.Status403Forbidden, new { status = "error", message = result.Message, error_code = result.ErrorCode });
             return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
         return CreatedAtAction(nameof(GetAsset), new { id = result.AssetId }, new { status = "success", message = result.Message, data = new { Id = result.AssetId } });
@@ -148,7 +149,8 @@ public class AssetsController : ControllerBase
         });
         if (!result.Success)
         {
-            if (result.ErrorCode == "FORBIDDEN") return Forbid();
+            if (result.ErrorCode == "FORBIDDEN")
+                return StatusCode(StatusCodes.Status403Forbidden, new { status = "error", message = result.Message, error_code = result.ErrorCode });
             return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
         return Ok(new { status = "success", message = result.Message });

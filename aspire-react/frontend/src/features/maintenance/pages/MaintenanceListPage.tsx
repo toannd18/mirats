@@ -24,7 +24,7 @@ export default function MaintenanceListPage() {
   const actionRef = useRef<ActionType | undefined>(undefined);
   const superUser = isSuperUser();
   // ST6b — create maintenance requires assets.edit (backend POST maintenances).
-  const canCreateMaintenance = usePermission('assets.edit');
+  const canCreateMaintenance = usePermission('maintenance.tickets');
 
   const [form] = Form.useForm();
   const [createOpen, setCreateOpen] = useState(false);

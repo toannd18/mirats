@@ -104,6 +104,7 @@ public class ListAllMaintenancesQueryHandler : IRequestHandler<ListAllMaintenanc
                 m.ClosedAt,
                 m.ClosedById,
                 m.CompanyId,
+                m.CreatedById,
                 m.Supplier == null ? null : new MaintenanceSupplierRefDto(m.Supplier.Id, m.Supplier.Name),
                 new MaintenanceAssetWithCompanyRefDto(m.Asset.Id, m.Asset.AssetTag, m.Asset.Name, m.Asset.Company != null ? m.Asset.Company.Name : null),
                 m.SnapshotSystemInfoId,

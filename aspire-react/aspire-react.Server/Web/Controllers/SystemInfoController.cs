@@ -112,7 +112,7 @@ public class SystemInfoController : ControllerBase
     private IActionResult MapFailure(SystemInfoResult result)
     {
         if (result.ErrorCode == "FORBIDDEN")
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { status = "error", message = result.Message, error_code = result.ErrorCode });
         if (result.ErrorCode == "NOT_FOUND")
             return NotFound(new { status = "error", message = result.Message });
 

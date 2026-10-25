@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.AssetMaintenances.Commands;
 using aspire_react.Server.Application.AssetMaintenances.Queries;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -238,7 +239,8 @@ public class AssetMaintenanceTests
 
         var result = await controller.Delete(m.Id);
 
-        Assert.IsType<ForbidResult>(result);
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, forbidden.StatusCode);
         Assert.NotNull(await ctx.AssetMaintenances.SingleAsync(x => x.Id == m.Id));
         Assert.Equal(0, await ctx.ActionLogs.CountAsync(l => l.ItemType == ItemType.AssetMaintenance && l.ActionType == ActionType.Delete));
     }
@@ -364,7 +366,8 @@ public class AssetMaintenanceTests
         var result = await controller.CreateForAsset(new CreateAssetMaintenanceForAssetRequest(
             assetB, AssetMaintenanceType.Repair, "Sửa", null, null, DateTime.UtcNow, null, null, false));
 
-        Assert.IsType<ForbidResult>(result); // defense in depth even if the UI filtered the asset list
+        var forbidden = Assert.IsType<ObjectResult>(result); // 403 body, not empty Forbid
+        Assert.Equal(403, forbidden.StatusCode);
     }
 
     [Fact]
@@ -704,6 +707,58 @@ public class AssetMaintenanceTests
     }
 
     [Fact]
+    public async Task Inspect_ByCreator_ReturnsSelfApprovalForbidden_ButSuperuserIsExempt()
+    {
+        await using var ctx = CreateContext(nameof(Inspect_ByCreator_ReturnsSelfApprovalForbidden_ButSuperuserIsExempt));
+        var company = new Company { Name = "CT-A" };
+        ctx.Companies.Add(company);
+        await ctx.SaveChangesAsync();
+        var assetId = await SeedAssetWithCompanyAsync(ctx, company.Id);
+        var maintenanceId = await SeedMaintenanceAsync(ctx, assetId, company.Id, "DF7-INSPECT");
+        var actorId = Guid.NewGuid();
+        var m = await ctx.AssetMaintenances.SingleAsync(x => x.Id == maintenanceId);
+        m.CreatedById = actorId;
+        m.CompletionDate = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+
+        var regular = new InspectMaintenanceCommandHandler(ctx, new FakeScope { Super = false, CompanyId = company.Id });
+        var self = await regular.Handle(new InspectMaintenanceCommand(maintenanceId, actorId), CancellationToken.None);
+        Assert.False(self.Success);
+        Assert.Equal("SELF_APPROVAL_FORBIDDEN", self.ErrorCode);
+
+        var super = new InspectMaintenanceCommandHandler(ctx, new FakeScope { Super = true });
+        var exempt = await super.Handle(new InspectMaintenanceCommand(maintenanceId, actorId), CancellationToken.None);
+        Assert.True(exempt.Success);
+    }
+
+    [Fact]
+    public async Task Close_ByCreator_ReturnsSelfApprovalForbidden_ButSuperuserIsExempt()
+    {
+        await using var ctx = CreateContext(nameof(Close_ByCreator_ReturnsSelfApprovalForbidden_ButSuperuserIsExempt));
+        var company = new Company { Name = "CT-A" };
+        ctx.Companies.Add(company);
+        await ctx.SaveChangesAsync();
+        var assetId = await SeedAssetWithCompanyAsync(ctx, company.Id);
+        var maintenanceId = await SeedMaintenanceAsync(ctx, assetId, company.Id, "DF7-CLOSE");
+        var actorId = Guid.NewGuid();
+        var m = await ctx.AssetMaintenances.SingleAsync(x => x.Id == maintenanceId);
+        m.CreatedById = actorId;
+        m.CompletionDate = DateTime.UtcNow;
+        m.InspectedById = Guid.NewGuid();
+        m.InspectedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+
+        var regular = new CloseMaintenanceCommandHandler(ctx, new FakeScope { Super = false, CompanyId = company.Id });
+        var self = await regular.Handle(new CloseMaintenanceCommand(maintenanceId, actorId), CancellationToken.None);
+        Assert.False(self.Success);
+        Assert.Equal("SELF_APPROVAL_FORBIDDEN", self.ErrorCode);
+
+        var super = new CloseMaintenanceCommandHandler(ctx, new FakeScope { Super = true });
+        var exempt = await super.Handle(new CloseMaintenanceCommand(maintenanceId, actorId), CancellationToken.None);
+        Assert.True(exempt.Success);
+    }
+
+    [Fact]
     public async Task ReopenMaintenance_RegularUser_Forbidden()
     {
         await using var ctx = CreateContext(nameof(ReopenMaintenance_RegularUser_Forbidden));
@@ -719,7 +774,8 @@ public class AssetMaintenanceTests
         var regular = new AssetMaintenancesController(TestHelpers.BuildMediator(ctx, new FakeScope { Super = false }), ctx, new FakeCurrentUser(), new FakeScope { Super = false }, TestHelpers.CreateActionLogService(ctx));
         var result = await regular.Reopen(m.Id);
 
-        Assert.IsType<ForbidResult>(result);
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, forbidden.StatusCode);
         Assert.True((await ctx.AssetMaintenances.SingleAsync(x => x.Id == m.Id)).IsClosed);
     }
 
@@ -745,7 +801,8 @@ public class AssetMaintenanceTests
             TestHelpers.CreateActionLogService(ctx));
         var result = await controller.Reopen(maintenanceId);
 
-        Assert.IsType<ForbidResult>(result);
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, forbidden.StatusCode);
         Assert.True((await ctx.AssetMaintenances.SingleAsync(x => x.Id == maintenanceId)).IsClosed);
     }
 

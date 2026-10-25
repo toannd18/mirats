@@ -226,7 +226,7 @@ public class UsersController : ControllerBase
                 // controller-level COMPANY_MISMATCH guard above (:246-248).
                 "COMPANY_MISMATCH" or "RESOURCE_NOT_FOUND"
                     => BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode }),
-                "FORBIDDEN" => Forbid(),
+                "FORBIDDEN" => StatusCode(StatusCodes.Status403Forbidden, new { status = "error", message = result.Message, error_code = result.ErrorCode }),
                 _ => BadRequest(new { status = "error", message = result.Message, errorCode = result.ErrorCode })
             };
         }
@@ -271,7 +271,7 @@ public class UsersController : ControllerBase
                 // controller's failures keep the verbatim camelCase `errorCode` quirk.
                 "COMPANY_MISMATCH" or "RESOURCE_NOT_FOUND"
                     => BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode }),
-                "FORBIDDEN" => Forbid(),
+                "FORBIDDEN" => StatusCode(StatusCodes.Status403Forbidden, new { status = "error", message = result.Message, error_code = result.ErrorCode }),
                 _ => BadRequest(new { status = "error", message = result.Message, errorCode = result.ErrorCode })
             };
         }

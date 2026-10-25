@@ -39,6 +39,15 @@ public class AssetMaintenancesController : ControllerBase
 
     private Guid GetCurrentUserId() => _currentUserService.GetLocalUserId();
 
+    /// <summary>[DF-7] 403 with a machine-readable error_code (never an empty Forbid body).</summary>
+    private IActionResult Forbidden(string? message, string? errorCode = "FORBIDDEN")
+        => StatusCode(StatusCodes.Status403Forbidden, new
+        {
+            status = "error",
+            message = string.IsNullOrWhiteSpace(message) ? "Bạn không có quyền thực hiện thao tác này." : message,
+            error_code = errorCode ?? "FORBIDDEN",
+        });
+
     // ==================== LIST (asset-scoped — used by the Asset detail card) ====================
     // [Subtask A] Thin MediatR mapping over ListAssetMaintenancesQuery (scope + shape verbatim
     // trong handler; out-of-scope → Forbid() 403, verbatim trap (a)).
@@ -50,8 +59,8 @@ public class AssetMaintenancesController : ControllerBase
         var result = await _mediator.Send(new ListAssetMaintenancesQuery(assetId, page, pageSize));
         if (result.ErrorCode == "NOT_FOUND")
             return NotFound(new { status = "error", message = "Asset not found." });
-        if (result.ErrorCode == "FORBIDDEN")
-            return Forbid();
+        if (result.ErrorCode is "FORBIDDEN" or "SELF_APPROVAL_FORBIDDEN")
+            return Forbidden("Bạn không có quyền xem phiếu của công ty này.", result.ErrorCode);
 
         return Ok(new { status = "success", data = result.Items, pagination = new { page, pageSize, totalItems = result.Total, totalPages = (int)Math.Ceiling((double)result.Total / pageSize), hasNextPage = page * pageSize < result.Total, hasPreviousPage = page > 1 } });
     }
@@ -81,8 +90,8 @@ public class AssetMaintenancesController : ControllerBase
         var result = await _mediator.Send(new GetMaintenanceByIdQuery(id));
         if (result.ErrorCode == "NOT_FOUND")
             return NotFound(new { status = "error", message = "Maintenance not found." });
-        if (result.ErrorCode == "FORBIDDEN")
-            return Forbid();
+        if (result.ErrorCode is "FORBIDDEN" or "SELF_APPROVAL_FORBIDDEN")
+            return Forbidden("Bạn không có quyền xem phiếu của công ty này.", result.ErrorCode);
 
         var m = result.Detail!;
         return Ok(new
@@ -102,6 +111,7 @@ public class AssetMaintenancesController : ControllerBase
                 m.ClosedAt,
                 m.ClosedById,
                 m.CompanyId,
+                m.CreatedById,
                 Supplier = m.Supplier == null ? null : new { m.Supplier.Id, m.Supplier.Name },
                 Asset = new { m.Asset.Id, m.Asset.AssetTag, m.Asset.Name },
                 m.SnapshotSystemInfoId,
@@ -148,7 +158,7 @@ public class AssetMaintenancesController : ControllerBase
     // Thin MediatR mappings; validations/scope/snapshot/assignees verbatim in the handler.
 
     [HttpPost("assets/{assetId:guid}/maintenances")]
-    [Authorize(Policy = "assets.edit")]
+    [Authorize(Policy = "maintenance.tickets")]
     public async Task<IActionResult> Create(Guid assetId, [FromBody] CreateAssetMaintenanceRequest r)
         => await CreateViaCommandAsync(assetId, r.Type, r.Title, r.Notes, r.SupplierId,
             r.StartDate, r.CompletionDate, r.Cost, r.IsWarranty, r.AssigneeUserIds);
@@ -156,7 +166,7 @@ public class AssetMaintenancesController : ControllerBase
     // ==================== CREATE (aggregated — picks the asset from the body) ====================
 
     [HttpPost("maintenances")]
-    [Authorize(Policy = "assets.edit")]
+    [Authorize(Policy = "maintenance.tickets")]
     public async Task<IActionResult> CreateForAsset([FromBody] CreateAssetMaintenanceForAssetRequest r)
         => await CreateViaCommandAsync(r.AssetId, r.Type, r.Title, r.Notes, r.SupplierId,
             r.StartDate, r.CompletionDate, r.Cost, r.IsWarranty, r.AssigneeUserIds);
@@ -178,8 +188,8 @@ public class AssetMaintenancesController : ControllerBase
         {
             if (result.ErrorCode == "NOT_FOUND")
                 return NotFound(new { status = "error", message = result.Message });
-            if (result.ErrorCode == "FORBIDDEN")
-                return Forbid();
+            if (result.ErrorCode is "FORBIDDEN" or "SELF_APPROVAL_FORBIDDEN")
+                return Forbidden(result.Message, result.ErrorCode);
             return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
 
@@ -192,7 +202,7 @@ public class AssetMaintenancesController : ControllerBase
     // hide-existence — verbatim trap (a), KHÔNG đổi thành 403 như reads).
 
     [HttpPut("maintenances/{id:guid}")]
-    [Authorize(Policy = "assets.edit")]
+    [Authorize(Policy = "maintenance.tickets")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateAssetMaintenanceRequest r)
     {
         var result = await _mediator.Send(new UpdateMaintenanceCommand(
@@ -223,8 +233,8 @@ public class AssetMaintenancesController : ControllerBase
         {
             if (result.ErrorCode == "NOT_FOUND")
                 return NotFound(new { status = "error", message = result.Message });
-            if (result.ErrorCode == "FORBIDDEN")
-                return Forbid();
+            if (result.ErrorCode is "FORBIDDEN" or "SELF_APPROVAL_FORBIDDEN")
+                return Forbidden(result.Message, result.ErrorCode);
             return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
 
@@ -243,7 +253,7 @@ public class AssetMaintenancesController : ControllerBase
     // close/reopen is itself recorded in ActionLog.
 
     [HttpPost("maintenances/{id:guid}/close")]
-    [Authorize(Policy = "assets.edit")]
+    [Authorize(Policy = "maintenance.tickets.approve")]
     public async Task<IActionResult> Close(Guid id)
     {
         var result = await _mediator.Send(new CloseMaintenanceCommand(id, GetCurrentUserId()));
@@ -252,8 +262,8 @@ public class AssetMaintenancesController : ControllerBase
         {
             if (result.ErrorCode == "NOT_FOUND")
                 return NotFound(new { status = "error", message = result.Message });
-            if (result.ErrorCode == "FORBIDDEN")
-                return Forbid();
+            if (result.ErrorCode is "FORBIDDEN" or "SELF_APPROVAL_FORBIDDEN")
+                return Forbidden(result.Message, result.ErrorCode);
             return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
 
@@ -270,7 +280,7 @@ public class AssetMaintenancesController : ControllerBase
     /// i.e. "inspect again") and does NOT lock anything — only Close freezes the record.
     /// </summary>
     [HttpPost("maintenances/{id:guid}/inspect")]
-    [Authorize(Policy = "assets.edit")]
+    [Authorize(Policy = "maintenance.tickets.approve")]
     public async Task<IActionResult> Inspect(Guid id)
     {
         var result = await _mediator.Send(new InspectMaintenanceCommand(id, GetCurrentUserId()));
@@ -279,8 +289,8 @@ public class AssetMaintenancesController : ControllerBase
         {
             if (result.ErrorCode == "NOT_FOUND")
                 return NotFound(new { status = "error", message = result.Message });
-            if (result.ErrorCode == "FORBIDDEN")
-                return Forbid();
+            if (result.ErrorCode is "FORBIDDEN" or "SELF_APPROVAL_FORBIDDEN")
+                return Forbidden(result.Message, result.ErrorCode);
             return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
 
@@ -298,8 +308,8 @@ public class AssetMaintenancesController : ControllerBase
         {
             if (result.ErrorCode == "NOT_FOUND")
                 return NotFound(new { status = "error", message = result.Message });
-            if (result.ErrorCode == "FORBIDDEN")
-                return Forbid();
+            if (result.ErrorCode is "FORBIDDEN" or "SELF_APPROVAL_FORBIDDEN")
+                return Forbidden(result.Message, result.ErrorCode);
             return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
 

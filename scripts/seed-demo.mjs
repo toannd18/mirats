@@ -47,15 +47,16 @@ if (!ADMIN_PASSWORD) {
   process.exit(1);
 }
 // [DF-5b] Remote runs must not inherit the demo defaults for shared demo accounts.
-if (allowRemote && (!process.env.DEMO_TECH_PASSWORD || !process.env.DEMO_LEADER_PASSWORD)) {
+if (allowRemote && (!process.env.DEMO_TECH_PASSWORD || !process.env.DEMO_LEADER_PASSWORD || !process.env.DEMO_LEAD_PASSWORD)) {
   console.error(
-    '[seed-demo] --allow-remote requires DEMO_TECH_PASSWORD and DEMO_LEADER_PASSWORD ' +
+    '[seed-demo] --allow-remote requires DEMO_TECH_PASSWORD, DEMO_LEADER_PASSWORD and DEMO_LEAD_PASSWORD ' +
     '(demo account defaults are not allowed on a remote environment).',
   );
   process.exit(1);
 }
 const TECH_PASSWORD = process.env.DEMO_TECH_PASSWORD || 'DemoTech-2026!';
 const LEADER_PASSWORD = process.env.DEMO_LEADER_PASSWORD || 'DemoLeader-2026!';
+const LEAD_PASSWORD = process.env.DEMO_LEAD_PASSWORD || 'DemoLead-2026!';
 const COMPANY_CODE = 'DEMO-UNIT';
 const OUT = path.resolve('logs/demo-seed.json');
 
@@ -345,7 +346,9 @@ async function main() {
         await login(username, 'DemoInitial-2026!');
         await api('POST', '/auth/password', {
           currentPassword: 'DemoInitial-2026!',
-          newPassword: username === 'demo-tech' ? TECH_PASSWORD : LEADER_PASSWORD,
+          newPassword: username === 'demo-tech'
+            ? TECH_PASSWORD
+            : (username === 'demo-lead' ? LEAD_PASSWORD : LEADER_PASSWORD),
         });
       } catch (err) {
         console.warn(`demo password ${username}: ${err.message}`);
@@ -363,12 +366,16 @@ async function main() {
     'assets.view', 'assets.create', 'assets.edit', 'assets.checkout', 'assets.checkin', 'assets.audit',
     'systems.view', 'consumables.checkout', 'components.checkout',
     'models.view', 'locations.view', 'suppliers.view', 'categories.view',
-    'maintenance.view', 'maintenance.campaigns',
+    'maintenance.view', 'maintenance.campaigns', 'maintenance.tickets',
   ]);
   const leaderId = await ensureUser('demo-leader', 'Lanh dao', 'Don vi', 'demo-leader@example.invalid', 'Lãnh đạo', [
     'assets.view', 'systems.view', 'reports.view', 'export',
   ]);
-  summary.users = { techId, leaderId };
+  // [DF-7] Tổ trưởng approves/closes tickets created by technicians.
+  const leadId = await ensureUser('demo-lead', 'To truong', 'Don vi', 'demo-lead@example.invalid', 'Tổ trưởng', [
+    'assets.view', 'maintenance.tickets', 'maintenance.tickets.approve',
+  ]);
+  summary.users = { techId, leaderId, leadId };
 
   // Licenses, consumables, components, accessories
   const licenses = [];

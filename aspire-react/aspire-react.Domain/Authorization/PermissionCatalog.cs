@@ -136,6 +136,8 @@ public static class PermissionCatalog
 
         // === Bảo dưỡng định kỳ theo checklist (MC — Maintenance Checklist) ===
         new("maintenance.templates", "maintenance", "templates", "Quản lý Template & version checklist bảo dưỡng (xem/tạo/sửa/publish)"),
+        new("maintenance.tickets", "maintenance", "tickets", "Tạo/sửa/hoàn thành phiếu sửa chữa - bảo trì"),
+        new("maintenance.tickets.approve", "maintenance", "tickets.approve", "Kiểm tra và đóng phiếu sửa chữa - bảo trì"),
         new("maintenance.campaigns", "maintenance", "campaigns", "Quản lý đợt bảo dưỡng (tạo/hoàn thành/ghi kết quả checklist)"),
         new("maintenance.view", "maintenance", "view", "Xem lịch sử đợt bảo dưỡng & kết quả checklist"),
         new("admin", "system", "admin", "Quyền quản trị hệ thống (wildcard cho mọi quyền khác)"),

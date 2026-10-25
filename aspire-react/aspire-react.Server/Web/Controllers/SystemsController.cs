@@ -114,7 +114,12 @@ public class SystemsController : ControllerBase
         var policy = body.ComponentId.HasValue ? "components.checkout" : "consumables.checkout";
         var authorization = await authorizationService.AuthorizeAsync(User, policy);
         if (!authorization.Succeeded)
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                status = "error",
+                message = "Bạn không có quyền cấp phát vật tư/linh kiện cho hệ thống.",
+                error_code = "FORBIDDEN",
+            });
 
         var result = await _mediator.Send(new RecordSystemSparePartMovementCommand(
             id, body.ComponentId, body.ConsumableId, body.Quantity, direction, body.Note,

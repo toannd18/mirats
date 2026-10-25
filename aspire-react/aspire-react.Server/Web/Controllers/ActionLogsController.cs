@@ -62,7 +62,13 @@ public class ActionLogsController : ControllerBase
         // OR is evaluated here through the registered permission policies (superuser bypasses both).
         var canViewAssets = (await authorizationService.AuthorizeAsync(User, "assets.view")).Succeeded;
         var canViewSystems = (await authorizationService.AuthorizeAsync(User, "systems.view")).Succeeded;
-        if (!canViewAssets && !canViewSystems) return Forbid();
+        if (!canViewAssets && !canViewSystems)
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                status = "error",
+                message = "Bạn không có quyền xem lịch sử hệ thống.",
+                error_code = "FORBIDDEN",
+            });
 
         var result = await _mediator.Send(new GetBySystemQuery(systemInfoId, systemPositionId, actionType, from, to, page, pageSize));
         if (result == null)

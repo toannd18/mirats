@@ -18,6 +18,7 @@ const RESOURCE_LABELS: Record<string, string> = {
   customfields: 'Trường tùy chỉnh',
   systems: 'Hệ thống',
   maintenance: 'Bảo dưỡng',
+  'maintenance.tickets': 'Phiếu sửa chữa',
   system: 'Hệ thống',
 };
 
@@ -31,6 +32,8 @@ const ACTION_LABELS: Record<string, string> = {
   audit: 'Kiểm kê',
   correct: 'Đính chính',
   templates: 'Mẫu bảo dưỡng',
+  tickets: 'Phiếu sửa chữa',
+  approve: 'Duyệt',
   campaigns: 'Đợt bảo dưỡng',
   import: 'Nhập Excel',
   export: 'Xuất dữ liệu',

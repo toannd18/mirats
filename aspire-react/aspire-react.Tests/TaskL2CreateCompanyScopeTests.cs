@@ -235,7 +235,8 @@ public class TaskL2CreateCompanyScopeTests
 
         var controller = BuildConsumables(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         var result = await controller.Create(ConsReq(ctB));
-        Assert.IsType<ForbidResult>(result);
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, forbidden.StatusCode);
         Assert.Empty(await db.Consumables.IgnoreQueryFilters().Where(c => c.Name == "CON").ToListAsync());
     }
 

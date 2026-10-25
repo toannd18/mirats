@@ -59,6 +59,7 @@ export interface AssetMaintenanceDto {
   cost: number | null;
   isWarranty: boolean;
   companyId: string; // access-control company (server-set, locked)
+  createdById: string; // [DF-7] used by FE to hide self-approval actions
   supplier: { id: string; name: string } | null;
   asset: { id: string; assetTag: string; name: string; companyName: string | null } | null;
   // Immutable context snapshot captured at creation time

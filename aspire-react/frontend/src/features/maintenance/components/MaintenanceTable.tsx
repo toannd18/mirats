@@ -13,7 +13,7 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Link } from 'react-router-dom';
 import apiClient from '../../../services/api-client';
 import { assetService, type AssetMaintenanceDto } from '../../asset/services/asset.service';
-import { isSuperUser } from '../../../features/auth/services/auth';
+import { getCurrentSub, isSuperUser } from '../../../features/auth/services/auth';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import MaintenanceCompleteModal from './MaintenanceCompleteModal';
@@ -206,8 +206,15 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
   const { message, modal } = App.useApp();
   const isMobile = useIsMobile();
   const superUser = isSuperUser();
-  const canDeleteMaintenance = usePermission('assets.edit');
-  const canEditMaintenance = usePermission('assets.edit');
+  const currentUserId = getCurrentSub();
+  // [DF-7] delete/reopen are superuser-only; edit/complete and inspect/close are separate keys.
+  const canDeleteMaintenance = superUser;
+  const canEditMaintenance = usePermission('maintenance.tickets');
+  const canApproveMaintenance = usePermission('maintenance.tickets.approve');
+  const isRecordCreator = (record: AssetMaintenanceDto) =>
+    !!currentUserId && record.createdById === currentUserId;
+  const canApproveRecord = (record: AssetMaintenanceDto) =>
+    canApproveMaintenance && (superUser || !isRecordCreator(record));
   const internalActionRef = useRef<ActionType | undefined>(undefined);
   const ref = actionRef ?? internalActionRef;
   const [detail, setDetail] = useState<AssetMaintenanceDto | null>(null);
@@ -374,11 +381,11 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
         : null;
     }
     if (!record.inspectedById) {
-      return canEditMaintenance
+      return canApproveRecord(record)
         ? { key: 'inspect', label: 'Kiểm tra', icon: <CheckOutlined />, onClick: () => void handleInspect(record) }
         : null;
     }
-    return canEditMaintenance
+    return canApproveRecord(record)
       ? { key: 'close', label: 'Đóng', icon: <LockOutlined />, onClick: () => handleClose(record) }
       : null;
   };
@@ -882,17 +889,19 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
                       {formatDateTime(detail.inspectedAt)}
                     </span>
                   )
-                  : detail.completionDate
+                  : detail.completionDate && canApproveRecord(detail)
                     ? (
                       <Button size="small" icon={<CheckOutlined />} onClick={() => void handleInspect(detail)}>
                         Đánh dấu đã kiểm tra
                       </Button>
                     )
-                    : (
-                      <Tooltip title="Cần nhập Ngày hoàn thành trước khi kiểm tra bảo trì">
-                        <Button size="small" disabled icon={<CheckOutlined />}>Đánh dấu đã kiểm tra</Button>
-                      </Tooltip>
-                    )}
+                    : isRecordCreator(detail)
+                      ? <Text type="secondary">—</Text>
+                      : (
+                        <Tooltip title="Cần nhập Ngày hoàn thành trước khi kiểm tra bảo trì">
+                          <Button size="small" disabled icon={<CheckOutlined />}>Đánh dấu đã kiểm tra</Button>
+                        </Tooltip>
+                      )}
               </Descriptions.Item>
 
 

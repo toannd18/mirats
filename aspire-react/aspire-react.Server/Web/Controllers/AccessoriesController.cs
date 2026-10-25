@@ -104,7 +104,8 @@ public class AccessoriesController : ControllerBase
 
         if (!result.Success)
         {
-            if (result.ErrorCode == "FORBIDDEN") return Forbid();
+            if (result.ErrorCode == "FORBIDDEN")
+                return StatusCode(StatusCodes.Status403Forbidden, new { status = "error", message = result.Message, error_code = result.ErrorCode });
             return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
         }
 
@@ -147,7 +148,7 @@ public class AccessoriesController : ControllerBase
         {
             return result.ErrorCode switch
             {
-                "FORBIDDEN" => Forbid(),
+                "FORBIDDEN" => StatusCode(StatusCodes.Status403Forbidden, new { status = "error", message = result.Message, error_code = result.ErrorCode }),
                 "NOT_FOUND" => NotFound(new { status = "error", message = result.Message }),
                 // No error_code (active checkouts) — verbatim body of the pre-migration action.
                 null => BadRequest(new { status = "error", message = result.Message }),

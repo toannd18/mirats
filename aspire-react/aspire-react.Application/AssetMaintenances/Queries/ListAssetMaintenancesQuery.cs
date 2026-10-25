@@ -64,6 +64,7 @@ public class ListAssetMaintenancesQueryHandler : IRequestHandler<ListAssetMainte
                 m.Cost,
                 m.IsWarranty,
                 m.CompanyId,
+                m.CreatedById,
                 m.Supplier == null ? null : new MaintenanceSupplierRefDto(m.Supplier.Id, m.Supplier.Name),
                 new MaintenanceAssetRefDto(m.Asset.Id, m.Asset.AssetTag, m.Asset.Name),
                 m.SnapshotSystemInfoId,
