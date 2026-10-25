@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.SystemInfos;
 using aspire_react.Server.Domain.Entities;
@@ -59,14 +60,12 @@ public class CreateSystemInfoCommandHandler : IRequestHandler<CreateSystemInfoCo
         if (await _context.SystemInfos.AnyAsync(x => x.Code == code, cancellationToken))
             return new SystemInfoResult(false, "Mã hệ thống đã tồn tại.");
 
-        // [Task L2 — COMPANY-SCOPING on Create] A regular user may only create systems for their own
-        // company (or a company-less floater). Superuser (GetCurrentUserCompanyIdAsync → null) may
-        // create for any company. Never trust the client-supplied CompanyId alone.
-        var userCompanyIdCreate = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (userCompanyIdCreate.HasValue && request.CompanyId.HasValue && request.CompanyId.Value != userCompanyIdCreate.Value)
-            return new SystemInfoResult(false, "Bạn chỉ được tạo hệ thống cho công ty của mình.", "COMPANY_MISMATCH");
+        // [DF-8] Shared company-assignment rule; never trust the client-supplied CompanyId alone.
+        var companyAssignment = await CompanyAssignmentPolicy.ForCreateAsync(_companyScope, request.CompanyId);
+        if (!companyAssignment.Allowed)
+            return new SystemInfoResult(false, "Bạn chỉ được tạo hệ thống cho công ty của mình.", "FORBIDDEN");
 
-        var sys = new SystemInfo { Code = code.ToUpper(), Name = request.Name!, Description = request.Description, CompanyId = request.CompanyId };
+        var sys = new SystemInfo { Code = code.ToUpper(), Name = request.Name!, Description = request.Description, CompanyId = companyAssignment.CompanyId };
         _context.SystemInfos.Add(sys);
         await _context.SaveChangesAsync(cancellationToken);
 

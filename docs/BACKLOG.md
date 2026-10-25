@@ -5,6 +5,21 @@
 
 ---
 
+## DF-8 — Floater đang biểu diễn lẫn `null` và `Guid.Empty` (BACKLOG)
+
+- **Trạng thái:** OPEN — ghi nhận 2026-10-25 trong DF-8, **không sửa**.
+- **Hiện trạng:** schema dùng `NULL` cho hầu hết cột `CompanyId` nullable, nhưng
+  `asset_maintenances.CompanyId` là non-null và dùng `Guid.Empty` làm sentinel floater; một số
+  đường create/update cũ cũng từng ghi `Guid.Empty` (ví dụ License companyless trước DF-8).
+- **Hệ quả:** script/audit phải đếm cả hai giá trị; filter `CompanyId == null` bỏ sót
+  `Guid.Empty`; API/FE có hai nghĩa "không công ty".
+- **Đề xuất:** thống nhất một sentinel (ưu tiên `NULL` cho cột nullable; riêng cột non-null như
+  `AssetMaintenance` cần migration + backfill), cập nhật query/filter/test và
+  `scripts/check-company-scope.sql` sau khi có migration.
+- **Ngoài phạm vi DF-8:** không đổi schema trong đợt này.
+
+---
+
 ## 🆕 ĐỢT 2 — 2026-10-02 (10 mục I → A → B → C → D → E → F → G → H → J)
 
 > **Trạng thái: xong 10/10 mục, TẤT CẢ commit LOCAL — CHƯA PUSH** (chờ duyệt). Luật mới áp dụng

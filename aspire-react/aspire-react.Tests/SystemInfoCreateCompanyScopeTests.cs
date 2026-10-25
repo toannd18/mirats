@@ -64,9 +64,9 @@ public class SystemInfoCreateCompanyScopeTests
     // ── Create ──
 
     [Fact]
-    public async Task RegularUser_CreateForOtherCompany_Returns400CompanyMismatch()
+    public async Task RegularUser_CreateForOtherCompany_Forbidden()
     {
-        var s = await SeedAsync(nameof(RegularUser_CreateForOtherCompany_Returns400CompanyMismatch));
+        var s = await SeedAsync(nameof(RegularUser_CreateForOtherCompany_Forbidden));
         await using var ctx = s.ctx;
         var handlers = BuildHandlers(ctx, RegularUser(s.regularUserA));
 
@@ -74,7 +74,7 @@ public class SystemInfoCreateCompanyScopeTests
             new CreateSystemInfoCommand($"SYS-{DateTime.Now.Year}-001", "HT-B", null, s.companyB, s.regularUserA), CancellationToken.None);
 
         Assert.False(result.Success);
-        Assert.Equal("COMPANY_MISMATCH", result.ErrorCode);
+        Assert.Equal("FORBIDDEN", result.ErrorCode);
         Assert.False(await ctx.SystemInfos.AnyAsync(x => x.Name == "HT-B")); // not created
     }
 
@@ -93,9 +93,9 @@ public class SystemInfoCreateCompanyScopeTests
     }
 
     [Fact]
-    public async Task RegularUser_CreateFloater_Returns200()
+    public async Task RegularUser_CreateWithoutCompany_FillsOwnCompany()
     {
-        var s = await SeedAsync(nameof(RegularUser_CreateFloater_Returns200));
+        var s = await SeedAsync(nameof(RegularUser_CreateWithoutCompany_FillsOwnCompany));
         await using var ctx = s.ctx;
         var handlers = BuildHandlers(ctx, RegularUser(s.regularUserA));
 
@@ -103,7 +103,7 @@ public class SystemInfoCreateCompanyScopeTests
             new CreateSystemInfoCommand($"SYS-{DateTime.Now.Year}-001", "HT-Floater", null, null, s.regularUserA), CancellationToken.None);
 
         Assert.True(result.Success);
-        Assert.True(await ctx.SystemInfos.AnyAsync(x => x.Name == "HT-Floater" && x.CompanyId == null));
+        Assert.True(await ctx.SystemInfos.AnyAsync(x => x.Name == "HT-Floater" && x.CompanyId == s.companyA));
     }
 
     [Fact]

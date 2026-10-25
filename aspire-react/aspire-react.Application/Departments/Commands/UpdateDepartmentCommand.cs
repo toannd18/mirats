@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.ActionLogs;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Validation;
 using aspire_react.Server.Domain.Entities;
@@ -68,6 +69,10 @@ public class UpdateDepartmentCommandHandler : IRequestHandler<UpdateDepartmentCo
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
         if (userCompanyId.HasValue && d.CompanyId.HasValue && d.CompanyId.Value != userCompanyId.Value)
             return new DepartmentResult(false, "Not found.", "NOT_FOUND");
+
+        // [DF-8] Non-superuser cannot move to another company or clear to floater.
+        if (!await CompanyAssignmentPolicy.CanChangeAsync(_companyScope, request.CompanyId))
+            return new DepartmentResult(false, "Bạn không được đổi công ty của phòng ban.", "FORBIDDEN");
 
         // [BUG-E FIX] Name is only required WHEN SENT (patch semantics): blank sent → 400 (same as
         // the old full-PUT rule); absent → keep the stored name.

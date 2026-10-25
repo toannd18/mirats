@@ -11,6 +11,7 @@ import { fkForUpdate } from '../../../shared/utils/fk';
 import { ASSET_STATUS_LABELS, normalizeAssetStatus, type AssetDetailDto } from '../types/asset';
 import { usePermission } from '../../../hooks/usePermission';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import { useCompanyField } from '../../../hooks/useCompanyField';
 import { uiColors } from '../../../theme/designTokens';
 import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
@@ -51,7 +52,8 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
   const [locations, setLocations] = useState<SelectOption[]>([]);
   const [suppliers, setSuppliers] = useState<SelectOption[]>([]);
 
-  // Dropdown options (models/locations/suppliers) — công ty dùng <CompanyTreeSelect> dùng chung.
+  const { showCompanyField } = useCompanyField();
+  // Dropdown options (models/locations/suppliers) - công ty dùng <CompanyTreeSelect> dùng chung.
   useEffect(() => {
     const map = (items: { id: string; name: string }[]): SelectOption[] =>
       items.map(i => ({ value: i.id, label: i.name }));
@@ -108,7 +110,7 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
       payload.modelId = fkForUpdate(values.modelId);
       payload.locationId = fkForUpdate(values.locationId);
       payload.supplierId = fkForUpdate(values.supplierId);
-      payload.companyId = fkForUpdate(values.companyId);
+      if (showCompanyField) payload.companyId = fkForUpdate(values.companyId);
       if (values.purchaseCost !== undefined) payload.purchaseCost = values.purchaseCost;
       if (values.purchaseDate) payload.purchaseDate = values.purchaseDate.toISOString();
       if (values.warrantyMonths !== undefined) payload.warrantyMonths = values.warrantyMonths;
@@ -208,11 +210,13 @@ export default function AssetEditModal({ open, assetId, onClose, onSaved }: Asse
                 <Select allowClear showSearch placeholder="Chọn nhà cung cấp" options={suppliers} disabled={isConfirmed} filterOption={filterFn} />
               </Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item name="companyId" label={lock('Công ty')}>
-                <CompanyTreeSelect disabled={isConfirmed} />
-              </Form.Item>
-            </Col>
+            {showCompanyField && (
+              <Col xs={24} sm={12}>
+                <Form.Item name="companyId" label={lock('Công ty')}>
+                  <CompanyTreeSelect disabled={isConfirmed} />
+                </Form.Item>
+              </Col>
+            )}
             <Col xs={24} sm={8}>
               <Form.Item name="purchaseCost" label={lock('Đơn giá (VND)')}>
                 <InputNumber min={0} style={{ width: '100%' }} placeholder="0" disabled={isConfirmed}

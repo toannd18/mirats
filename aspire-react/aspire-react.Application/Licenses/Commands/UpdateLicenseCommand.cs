@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.ActionLogs;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Validation;
 using aspire_react.Server.Application.Licenses;
@@ -43,6 +44,10 @@ public class UpdateLicenseCommandHandler : IRequestHandler<UpdateLicenseCommand,
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
         if (!LicenseRules.IsLicenseVisible(l, userCompanyId))
             return new LicenseResult(false, "License not found.", "NOT_FOUND");
+
+        // [DF-8] Non-superuser cannot move to another company or clear to floater.
+        if (!await CompanyAssignmentPolicy.CanChangeAsync(_companyScope, request.CompanyId))
+            return new LicenseResult(false, "Bạn không được đổi công ty của bản quyền.", "FORBIDDEN");
 
         // Locked structural fields (same whitelist principle as Component/Maintenance).
         if (request.CategoryId.HasValue && OptionalForeignKey.Cleared(request.CategoryId) != l.CategoryId)

@@ -9,6 +9,7 @@ import { usePermission } from '../../../hooks/usePermission';
 import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import { useCompanyField } from '../../../hooks/useCompanyField';
 
 const { Text } = Typography;
 
@@ -48,6 +49,7 @@ function buildTree(list: LocationDto[]): LocationDto[] {
 }
 
 export default function LocationListPage() {
+  const { showCompanyField } = useCompanyField();
   // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
   const { message } = App.useApp();
   const [tree, setTree] = useState<LocationDto[]>([]);
@@ -172,6 +174,7 @@ export default function LocationListPage() {
           ...values,
           ...withOptionalFkCleared(values, ['parentId', 'companyId', 'managerId']),
         };
+        if (!showCompanyField) delete payload.companyId;
         await apiClient.put(`/locations/${editingId}`, payload);
         message.success('Đã cập nhật');
       } else {
@@ -250,12 +253,14 @@ export default function LocationListPage() {
             }}
           />
         </Form.Item>
-        <Form.Item label="Công ty" name="companyId">
-          <CompanyTreeSelect
-            placeholder={watchedParentId ? 'Đã kế thừa từ địa điểm cha' : 'Chọn công ty'}
-            disabled={!!watchedParentId}
-          />
-        </Form.Item>
+        {showCompanyField && (
+          <Form.Item label="Công ty" name="companyId">
+            <CompanyTreeSelect
+              placeholder={watchedParentId ? 'Đã kế thừa từ địa điểm cha' : 'Chọn công ty'}
+              disabled={!!watchedParentId}
+            />
+          </Form.Item>
+        )}
         <Form.Item label="Người quản lý" name="managerId">
           <Select
             showSearch

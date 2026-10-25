@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -61,18 +62,16 @@ public class CreateLocationCommandHandler : IRequestHandler<CreateLocationComman
 
     public async Task<LocationResult> Handle(CreateLocationCommand request, CancellationToken cancellationToken)
     {
-        // [BUG-G FIX] Company-scoping on CREATE — Task L2 pattern (Department), check FIRST:
-        // regular user (scope = own company) may only create for their company or floater;
-        // superuser (scope null) bypasses. Out-of-scope create → 400 COMPANY_MISMATCH.
-        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (userCompanyId.HasValue && request.CompanyId.HasValue && request.CompanyId.Value != userCompanyId.Value)
-            return new LocationResult(false, "Bạn chỉ được tạo địa điểm cho công ty của mình.", "COMPANY_MISMATCH");
+        // [DF-8] Shared company-assignment rule.
+        var companyAssignment = await CompanyAssignmentPolicy.ForCreateAsync(_companyScope, request.CompanyId);
+        if (!companyAssignment.Allowed)
+            return new LocationResult(false, "Bạn chỉ được tạo địa điểm cho công ty của mình.", "FORBIDDEN");
 
         var l = new Location
         {
             Name = request.Name,
             ParentId = request.ParentId,
-            CompanyId = request.CompanyId,
+            CompanyId = companyAssignment.CompanyId,
             ManagerId = request.ManagerId,
             Address = request.Address,
             City = request.City,

@@ -9,6 +9,7 @@ import { accessoriesApi } from '../services/accessories.service';
 import dayjs from 'dayjs';
 import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import { useCompanyField } from '../../../hooks/useCompanyField';
 import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
@@ -37,6 +38,7 @@ interface OptionItem { label: string; value: string; }
  *   fetch /checkouts, non-empty → disable field, giữ nguyên giá trị khi submit).
  */
 export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved }: AccessoryFormModalProps) {
+  const { showCompanyField } = useCompanyField();
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const isEdit = !!accessoryId;
@@ -103,13 +105,15 @@ export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved
     try {
       // [FIX-GUID-EMPTY phần 2] Update: FK tùy chọn bị xóa ⇒ EMPTY_GUID (backend xóa liên kết),
       // KHÔNG gửi undefined/null (backend hiểu là "không gửi" ⇒ giữ nguyên).
-      const payload = {
+      const payload: Record<string, unknown> = {
         ...values,
         ...(isEdit && accessoryId
           ? withOptionalFkCleared(values, ['categoryId', 'manufacturerId', 'supplierId', 'locationId', 'companyId'])
           : {}),
         purchaseDate: values.purchaseDate ? dayjs(values.purchaseDate as dayjs.Dayjs).toISOString() : undefined,
       };
+      // [DF-8.3] Omitted when hidden: create gets the user's company server-side, edit keeps it.
+      if (!showCompanyField) delete payload.companyId;
       if (isEdit && accessoryId) {
         await accessoriesApi.update(accessoryId, payload);
         void message.success('Cập nhật phụ kiện thành công');
@@ -213,20 +217,22 @@ export default function AccessoryFormModal({ open, accessoryId, onClose, onSaved
           {/* ── Tổ chức & Vị trí ── */}
           <Divider titlePlacement="start" plain>Tổ chức & Vị trí</Divider>
           <Row gutter={[16, 8]}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                label={companyLocked ? (
-                  <Space size={4}>
-                    <LockOutlined style={{ color: '#faad14' }} />
-                    <span>Công ty</span>
-                  </Space>
-                ) : 'Công ty'}
-                name="companyId"
-                extra={companyLocked ? 'Đã từng được cấp phát — không thể đổi công ty' : undefined}
-              >
-                <CompanyTreeSelect disabled={companyLocked} />
-              </Form.Item>
-            </Col>
+            {showCompanyField && (
+              <Col xs={24} sm={12}>
+                <Form.Item
+                  label={companyLocked ? (
+                    <Space size={4}>
+                      <LockOutlined style={{ color: '#faad14' }} />
+                      <span>Công ty</span>
+                    </Space>
+                  ) : 'Công ty'}
+                  name="companyId"
+                  extra={companyLocked ? 'Đã từng được cấp phát — không thể đổi công ty' : undefined}
+                >
+                  <CompanyTreeSelect disabled={companyLocked} />
+                </Form.Item>
+              </Col>
+            )}
             <Col xs={24} sm={12}>
               <Form.Item label="Địa điểm" name="locationId">
                 <Select showSearch allowClear placeholder="Chọn địa điểm lưu trữ" options={locationOptions} filterOption={filterFn} />

@@ -3,6 +3,7 @@ using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
 using aspire_react.Server.Application.Common.ActionLogs;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -142,6 +143,10 @@ public class UpdateUserCommandHandler : IRequestHandler<UpdateUserCommand, Updat
         {
             return new UpdateUserResult(false, "User not found.", ErrorCode: "USER_NOT_FOUND");
         }
+
+        // [DF-8] Non-superuser cannot move a user to another company or clear to floater.
+        if (!await CompanyAssignmentPolicy.CanChangeAsync(_companyScope, request.CompanyId))
+            return new UpdateUserResult(false, "Bạn không được đổi công ty của người dùng.", ErrorCode: "FORBIDDEN");
 
         // [Task J / FIX BUG-M] Anti self-lockout (moved from the controller): demoting the last
         // superuser must be blocked — regardless of who performs it.

@@ -2,6 +2,7 @@ using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Validation;
 using MediatR;
@@ -92,6 +93,10 @@ public class UpdateAccessoryCommandHandler : IRequestHandler<UpdateAccessoryComm
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
         if (userCompanyId.HasValue && a.CompanyId.HasValue && a.CompanyId.Value != userCompanyId.Value)
             return new UpdateAccessoryResult(false, "Accessory not found.", ErrorCode: "NOT_FOUND");
+
+        // [DF-8] Non-superuser cannot move to another company or clear to floater.
+        if (!await CompanyAssignmentPolicy.CanChangeAsync(_companyScope, r.CompanyId))
+            return new UpdateAccessoryResult(false, "Bạn không được đổi công ty của phụ kiện.", ErrorCode: "FORBIDDEN");
 
         // CompanyId-lock after any checkout history (mirrors Consumable/License): past checkouts were
         // tied to the old company. Patch-aware — only when CompanyId is explicitly sent and differs.

@@ -201,7 +201,7 @@ public class UserUpdatePatchSafetyTests
         }, CancellationToken.None);
 
         Assert.False(result.Success);
-        Assert.Equal("COMPANY_MISMATCH", result.ErrorCode);
+        Assert.Equal("FORBIDDEN", result.ErrorCode);
         var reloaded = await ctx.Users.SingleAsync(x => x.Id == user.Id);
         Assert.Equal(ctA, reloaded.CompanyId);        // rejected BEFORE mutation
         Assert.Equal("First", reloaded.FirstName);    // no partial write either
@@ -234,9 +234,9 @@ public class UserUpdatePatchSafetyTests
     }
 
     [Fact]
-    public async Task Update_FloaterSentinel_RegularUser_Allowed()
+    public async Task Update_FloaterSentinel_RegularUser_Forbidden()
     {
-        await using var ctx = CreateContext(nameof(Update_FloaterSentinel_RegularUser_Allowed));
+        await using var ctx = CreateContext(nameof(Update_FloaterSentinel_RegularUser_Forbidden));
         var (ctA, _, _, _) = await SeedAsync(ctx);
         var user = NewUser(ctA);
         ctx.Users.Add(user);
@@ -244,7 +244,7 @@ public class UserUpdatePatchSafetyTests
 
         var handler = BuildHandler(ctx, new TestHelpers.FakeScope { CompanyId = ctA }, ActorId);
 
-        // Clearing to floater mirrors CreateUser's "own company OR floater" rule → allowed.
+        // [DF-8] Clearing to floater is no longer allowed for a regular user.
         var result = await handler.Handle(new UpdateUserCommand
         {
             Id = user.Id,
@@ -254,9 +254,10 @@ public class UserUpdatePatchSafetyTests
             CompanyId = Guid.Empty
         }, CancellationToken.None);
 
-        Assert.True(result.Success);
+        Assert.False(result.Success);
+        Assert.Equal("FORBIDDEN", result.ErrorCode);
         var reloaded = await ctx.Users.SingleAsync(x => x.Id == user.Id);
-        Assert.Null(reloaded.CompanyId);
+        Assert.Equal(ctA, reloaded.CompanyId);
     }
 
     [Fact]
@@ -307,7 +308,7 @@ public class UserUpdatePatchSafetyTests
         }, CancellationToken.None);
 
         Assert.False(result.Success);
-        Assert.Equal("COMPANY_MISMATCH", result.ErrorCode);
+        Assert.Equal("FORBIDDEN", result.ErrorCode);
         var reloaded = await ctx.Users.SingleAsync(x => x.Id == user.Id);
         Assert.Null(reloaded.CompanyId);
     }

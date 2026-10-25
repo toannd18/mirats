@@ -1,4 +1,5 @@
 using System.Text.Json;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -35,11 +36,10 @@ public class CreateConsumableCommandHandler : IRequestHandler<CreateConsumableCo
 
     public async Task<ConsumableResult> Handle(CreateConsumableCommand request, CancellationToken cancellationToken)
     {
-        // [Task L2] Company-scoping on CREATE: a regular user may only create consumables for their
-        // own company (or company-less floater). Superuser (scope → null) may create for any company.
-        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (userCompanyId.HasValue && request.CompanyId.HasValue && request.CompanyId.Value != userCompanyId.Value)
-            return new ConsumableResult(false, "Bạn chỉ được tạo vật tư cho công ty của mình.", "COMPANY_MISMATCH");
+        // [DF-8] Shared company-assignment rule.
+        var companyAssignment = await CompanyAssignmentPolicy.ForCreateAsync(_companyScope, request.CompanyId);
+        if (!companyAssignment.Allowed)
+            return new ConsumableResult(false, "Bạn chỉ được tạo vật tư cho công ty của mình.", "FORBIDDEN");
 
         var c = new Consumable
         {
@@ -51,7 +51,7 @@ public class CreateConsumableCommandHandler : IRequestHandler<CreateConsumableCo
             ManufacturerId = request.ManufacturerId,
             SupplierId = request.SupplierId,
             LocationId = request.LocationId,
-            CompanyId = request.CompanyId,
+            CompanyId = companyAssignment.CompanyId,
             ModelNumber = request.ModelNumber,
             OrderNumber = request.OrderNumber,
             PurchaseCost = request.PurchaseCost,

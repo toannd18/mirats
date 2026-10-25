@@ -2,6 +2,7 @@ using System.Text.Json;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using FluentValidation;
 using MediatR;
@@ -66,22 +67,12 @@ public class CreateAssetCommandHandler : IRequestHandler<CreateAssetCommand, Ass
 
     public async Task<AssetResult> Handle(CreateAssetCommand request, CancellationToken cancellationToken)
     {
-        // [DF-6c] Company-scoping on CREATE:
-        // - non-superuser with a company: a missing body companyId is filled from the user's company;
-        //   an explicit different company is still rejected (unchanged);
-        // - non-superuser without a company: current behavior is preserved (request value wins,
-        //   including null/floater) — we cannot infer a company that the user does not have;
-        // - superuser: unchanged (body value wins, including null/floater).
-        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        var effectiveCompanyId = request.CompanyId;
-        // CompanyScopeService returns Guid.Empty (not null) for a company-less non-superuser —
-        // that sentinel must keep the legacy "body value wins" behavior, not be written to the row.
-        if (!_companyScope.IsSuperUser() && userCompanyId.HasValue && userCompanyId.Value != Guid.Empty)
-        {
-            if (request.CompanyId.HasValue && request.CompanyId.Value != userCompanyId.Value)
-                return new AssetResult(false, "Bạn chỉ được tạo tài sản cho công ty của mình.", ErrorCode: "COMPANY_MISMATCH");
-            effectiveCompanyId = userCompanyId.Value;
-        }
+        // [DF-8] Shared create rule: non-superuser company-scoped callers get their own company
+        // when the body omits it; a different company is forbidden.
+        var companyAssignment = await CompanyAssignmentPolicy.ForCreateAsync(_companyScope, request.CompanyId);
+        if (!companyAssignment.Allowed)
+            return new AssetResult(false, "Bạn chỉ được tạo tài sản cho công ty của mình.", ErrorCode: "FORBIDDEN");
+        var effectiveCompanyId = companyAssignment.CompanyId;
 
         // [Task ASSET-TAG-AUTO] Empty/null AssetTag → auto-generate from the configured format.
         // The counter and asset are committed in the SAME transaction, so a failed create or a

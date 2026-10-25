@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.ActionLogs;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Validation;
 using Microsoft.EntityFrameworkCore;
@@ -69,6 +70,10 @@ public class UpdateLocationCommandHandler : IRequestHandler<UpdateLocationComman
         var userCompanyIdUpdate = await _companyScope.GetCurrentUserCompanyIdAsync();
         if (userCompanyIdUpdate.HasValue && l.CompanyId.HasValue && l.CompanyId.Value != userCompanyIdUpdate.Value)
             return new LocationResult(false, "Not found.", "NOT_FOUND");
+
+        // [DF-8] Non-superuser cannot move to another company or clear to floater.
+        if (!await CompanyAssignmentPolicy.CanChangeAsync(_companyScope, request.CompanyId))
+            return new LocationResult(false, "Bạn không được đổi công ty của địa điểm.", "FORBIDDEN");
 
         // Patch semantics (Task M2): only fields explicitly sent are applied (absent → keep current).
         // [FIX-GUID-EMPTY phần 2 — 2026-10-20] FK TÙY CHỌN: vắng = giữ; Guid.Empty = xóa liên kết (null);

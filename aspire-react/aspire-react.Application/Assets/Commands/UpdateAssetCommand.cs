@@ -3,6 +3,7 @@ using aspire_react.Server.Application.Common.ActionLogs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Validation;
 using MediatR;
@@ -55,6 +56,10 @@ public class UpdateAssetCommandHandler : IRequestHandler<UpdateAssetCommand, Ass
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
         if (userCompanyId.HasValue && asset.CompanyId.HasValue && asset.CompanyId.Value != userCompanyId.Value)
             return new AssetResult(false, "Asset not found.", ErrorCode: "NOT_FOUND");
+
+        // [DF-8] A non-superuser must not move an asset to another company or clear it to floater.
+        if (!await CompanyAssignmentPolicy.CanChangeAsync(_companyScope, request.CompanyId))
+            return new AssetResult(false, "Bạn không được đổi công ty của tài sản.", ErrorCode: "FORBIDDEN");
 
         if (asset.Status == AssetStatus.Archived)
             return new AssetResult(false, "Không thể sửa tài sản đã lưu trữ.", ErrorCode: "ASSET_ARCHIVED");

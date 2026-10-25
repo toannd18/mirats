@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.ActionLogs;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Validation;
 using aspire_react.Server.Domain.Entities;
@@ -45,6 +46,10 @@ public class UpdateConsumableCommandHandler : IRequestHandler<UpdateConsumableCo
         var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
         if (userCompanyId.HasValue && c.CompanyId.HasValue && c.CompanyId.Value != userCompanyId.Value)
             return new ConsumableResult(false, "Consumable not found.", "NOT_FOUND");
+
+        // [DF-8] Non-superuser cannot move to another company or clear to floater.
+        if (!await CompanyAssignmentPolicy.CanChangeAsync(_companyScope, request.CompanyId))
+            return new ConsumableResult(false, "Bạn không được đổi công ty của vật tư.", "FORBIDDEN");
 
         // [FIELD_LOCKED] Company change after checkout — phải chặn TRƯỚC khi kiểm tồn tại FK (nếu không,
         // đổi công ty sau khi đã cấp phát sẽ trả RESOURCE_NOT_FOUND thay vì FIELD_LOCKED đúng nghiệp vụ).

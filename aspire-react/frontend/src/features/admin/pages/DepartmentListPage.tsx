@@ -9,6 +9,7 @@ import { usePermission } from '../../../hooks/usePermission';
 import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import { useCompanyField } from '../../../hooks/useCompanyField';
 
 const { Text } = Typography;
 
@@ -31,6 +32,7 @@ interface UserOption {
 }
 
 export default function DepartmentListPage() {
+  const { showCompanyField } = useCompanyField();
   // [FE-R6] message lấy từ App.useApp() (context theme) thay vì static import.
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
@@ -87,6 +89,7 @@ export default function DepartmentListPage() {
       if (editingId) {
         // [FIX-GUID-EMPTY phần 2] Ô FK bị xóa ⇒ Guid.Empty để backend XÓA liên kết (chuẩn API.md).
         const payload = { ...values, ...withOptionalFkCleared(values, ['companyId', 'managerId']) };
+        if (!showCompanyField) delete payload.companyId;
         await apiClient.put(`/departments/${editingId}`, payload);
         message.success('Đã cập nhật');
       }
@@ -125,9 +128,11 @@ export default function DepartmentListPage() {
         <Form.Item label="Tên phòng ban" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
           <Input placeholder="Tên phòng ban" />
         </Form.Item>
-        <Form.Item label="Công ty" name="companyId">
-          <CompanyTreeSelect />
-        </Form.Item>
+        {showCompanyField && (
+          <Form.Item label="Công ty" name="companyId">
+            <CompanyTreeSelect />
+          </Form.Item>
+        )}
         <Form.Item label="Người quản lý" name="managerId">
           <Select showSearch allowClear placeholder="Chọn người quản lý" options={users} filterOption={(inp, opt) => (opt?.label as string)?.toLowerCase().includes(inp.toLowerCase())} />
         </Form.Item>

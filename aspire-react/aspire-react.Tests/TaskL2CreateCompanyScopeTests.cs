@@ -92,7 +92,7 @@ public class TaskL2CreateCompanyScopeTests
         }, CancellationToken.None);
 
         Assert.False(result.Success);
-        Assert.Equal("COMPANY_MISMATCH", result.ErrorCode);
+        Assert.Equal("FORBIDDEN", result.ErrorCode);
         Assert.Empty(await ctx.Assets.IgnoreQueryFilters().Where(a => a.AssetTag == "AST-CROSS").ToListAsync());
     }
 
@@ -166,7 +166,7 @@ public class TaskL2CreateCompanyScopeTests
         }, CancellationToken.None);
 
         Assert.False(result.Success);
-        Assert.Equal("COMPANY_MISMATCH", result.ErrorCode);
+        Assert.Equal("FORBIDDEN", result.ErrorCode);
         Assert.Empty(await ctx.Accessories.IgnoreQueryFilters().Where(x => x.Name == "ACC-CROSS").ToListAsync());
     }
 
@@ -225,9 +225,9 @@ public class TaskL2CreateCompanyScopeTests
         => new("CON", null, 1, 0, null, null, null, null, companyId, null, null, null, null, null, null);
 
     [Fact]
-    public async Task Consumable_Create_CrossCompany_Returns400_NotCreated()
+    public async Task Consumable_Create_CrossCompany_Forbidden_NotCreated()
     {
-        await using var db = CreateContext(nameof(Consumable_Create_CrossCompany_Returns400_NotCreated));
+        await using var db = CreateContext(nameof(Consumable_Create_CrossCompany_Forbidden_NotCreated));
         var (ctA, ctB) = await SeedCompaniesAsync(db);
         var actor = new User { Username = "actor", Email = "a@l", FirstName = "F", LastName = "L", CompanyId = ctA };
         db.Users.Add(actor);
@@ -235,7 +235,7 @@ public class TaskL2CreateCompanyScopeTests
 
         var controller = BuildConsumables(db, actor.Id, new TestHelpers.FakeScope { Super = false, CompanyId = ctA });
         var result = await controller.Create(ConsReq(ctB));
-        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.IsType<ForbidResult>(result);
         Assert.Empty(await db.Consumables.IgnoreQueryFilters().Where(c => c.Name == "CON").ToListAsync());
     }
 
@@ -344,7 +344,7 @@ public class TaskL2CreateCompanyScopeTests
         var result = await BuildCreateDepartmentHandler(db, new TestHelpers.FakeScope { Super = false, CompanyId = ctA })
             .Handle(new CreateDepartmentCommand("DEPT-X", ctB, null, null, null, actor.Id), CancellationToken.None);
         Assert.False(result.Success);
-        Assert.Equal("COMPANY_MISMATCH", result.ErrorCode);
+        Assert.Equal("FORBIDDEN", result.ErrorCode);
         Assert.Empty(await db.Departments.IgnoreQueryFilters().Where(d => d.Name == "DEPT-X").ToListAsync());
     }
 

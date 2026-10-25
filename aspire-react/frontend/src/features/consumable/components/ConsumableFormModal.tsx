@@ -9,6 +9,7 @@ import { consumablesApi } from '../services/consumables.service';
 import dayjs from 'dayjs';
 import { withOptionalFkCleared } from '../../../shared/utils/fk';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import { useCompanyField } from '../../../hooks/useCompanyField';
 import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
@@ -39,6 +40,7 @@ interface OptionItem { label: string; value: string; }
  *   fetch /checkouts, non-empty → disable field, giữ nguyên giá trị khi submit).
  */
 export default function ConsumableFormModal({ open, consumableId, onClose, onSaved }: ConsumableFormModalProps) {
+  const { showCompanyField } = useCompanyField();
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const isEdit = !!consumableId;
@@ -110,13 +112,14 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
     try {
       // [FIX-GUID-EMPTY phần 2] Update: FK tùy chọn bị xóa ⇒ EMPTY_GUID (backend xóa liên kết),
       // KHÔNG gửi undefined/null (backend hiểu là "không gửi" ⇒ giữ nguyên).
-      const payload = {
+      const payload: Record<string, unknown> = {
         ...values,
         ...(isEdit && consumableId
           ? withOptionalFkCleared(values, ['categoryId', 'manufacturerId', 'supplierId', 'locationId', 'companyId'])
           : {}),
         purchaseDate: values.purchaseDate ? dayjs(values.purchaseDate as dayjs.Dayjs).toISOString() : undefined,
       };
+      if (!showCompanyField) delete payload.companyId;
       if (isEdit && consumableId) {
         await consumablesApi.update(consumableId, payload);
         void message.success('Cập nhật vật tư thành công');
@@ -181,20 +184,22 @@ export default function ConsumableFormModal({ open, consumableId, onClose, onSav
                 <Select showSearch allowClear placeholder="Chọn danh mục" options={categoryOptions} filterOption={filterFn} disabled={confirmedLocked} />
               </Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                label={companyLocked || confirmedLocked ? (
-                  <Space size={4}>
-                    <LockOutlined style={{ color: '#faad14' }} />
-                    <span>Công ty</span>
-                  </Space>
-                ) : 'Công ty'}
-                name="companyId"
-                extra={companyLocked ? 'Đã từng được cấp phát — không thể đổi công ty' : (confirmedLocked ? 'Vật tư đã xác nhận — không thể đổi công ty' : undefined)}
-              >
-                <CompanyTreeSelect disabled={companyLocked || confirmedLocked} />
-              </Form.Item>
-            </Col>
+            {showCompanyField && (
+              <Col xs={24} sm={12}>
+                <Form.Item
+                  label={companyLocked || confirmedLocked ? (
+                    <Space size={4}>
+                      <LockOutlined style={{ color: '#faad14' }} />
+                      <span>Công ty</span>
+                    </Space>
+                  ) : 'Công ty'}
+                  name="companyId"
+                  extra={companyLocked ? 'Đã từng được cấp phát — không thể đổi công ty' : (confirmedLocked ? 'Vật tư đã xác nhận — không thể đổi công ty' : undefined)}
+                >
+                  <CompanyTreeSelect disabled={companyLocked || confirmedLocked} />
+                </Form.Item>
+              </Col>
+            )}
           </Row>
 
           {/* ── Số lượng ── */}

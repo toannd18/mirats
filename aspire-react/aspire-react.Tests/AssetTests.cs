@@ -136,7 +136,7 @@ public class AssetTests
         }, CancellationToken.None);
 
         Assert.False(result.Success);
-        Assert.Equal("COMPANY_MISMATCH", result.ErrorCode);
+        Assert.Equal("FORBIDDEN", result.ErrorCode);
         Assert.False(await ctx.Assets.AnyAsync(a => a.AssetTag == "AST-OTHER-001"));
     }
 
@@ -173,6 +173,57 @@ public class AssetTests
         Assert.False(validation.IsValid);
 
         Assert.Contains(validation.Errors, e => e.PropertyName == nameof(CreateAssetCommand.AssetTag));
+    }
+
+    [Fact]
+    public async Task Update_NonSuperUser_ChangeOrClearCompany_Forbidden()
+    {
+        await using var ctx = TestHelpers.CreateContext(nameof(Update_NonSuperUser_ChangeOrClearCompany_Forbidden));
+        var companyA = new Company { Name = "CT-A" };
+        var companyB = new Company { Name = "CT-B" };
+        ctx.Companies.AddRange(companyA, companyB);
+        await ctx.SaveChangesAsync();
+        var asset = new Asset { AssetTag = "AST-DF8-1", Name = "Scoped", IsConfirmed = false, CompanyId = companyA.Id };
+        ctx.Assets.Add(asset);
+        await ctx.SaveChangesAsync();
+        var handler = new UpdateAssetCommandHandler(
+            ctx, TestHelpers.CreateActionLogService(ctx, ActorId),
+            new TestHelpers.FakeScope { Super = false, CompanyId = companyA.Id });
+
+        var change = await handler.Handle(new UpdateAssetCommand
+        {
+            Id = asset.Id, CompanyId = companyB.Id, CurrentUserId = ActorId
+        }, CancellationToken.None);
+        var clear = await handler.Handle(new UpdateAssetCommand
+        {
+            Id = asset.Id, CompanyId = Guid.Empty, CurrentUserId = ActorId
+        }, CancellationToken.None);
+
+        Assert.Equal("FORBIDDEN", change.ErrorCode);
+        Assert.Equal("FORBIDDEN", clear.ErrorCode);
+        Assert.Equal(companyA.Id, (await ctx.Assets.SingleAsync(a => a.Id == asset.Id)).CompanyId);
+    }
+
+    [Fact]
+    public async Task Update_SuperUser_MayClearCompany()
+    {
+        await using var ctx = TestHelpers.CreateContext(nameof(Update_SuperUser_MayClearCompany));
+        var company = new Company { Name = "CT-A" };
+        ctx.Companies.Add(company);
+        await ctx.SaveChangesAsync();
+        var asset = new Asset { AssetTag = "AST-DF8-2", Name = "Floater", IsConfirmed = false, CompanyId = company.Id };
+        ctx.Assets.Add(asset);
+        await ctx.SaveChangesAsync();
+        var handler = new UpdateAssetCommandHandler(
+            ctx, TestHelpers.CreateActionLogService(ctx, ActorId), new TestHelpers.SuperUserScope());
+
+        var result = await handler.Handle(new UpdateAssetCommand
+        {
+            Id = asset.Id, CompanyId = Guid.Empty, CurrentUserId = ActorId
+        }, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Null((await ctx.Assets.SingleAsync(a => a.Id == asset.Id)).CompanyId);
     }
 
     // ==================== UPDATE (Task F — patch semantics + confirmed field-lock) ====================

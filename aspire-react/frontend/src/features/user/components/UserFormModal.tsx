@@ -7,6 +7,7 @@ import apiClient from '../../../services/api-client';
 import type { UserDto, ReferenceOption } from '../types/users';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import { useCompanyField } from '../../../hooks/useCompanyField';
 import ModalFormShell from '../../../shared/components/ModalFormShell';
 import { applyServerFieldErrors, serverErrorMessage } from '../../../shared/utils/formErrors';
 
@@ -60,6 +61,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
   const [departmentOptions, setDepartmentOptions] = useState<ReferenceOption[]>([]);
   const [locationOptions, setLocationOptions] = useState<ReferenceOption[]>([]);
   const [fetchingDeps, setFetchingDeps] = useState(false);
+  const { showCompanyField } = useCompanyField();
 
   // Watch companyId reactively for disabling dependent fields
   const watchedCompanyId = Form.useWatch('companyId', form);
@@ -156,7 +158,11 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         jobTitle: isEditing ? (values.jobTitle?.trim() ?? '') : (values.jobTitle?.trim() || null),
         isSuperUser: values.isSuperUser,
         isActive: values.isActive,
-        companyId: isEditing ? (values.companyId || EMPTY_GUID) : (values.companyId || null),
+        // [DF-8.3] Hidden company field: omit the key entirely. Create → server fills own
+        // company; edit → omitted (keep). Never send EMPTY_GUID (would clear to floater).
+        ...(showCompanyField
+          ? { companyId: isEditing ? (values.companyId || EMPTY_GUID) : (values.companyId || null) }
+          : {}),
         departmentId: isEditing ? (values.departmentId || EMPTY_GUID) : (values.departmentId || null),
         locationId: isEditing ? (values.locationId || EMPTY_GUID) : (values.locationId || null),
         // [AUTH Phase 4] initial password — create mode only (local auth; user must change it
@@ -279,14 +285,16 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
           </Form.Item>
         )}
 
-        {/* Company — CompanyTreeSelect (self-loads tree, keeps cascade via handleCompanyChange) */}
-        <Form.Item
-          label="Công ty"
-          name="companyId"
-          tooltip="Chọn công ty để bật Phòng ban và Địa điểm"
-        >
-          <CompanyTreeSelect placeholder="Chọn công ty (không bắt buộc)" onChange={handleCompanyChange} />
-        </Form.Item>
+        {/* Company - hidden for company-scoped users; server fills/keeps their company. */}
+        {showCompanyField && (
+          <Form.Item
+            label="Công ty"
+            name="companyId"
+            tooltip="Chọn công ty để bật Phòng ban và Địa điểm"
+          >
+            <CompanyTreeSelect placeholder="Chọn công ty (không bắt buộc)" onChange={handleCompanyChange} />
+          </Form.Item>
+        )}
 
         {/* Row 4: Department + Location (disabled until company selected) */}
         <div style={fieldFlex}>

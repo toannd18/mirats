@@ -52,7 +52,7 @@ public class LocationCommandTests
         var result = await handler.Handle(Cmd(companyB.Id), CancellationToken.None);
 
         Assert.False(result.Success);
-        Assert.Equal("COMPANY_MISMATCH", result.ErrorCode);
+        Assert.Equal("FORBIDDEN", result.ErrorCode);
         Assert.Equal(0, await ctx.Locations.CountAsync());                 // no row created
         Assert.Equal(0, await ctx.ActionLogs.CountAsync(l => l.ItemType == ItemType.Location)); // no log
     }

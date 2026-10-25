@@ -1,4 +1,5 @@
 using aspire_react.Server.Application.Common.ActionLogs;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Application.Common.Validation;
 using aspire_react.Server.Application.SystemInfos;
@@ -60,6 +61,10 @@ public class UpdateSystemInfoCommandHandler : IRequestHandler<UpdateSystemInfoCo
         var userCompanyIdUpdate = await _companyScope.GetCurrentUserCompanyIdAsync();
         if (userCompanyIdUpdate.HasValue && s.CompanyId.HasValue && s.CompanyId.Value != userCompanyIdUpdate.Value)
             return new SystemInfoResult(false, "Not found.", "NOT_FOUND");
+
+        // [DF-8] Non-superuser cannot move to another company or clear to floater.
+        if (!await CompanyAssignmentPolicy.CanChangeAsync(_companyScope, request.CompanyId))
+            return new SystemInfoResult(false, "Bạn không được đổi công ty của hệ thống.", "FORBIDDEN");
 
         // Patch-aware validation: Code is only normalized/validated when it was ACTUALLY sent
         // (an absent field must not fail validation nor be overwritten — Task F/M1 pattern).

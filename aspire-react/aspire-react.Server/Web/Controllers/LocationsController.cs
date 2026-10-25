@@ -95,6 +95,8 @@ public class LocationsController : ControllerBase
     /// </summary>
     private IActionResult MapFailure(LocationResult result)
     {
+        if (result.ErrorCode == "FORBIDDEN")
+            return Forbid();
         if (result.ErrorCode == "NOT_FOUND")
             return NotFound(new { status = "error", message = result.Message });
 

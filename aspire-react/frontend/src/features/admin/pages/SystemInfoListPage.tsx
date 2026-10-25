@@ -10,6 +10,7 @@ import apiClient from '../../../services/api-client';
 import { usePermission } from '../../../hooks/usePermission';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import CompanyTreeSelect from '../../../components/common/CompanyTreeSelect';
+import { useCompanyField } from '../../../hooks/useCompanyField';
 import ListRowActions from '../../../shared/components/list/ListRowActions';
 import type { ListPrimaryAction } from '../../../shared/components/list/ListRowActions';
 import { NowrapText, EllipsisText } from '../../../shared/components/list/ListText';
@@ -59,6 +60,7 @@ const COLUMN_DEFAULTS: Record<string, { show: boolean }> = {
 const rowKey = (record: { id: string }) => record.id;
 
 export default function SystemInfoListPage() {
+  const { showCompanyField } = useCompanyField();
   // [FE-R6] message/modal lấy từ App.useApp() (context theme) thay vì static import.
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
@@ -110,6 +112,7 @@ export default function SystemInfoListPage() {
       if (editingId) {
         // [FIX-GUID-EMPTY phần 2] Ô công ty bị xóa ⇒ Guid.Empty để backend XÓA liên kết (chuẩn API.md).
         const payload = { ...values, ...withOptionalFkCleared(values, ['companyId']) };
+        if (!showCompanyField) delete payload.companyId;
         await apiClient.put(`/system-infos/${editingId}`, payload);
         message.success('Đã cập nhật');
       }
@@ -350,9 +353,11 @@ export default function SystemInfoListPage() {
         <Form.Item label="Tên hệ thống" name="name" rules={[{ required: true, message: 'Vui lòng nhập tên' }]}>
           <Input placeholder="Tên hệ thống" />
         </Form.Item>
-        <Form.Item label="Công ty" name="companyId">
-          <CompanyTreeSelect />
-        </Form.Item>
+        {showCompanyField && (
+          <Form.Item label="Công ty" name="companyId">
+            <CompanyTreeSelect />
+          </Form.Item>
+        )}
         <Form.Item label="Mô tả" name="description">
           <Input.TextArea rows={2} />
         </Form.Item>

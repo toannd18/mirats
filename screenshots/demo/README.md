@@ -21,6 +21,7 @@ Tài khoản dùng cho từng ảnh:
 | `df6c-step1-form-no-company.png` | `demo-tech` | DF-6c.3: form tạo tài sản không có trường Công ty |
 | `df6c-step2-review.png` | `demo-tech` | DF-6c.3: màn hình xác nhận không có trường Công ty |
 | `df6c-step3-created.png` | `demo-tech` | DF-6c.3: tạo thành công, danh sách tăng lên 61 tài sản |
+| `df8-location-form-no-company.png` | `demo-tech` | DF-8.3: form Địa điểm (non-Asset) đã ẩn trường Công ty |
 | `08-admin.png` | `admin` | Quản trị danh mục, nhóm quyền và cấu hình |
 
 > **Lưu ý ảnh 03:** đợt `DOT-DEMO-Q1` ở trạng thái **Completed** do **seed script dùng token admin**

@@ -2,6 +2,7 @@ using System.Text.Json;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using MediatR;
 
@@ -69,11 +70,10 @@ public class CreateAccessoryCommandHandler : IRequestHandler<CreateAccessoryComm
 
     public async Task<AccessoryResult> Handle(CreateAccessoryCommand request, CancellationToken cancellationToken)
     {
-        // [Task L2] Company-scoping on CREATE: a regular user may only create accessories for their
-        // own company (or company-less floater). Superuser (scope → null) may create for any company.
-        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (userCompanyId.HasValue && request.CompanyId.HasValue && request.CompanyId.Value != userCompanyId.Value)
-            return new AccessoryResult(false, "Bạn chỉ được tạo phụ kiện cho công ty của mình.", ErrorCode: "COMPANY_MISMATCH");
+        // [DF-8] Shared company-assignment rule.
+        var companyAssignment = await CompanyAssignmentPolicy.ForCreateAsync(_companyScope, request.CompanyId);
+        if (!companyAssignment.Allowed)
+            return new AccessoryResult(false, "Bạn chỉ được tạo phụ kiện cho công ty của mình.", ErrorCode: "FORBIDDEN");
 
         var accessory = new Accessory
         {
@@ -85,7 +85,7 @@ public class CreateAccessoryCommandHandler : IRequestHandler<CreateAccessoryComm
             ManufacturerId = request.ManufacturerId,
             SupplierId = request.SupplierId,
             LocationId = request.LocationId,
-            CompanyId = request.CompanyId,
+            CompanyId = companyAssignment.CompanyId,
             ModelNumber = request.ModelNumber,
             OrderNumber = request.OrderNumber,
             PurchaseCost = request.PurchaseCost,

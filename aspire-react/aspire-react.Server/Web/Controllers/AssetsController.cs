@@ -111,7 +111,11 @@ public class AssetsController : ControllerBase
             Requestable = r.Requestable,
             CurrentUserId = userId
         });
-        if (!result.Success) return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        if (!result.Success)
+        {
+            if (result.ErrorCode == "FORBIDDEN") return Forbid();
+            return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        }
         return CreatedAtAction(nameof(GetAsset), new { id = result.AssetId }, new { status = "success", message = result.Message, data = new { Id = result.AssetId } });
     }
 
@@ -142,7 +146,11 @@ public class AssetsController : ControllerBase
             Requestable = r.Requestable,
             CurrentUserId = userId
         });
-        if (!result.Success) return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        if (!result.Success)
+        {
+            if (result.ErrorCode == "FORBIDDEN") return Forbid();
+            return BadRequest(new { status = "error", message = result.Message, error_code = result.ErrorCode });
+        }
         return Ok(new { status = "success", message = result.Message });
     }
 

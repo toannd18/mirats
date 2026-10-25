@@ -2,6 +2,7 @@ using aspire_react.Server.Application.Users.DTOs;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
 using aspire_react.Server.Domain.Interfaces;
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -99,13 +100,13 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, Creat
         if (string.IsNullOrEmpty(request.Password) || request.Password.Length < 8)
             return new CreateUserResult(false, "Mật khẩu ban đầu phải có ít nhất 8 ký tự.", ErrorCode: "VALIDATION_ERROR");
 
-        // [SEC-FIX S3 / FIX BUG-M] Company-scoping on CREATE — moved verbatim from the controller:
-        // a regular user may only create users for their OWN company (or a company-less floater);
-        // superuser (scope null) may create for any company. Out-of-scope → 400 COMPANY_MISMATCH
-        // (create, not access to an existing record → no hide-existence).
-        var actorCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (actorCompanyId.HasValue && request.CompanyId.HasValue && request.CompanyId.Value != actorCompanyId.Value)
-            return new CreateUserResult(false, "Bạn chỉ được tạo người dùng cho công ty của mình.", ErrorCode: "COMPANY_MISMATCH");
+        // [DF-8] Shared create rule. Additionally, a non-superuser may not create a company-less
+        // user: that would create a new floater account outside any company scope.
+        var companyAssignment = await CompanyAssignmentPolicy.ForCreateAsync(_companyScope, request.CompanyId);
+        if (!companyAssignment.Allowed)
+            return new CreateUserResult(false, "Bạn chỉ được tạo người dùng cho công ty của mình.", ErrorCode: "FORBIDDEN");
+        if (!_companyScope.IsSuperUser() && !companyAssignment.CompanyId.HasValue)
+            return new CreateUserResult(false, "Người dùng không được tạo tài khoản không thuộc công ty nào.", ErrorCode: "FORBIDDEN");
 
         // [FIX-N5 remainder] Department/Location references must exist AND be inside the actor's
         // scope — same rule as CompanyId: a regular admin may only attach users to
@@ -128,7 +129,7 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, Creat
             MustChangePassword = true,
             IsSuperUser = request.IsSuperUser,
             IsActive = request.IsActive,
-            CompanyId = request.CompanyId,
+            CompanyId = companyAssignment.CompanyId,
             DepartmentId = request.DepartmentId,
             LocationId = request.LocationId,
         };

@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -47,9 +48,11 @@ public class CreateLicenseCommandHandler : IRequestHandler<CreateLicenseCommand,
         if (category == null || category.CategoryType != CategoryType.License)
             return new LicenseResult(false, "Danh mục không hợp lệ (phải thuộc loại License).", "CATEGORY_INVALID");
 
-        // Regular users are forced to their own company; Superuser picks the company explicitly.
-        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        var companyId = userCompanyId ?? request.CompanyId;
+        // [DF-8] Shared create rule. Fixes the old `userCompanyId ?? request.CompanyId` behavior
+        // that wrote Guid.Empty for a company-less regular user.
+        var companyAssignment = await CompanyAssignmentPolicy.ForCreateAsync(_companyScope, request.CompanyId);
+        if (!companyAssignment.Allowed)
+            return new LicenseResult(false, "Bạn chỉ được tạo bản quyền cho công ty của mình.", "FORBIDDEN");
 
         var l = new License
         {
@@ -67,7 +70,7 @@ public class CreateLicenseCommandHandler : IRequestHandler<CreateLicenseCommand,
             SupplierId = request.SupplierId,
             ManufacturerId = request.ManufacturerId,
             CategoryId = request.CategoryId,
-            CompanyId = companyId,
+            CompanyId = companyAssignment.CompanyId,
             UpdatedAt = DateTime.UtcNow
         };
         _context.Licenses.Add(l);

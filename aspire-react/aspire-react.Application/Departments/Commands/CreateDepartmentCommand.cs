@@ -1,3 +1,4 @@
+using aspire_react.Server.Application.Common.CompanyScope;
 using aspire_react.Server.Application.Common.Interfaces;
 using aspire_react.Server.Domain.Entities;
 using aspire_react.Server.Domain.Enums;
@@ -55,11 +56,10 @@ public class CreateDepartmentCommandHandler : IRequestHandler<CreateDepartmentCo
 
     public async Task<DepartmentResult> Handle(CreateDepartmentCommand request, CancellationToken cancellationToken)
     {
-        // [Task L2] Company-scoping on CREATE (order preserved): a regular user may only create
-        // departments for their own company (or floater); superuser may create for any company.
-        var userCompanyId = await _companyScope.GetCurrentUserCompanyIdAsync();
-        if (userCompanyId.HasValue && request.CompanyId.HasValue && request.CompanyId.Value != userCompanyId.Value)
-            return new DepartmentResult(false, "Bạn chỉ được tạo phòng ban cho công ty của mình.", "COMPANY_MISMATCH");
+        // [DF-8] Shared company-assignment rule.
+        var companyAssignment = await CompanyAssignmentPolicy.ForCreateAsync(_companyScope, request.CompanyId);
+        if (!companyAssignment.Allowed)
+            return new DepartmentResult(false, "Bạn chỉ được tạo phòng ban cho công ty của mình.", "FORBIDDEN");
 
         if (string.IsNullOrWhiteSpace(request.Name))
             return new DepartmentResult(false, "Tên phòng ban không được để trống.");
@@ -70,7 +70,7 @@ public class CreateDepartmentCommandHandler : IRequestHandler<CreateDepartmentCo
         var d = new Department
         {
             Name = request.Name,
-            CompanyId = request.CompanyId,
+            CompanyId = companyAssignment.CompanyId,
             ManagerId = request.ManagerId,
             Phone = request.Phone,
             Fax = request.Fax
