@@ -895,7 +895,7 @@ export default function MaintenanceTable({ systemInfoId, actionRef, createButton
                         Đánh dấu đã kiểm tra
                       </Button>
                     )
-                    : isRecordCreator(detail)
+                    : isRecordCreator(detail) || (!canApproveMaintenance && !superUser)
                       ? <Text type="secondary">—</Text>
                       : (
                         <Tooltip title="Cần nhập Ngày hoàn thành trước khi kiểm tra bảo trì">

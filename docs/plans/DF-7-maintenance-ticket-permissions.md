@@ -1,6 +1,6 @@
 # DF-7 — Tách quyền phiếu sửa chữa (PLAN)
 
-> **Trạng thái:** PLAN + QUYẾT ĐỊNH — đã triển khai trong CP-F (2026-10-25).
+> **Trạng thái:** PLAN + QUYẾT ĐỊNH — đã triển khai trong CP-F; sửa migration DB trắng ở CP-G (2026-10-25).
 > **Phạm vi:** quyền cho `AssetMaintenance` (phiếu sửa chữa/bảo trì).
 > **Ngoài phạm vi:** không thay đổi luồng trạng thái hay quyền `Confirm` tài sản.
 
@@ -55,8 +55,12 @@ Grep `frontend/src`:
 - Đọc phiếu: giữ `assets.view`.
 - `PermissionCatalog`: thêm 2 key + nhãn tiếng Việt.
 - Chuyển đổi dữ liệu: chạy đúng một lần bằng `SystemSetting` key
-  `migration.df7_ticket_permissions`; nhóm có `assets.edit` nhận cả 2 key; ghi ActionLog
-  cho mỗi nhóm được cấp. Có cờ thì không làm gì nữa.
+  `migration.df7_ticket_permissions`; ở lần chạy đầu, **mọi nhóm đang tồn tại** có
+  `assets.edit` nhận cả 2 key (có thể là 0 nhóm); ghi ActionLog cho mỗi nhóm được cấp.
+  Có cờ thì không làm gì nữa.
+  - Migration **chỉ phục vụ nhóm tồn tại TRƯỚC DF-7**. Nhóm tạo sau (seed demo, nhóm mới
+    do admin tạo) không được tự động cấp; phải cấu hình quyền tường minh.
+  - DB trắng: lần chạy đầu vẫn ghi cờ với 0 grant; nhóm tạo sau đó không nhận key.
 - 403 do company-scope/nghiệp vụ trả body `{ error_code, message }`, không dùng `Forbid()` rỗng.
 - Frontend: tạo/sửa/hoàn thành = `maintenance.tickets`; kiểm tra/đóng = `.approve`;
   xóa/mở lại = superuser; ẩn nút Kiểm tra với người tạo phiếu.
@@ -225,9 +229,12 @@ Mặc định **giữ superuser gate** (theo yêu cầu). Controller policy sau 
 
 ## 5. Chuyển đổi dữ liệu khi nâng cấp
 
-Mục tiêu: nhóm đang có `assets.edit` tự nhận key mới (`maintenance.tickets`, và `maintenance.tickets.approve` nếu chọn B), **không cấp cho nhóm không có `assets.edit`**.
+Mục tiêu: nhóm **đang tồn tại trước DF-7** có `assets.edit` tự nhận key mới
+(`maintenance.tickets`, và `maintenance.tickets.approve` nếu chọn B), **không cấp cho nhóm
+không có `assets.edit`**. Nhóm tạo sau DF-7 không thuộc phạm vi migration và phải được cấu
+hình quyền tường minh.
 
-### Cơ chế đề xuất: `StartupDataSeeder` idempotent
+### Cơ chế: `StartupDataSeeder` một lần
 
 Lý do:
 - Permission/group là dữ liệu runtime, không phải schema.
@@ -235,15 +242,19 @@ Lý do:
 - Tránh SQL trực tiếp trong migration.
 
 Luồng:
-1. Sau khi seed system groups + demo groups, đọc tất cả `group_permissions` có `assets.edit` Grant.
+1. Nếu **chưa có cờ**, đọc tất cả `group_permissions` có `assets.edit` Grant tại thời điểm
+   startup (có thể 0 nhóm).
 2. Với mỗi group, kiểm tra key mới đã tồn tại chưa.
-3. Chỉ `Add` các `GroupPermission` còn thiếu; `SaveChanges` một lần; bọc transaction.
+3. Chỉ `Add` các `GroupPermission` còn thiếu; ghi cờ + grant + ActionLog trong **một
+   `SaveChanges`**.
 4. Ghi log rõ số group/key đã thêm; không xóa/không sửa quyền cũ.
-5. Không áp dụng cho superuser/admin system groups nếu họ đã có toàn quyền; vẫn idempotent.
+5. DB trắng vẫn ghi cờ với 0 grant. Nhóm tạo sau (ví dụ seed demo) không nhận key tự động.
 
 ### Chứng minh idempotent
 - Test chạy seeder 2 lần trên cùng context; count `group_permissions` của key mới không đổi sau lần 2.
 - Test group có `assets.edit` → được thêm; group không có → không thêm.
+- Test DB chưa có nhóm non-system: lần đầu ghi cờ + 0 grant; tạo group sau đó → chạy lại
+  → group **không** nhận key.
 - Chạy `scripts/check-company-scope.sql`/query count trước-sau trên DB tạm; lần 2 = lần 1.
 
 ### Rollback

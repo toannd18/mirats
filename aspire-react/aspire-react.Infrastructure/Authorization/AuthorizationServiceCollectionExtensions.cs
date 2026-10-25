@@ -1,5 +1,6 @@
 using aspire_react.Server.Domain.Authorization;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 
 namespace aspire_react.Server.Infrastructure.Authorization;
 
@@ -23,6 +24,9 @@ public static class AuthorizationServiceCollectionExtensions
         });
 
         services.AddScoped<IAuthorizationHandler, PermissionHandler>();
+
+        // [DF-7b] Missing-permission 403s must carry an error_code (not an empty Forbid body).
+        services.AddSingleton<IAuthorizationMiddlewareResultHandler, PermissionAuthorizationResultHandler>();
 
         return services;
     }

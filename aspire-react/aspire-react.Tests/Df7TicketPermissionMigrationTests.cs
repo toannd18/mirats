@@ -36,6 +36,48 @@ public class Df7TicketPermissionMigrationTests
     }
 
     [Fact]
+    public async Task Migration_OnDatabaseWithoutNonSystemGroups_WritesFlagWithZeroGrants_AndNeverGrantsLaterGroups()
+    {
+        await using var db = TestHelpers.CreateContext(nameof(Migration_OnDatabaseWithoutNonSystemGroups_WritesFlagWithZeroGrants_AndNeverGrantsLaterGroups));
+        var actor = new User
+        {
+            Username = "admin-df7-empty",
+            Email = "admin-df7-empty@test.local",
+            FirstName = "Admin",
+            LastName = "DF7",
+            IsSuperUser = true,
+            IsActive = true,
+        };
+        db.Users.Add(actor);
+        await db.SaveChangesAsync();
+
+        StartupDataSeeder.MigrateDf7TicketPermissions(db);
+
+        Assert.True(await db.SystemSettings.AnyAsync(s => s.Key == StartupDataSeeder.Df7TicketPermissionsFlag));
+        Assert.Equal(0, await db.GroupPermissions.CountAsync());
+
+        // A group created after the one-shot migration must be configured explicitly; it must NOT
+        // inherit the old assets.edit -> ticket permissions rule.
+        var lateGroup = new PermissionGroup { Name = "Late DF7" };
+        db.PermissionGroups.Add(lateGroup);
+        db.GroupPermissions.Add(new GroupPermission
+        {
+            GroupId = lateGroup.Id,
+            PermissionKey = "assets.edit",
+            Value = PermissionValue.Grant,
+        });
+        await db.SaveChangesAsync();
+
+        StartupDataSeeder.MigrateDf7TicketPermissions(db);
+
+        Assert.False(await db.GroupPermissions.AnyAsync(p =>
+            p.GroupId == lateGroup.Id && p.PermissionKey == "maintenance.tickets"));
+        Assert.False(await db.GroupPermissions.AnyAsync(p =>
+            p.GroupId == lateGroup.Id && p.PermissionKey == "maintenance.tickets.approve"));
+        Assert.Equal(1, await db.SystemSettings.CountAsync(s => s.Key == StartupDataSeeder.Df7TicketPermissionsFlag));
+    }
+
+    [Fact]
     public async Task Migration_GrantsBothKeysOnce_AndDoesNotRegrantAfterFlagExists()
     {
         var (ctx, withEdit, withoutEdit, _) = await SeedAsync(nameof(Migration_GrantsBothKeysOnce_AndDoesNotRegrantAfterFlagExists));

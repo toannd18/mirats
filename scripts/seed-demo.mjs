@@ -450,7 +450,8 @@ async function main() {
   const types = ['Repair', 'IncidentReport', 'HardwareSupport'];
   for (let i = 0; i < 13; i++) {
     const title = `Phiếu sửa chữa DEMO ${String(i + 1).padStart(2, '0')}`;
-    if (repairRows.some(r => r.title === title)) continue;
+    const existing = repairRows.find(r => r.title === title);
+    if (existing) { summary.maintainances.push(existing); continue; }
     const asset = summary.assets[(i + 2) % summary.assets.length];
     const start = daysAgo(220 - i * 12);
     const completed = i % 3 !== 0;
@@ -517,6 +518,11 @@ async function main() {
     }
     summary.campaigns.push(campaign);
   }
+
+  // [DF-7b] The create response on run 1 has a different shape than the list response on run 2.
+  // Normalize the summary from the API so two consecutive seed runs are byte-identical.
+  summary.assets = (await list('/assets?pageSize=1000'))
+    .sort((a, b) => String(a.assetTag).localeCompare(String(b.assetTag)));
 
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, JSON.stringify(summary, null, 2), 'utf8');

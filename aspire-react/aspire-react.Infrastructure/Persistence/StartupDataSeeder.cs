@@ -148,15 +148,10 @@ public static class StartupDataSeeder
             .Distinct()
             .ToList();
 
-        // A brand-new database has only the system Superuser/Admin groups at this point; demo /
-        // business groups are created later through their own flows. Defer the one-shot flag until
-        // at least one non-system group exists, so the migration can actually grant to it.
-        if (!groupIds.Any(groupId => db.PermissionGroups.Any(g => g.Id == groupId && !g.IsSystem)))
-        {
-            logger?.LogInformation("DF-7 ticket-permission migration deferred: no non-system group yet.");
-            return;
-        }
-
+        // DF-7b: do NOT defer on a blank database. The migration only serves groups that existed
+        // before DF-7; later groups must be configured explicitly. A blank DB therefore writes the
+        // flag with zero grants, and demo/seed groups created afterwards never receive these keys.
+        //
         // One SaveChanges below commits flag + grants + audit rows in a single database transaction
         // (Npgsql itself wraps SaveChanges), so no user-initiated transaction is needed here.
         var now = DateTime.UtcNow;
