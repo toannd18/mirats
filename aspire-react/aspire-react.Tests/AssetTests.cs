@@ -88,6 +88,80 @@ public class AssetTests
     }
 
     [Fact]
+    public async Task Create_NonSuperUser_MissingCompanyId_FillsUserCompany_AndLogsIt()
+    {
+        await using var ctx = TestHelpers.CreateContext(nameof(Create_NonSuperUser_MissingCompanyId_FillsUserCompany_AndLogsIt));
+        var (companyId, _, modelId) = await SeedMasterAsync(ctx);
+        var actionLog = TestHelpers.CreateActionLogService(ctx, ActorId);
+        var handler = new CreateAssetCommandHandler(
+            ctx, actionLog,
+            new TestHelpers.FakeScope { Super = false, CompanyId = companyId },
+            new AssetTagGenerator(ctx));
+
+        var result = await handler.Handle(new CreateAssetCommand
+        {
+            AssetTag = "AST-FILL-001",
+            Name = "Server scoped",
+            ModelId = modelId,
+            CompanyId = null,
+            CurrentUserId = ActorId
+        }, CancellationToken.None);
+
+        Assert.True(result.Success);
+        var asset = await ctx.Assets.SingleAsync(a => a.AssetTag == "AST-FILL-001");
+        Assert.Equal(companyId, asset.CompanyId);
+        var log = await ctx.ActionLogs.SingleAsync(l => l.ItemType == ItemType.Asset && l.ActionType == ActionType.Create);
+        Assert.Equal(companyId, log.CompanyId);
+    }
+
+    [Fact]
+    public async Task Create_NonSuperUser_OtherCompanyId_Rejected()
+    {
+        await using var ctx = TestHelpers.CreateContext(nameof(Create_NonSuperUser_OtherCompanyId_Rejected));
+        var (companyA, _, _) = await SeedMasterAsync(ctx);
+        var companyB = new Company { Name = "CT-B" };
+        ctx.Companies.Add(companyB);
+        await ctx.SaveChangesAsync();
+        var handler = new CreateAssetCommandHandler(
+            ctx, TestHelpers.CreateActionLogService(ctx, ActorId),
+            new TestHelpers.FakeScope { Super = false, CompanyId = companyA },
+            new AssetTagGenerator(ctx));
+
+        var result = await handler.Handle(new CreateAssetCommand
+        {
+            AssetTag = "AST-OTHER-001",
+            Name = "Other company",
+            CompanyId = companyB.Id,
+            CurrentUserId = ActorId
+        }, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("COMPANY_MISMATCH", result.ErrorCode);
+        Assert.False(await ctx.Assets.AnyAsync(a => a.AssetTag == "AST-OTHER-001"));
+    }
+
+    [Fact]
+    public async Task Create_SuperUser_MissingCompanyId_RemainsFloater()
+    {
+        await using var ctx = TestHelpers.CreateContext(nameof(Create_SuperUser_MissingCompanyId_RemainsFloater));
+        var handler = new CreateAssetCommandHandler(
+            ctx, TestHelpers.CreateActionLogService(ctx, ActorId),
+            new TestHelpers.SuperUserScope(), new AssetTagGenerator(ctx));
+
+        var result = await handler.Handle(new CreateAssetCommand
+        {
+            AssetTag = "AST-FLOAT-001",
+            Name = "Floater",
+            CompanyId = null,
+            CurrentUserId = ActorId
+        }, CancellationToken.None);
+
+        Assert.True(result.Success);
+        var asset = await ctx.Assets.SingleAsync(a => a.AssetTag == "AST-FLOAT-001");
+        Assert.Null(asset.CompanyId);
+    }
+
+    [Fact]
     public async Task Create_DuplicateAssetTag_ValidatorRejects()
     {
         await using var ctx = TestHelpers.CreateContext(nameof(Create_DuplicateAssetTag_ValidatorRejects));

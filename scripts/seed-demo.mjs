@@ -358,9 +358,11 @@ async function main() {
 
   const techId = await ensureUser('demo-tech', 'Ky thuat', 'Vien', 'demo-tech@example.invalid', 'Kỹ thuật viên', [
     // [DF-6] Technician: inventory intake + audit + stock checkout, and maintenance execution.
-    // Deliberately no assets.correct, no license permissions and no reports.view.
+    // [DF-6c] Need read-only lookup data to complete intake via UI; companies.view is deliberately
+    // NOT granted — the create form must hide/omit company for a company-scoped user.
     'assets.view', 'assets.create', 'assets.edit', 'assets.checkout', 'assets.checkin', 'assets.audit',
     'systems.view', 'consumables.checkout', 'components.checkout',
+    'models.view', 'locations.view', 'suppliers.view', 'categories.view',
     'maintenance.view', 'maintenance.campaigns',
   ]);
   const leaderId = await ensureUser('demo-leader', 'Lanh dao', 'Don vi', 'demo-leader@example.invalid', 'Lãnh đạo', [

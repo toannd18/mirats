@@ -18,6 +18,9 @@ Tài khoản dùng cho từng ảnh:
 | `df4-group-permission-labels.png` | `admin` | Bằng chứng DF-4: nhãn quyền tiếng Việt dùng chung, key lạ fallback |
 | `df2b-ktv-campaign-list.png` | `demo-tech` | Bằng chứng DF-2b: KTV thấy 3 đợt (khớp DB), API 200 |
 | `df2b-leader-no-permission.png` | `demo-leader` | Bằng chứng DF-2b: direct route hiển thị không có quyền, không phát sinh request danh sách/403 |
+| `df6c-step1-form-no-company.png` | `demo-tech` | DF-6c.3: form tạo tài sản không có trường Công ty |
+| `df6c-step2-review.png` | `demo-tech` | DF-6c.3: màn hình xác nhận không có trường Công ty |
+| `df6c-step3-created.png` | `demo-tech` | DF-6c.3: tạo thành công, danh sách tăng lên 61 tài sản |
 | `08-admin.png` | `admin` | Quản trị danh mục, nhóm quyền và cấu hình |
 
 > **Lưu ý ảnh 03:** đợt `DOT-DEMO-Q1` ở trạng thái **Completed** do **seed script dùng token admin**

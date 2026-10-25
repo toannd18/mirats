@@ -16,7 +16,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import apiClient from '../../../services/api-client';
 import { assetService, type CreateAssetPayload } from '../services/asset.service';
-import { usePermission } from '../../../hooks/usePermission';
+import { usePermission, usePermissionMap } from '../../../hooks/usePermission';
+import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { isSuperUser } from '../../../features/auth/services/auth';
 import AssetArchiveModal from '../components/AssetArchiveModal';
@@ -538,6 +539,14 @@ function toDateIso(v: unknown): string | undefined {
 
 function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onClose: () => void; onSuccess: () => void }) {
   const { message } = App.useApp();
+  const currentUser = useCurrentUser();
+  const permissionMap = usePermissionMap();
+  const canViewCompanies = !!permissionMap
+    && (permissionMap.isSuperUser || (permissionMap.permissions['companies.view'] ?? 0) === 1);
+  // A company-scoped user must not choose another company; the server fills their company when
+  // companyId is omitted. Company-less/superuser keep the previous company field behavior.
+  const isCompanyScoped = !!currentUser && !currentUser.isSuperUser && !!currentUser.companyId;
+  const showCompanyField = !isCompanyScoped && canViewCompanies;
   const [step, setStep] = useState<'form' | 'review'>('form');
   const [formData, setFormData] = useState<Record<string, unknown> | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -550,11 +559,16 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
       return;
     }
     let cancelled = false;
+    // Do not call /companies when the user lacks companies.view (KTV is deliberately not granted
+    // it). The company field is hidden in that case; a scoped user's company comes from the server.
+    const companiesReq = canViewCompanies
+      ? apiClient.get('/companies').catch(() => ({ data: { data: [] } }))
+      : Promise.resolve({ data: { data: [] } });
     Promise.all([
       apiClient.get('/models').catch(() => ({ data: { data: [] } })),
       apiClient.get('/locations').catch(() => ({ data: { data: [] } })),
       apiClient.get('/suppliers').catch(() => ({ data: { data: [] } })),
-      apiClient.get('/companies').catch(() => ({ data: { data: [] } })),
+      companiesReq,
     ]).then(([m, l, s, c]) => {
       if (cancelled) return;
       setLookups({
@@ -567,7 +581,7 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
       });
     });
     return () => { cancelled = true; };
-  }, [open]);
+  }, [open, canViewCompanies]);
 
   if (step === 'form') {
     return (
@@ -575,6 +589,7 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
         open={open}
         onClose={onClose}
         lookups={lookups}
+        showCompanyField={showCompanyField}
         onSubmit={(v) => { setFormData(v); setStep('review'); }}
       />
     );
@@ -595,7 +610,7 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
         modelId: formData.modelId ? String(formData.modelId) : undefined,
         locationId: formData.locationId ? String(formData.locationId) : undefined,
         supplierId: formData.supplierId ? String(formData.supplierId) : undefined,
-        companyId: formData.companyId ? String(formData.companyId) : undefined,
+        companyId: showCompanyField && formData.companyId ? String(formData.companyId) : undefined,
         purchaseCost: typeof formData.purchaseCost === 'number' ? formData.purchaseCost : undefined,
         purchaseDate: toDateIso(formData.purchaseDate),
         warrantyMonths: typeof formData.warrantyMonths === 'number' ? formData.warrantyMonths : undefined,
@@ -634,7 +649,9 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
           <Descriptions.Item label="Model">{resolveName(lookups.models, formData?.modelId)}</Descriptions.Item>
           <Descriptions.Item label="Địa điểm">{resolveName(lookups.locations, formData?.locationId)}</Descriptions.Item>
           <Descriptions.Item label="Nhà cung cấp">{resolveName(lookups.suppliers, formData?.supplierId)}</Descriptions.Item>
-          <Descriptions.Item label="Công ty" span={2}>{resolveName(lookups.companies, formData?.companyId)}</Descriptions.Item>
+          {showCompanyField && (
+            <Descriptions.Item label="Công ty" span={2}>{resolveName(lookups.companies, formData?.companyId)}</Descriptions.Item>
+          )}
         </Descriptions>
       </Card>
 
@@ -663,11 +680,12 @@ function CreateAssetFlowModal({ open, onClose, onSuccess }: { open: boolean; onC
 
 // ==================== Create Form (Step 1) ====================
 
-function AssetCreateFormModal({ open, onClose, onSubmit, lookups }: {
+function AssetCreateFormModal({ open, onClose, onSubmit, lookups, showCompanyField }: {
   open: boolean;
   onClose: () => void;
   onSubmit: (v: Record<string, unknown>) => void;
   lookups: AssetLookups;
+  showCompanyField: boolean;
 }) {
   const [form] = Form.useForm();
   useEffect(() => { if (open) form.resetFields(); }, [open, form]);
@@ -703,7 +721,9 @@ function AssetCreateFormModal({ open, onClose, onSubmit, lookups }: {
             <Col xs={24} md={12} lg={12}><Form.Item name="modelId" label="Model"><Select showSearch allowClear options={modelOpts} filterOption={filterFn} /></Form.Item></Col>
             <Col xs={24} md={12} lg={12}><Form.Item name="locationId" label="Địa điểm"><Select showSearch allowClear options={locationOpts} filterOption={filterFn} placeholder="Chọn địa điểm" /></Form.Item></Col>
             <Col xs={24} md={12} lg={12}><Form.Item name="supplierId" label="Nhà cung cấp"><Select showSearch allowClear options={supplierOpts} filterOption={filterFn} /></Form.Item></Col>
-            <Col xs={24} md={12} lg={12}><Form.Item name="companyId" label="Công ty"><CompanyTreeSelect /></Form.Item></Col>
+            {showCompanyField && (
+              <Col xs={24} md={12} lg={12}><Form.Item name="companyId" label="Công ty"><CompanyTreeSelect /></Form.Item></Col>
+            )}
           </Row>
         </Card>
         <Card size="small" title="Tài chính" style={{ borderRadius: 10, marginBottom: 16 }} styles={{ body: { padding: '16px 16px 4px' } }}>
